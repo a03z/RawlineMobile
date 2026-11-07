@@ -16,7 +16,7 @@ runs:
         CORE_DIR="$(dirname "$GITHUB_WORKSPACE")/Rawline"
         rm -rf "$CORE_DIR"
         git init -q "$CORE_DIR"
-        git -C "$CORE_DIR" remote add origin https://github.com/ttrroyy/qThrone
+        git -C "$CORE_DIR" remote add origin https://github.com/ttrroyy/Rawline
         git -C "$CORE_DIR" fetch -q --depth 1 origin "$REF"
         git -C "$CORE_DIR" checkout -q --detach FETCH_HEAD
         {

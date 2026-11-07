@@ -11,7 +11,7 @@ test -n "$THRONE_CORE_REF"
 CORE_DIR="$(cd .. && pwd)/Rawline"
 rm -rf "$CORE_DIR"
 git init -q "$CORE_DIR"
-git -C "$CORE_DIR" remote add origin https://github.com/ttrroyy/qThrone
+git -C "$CORE_DIR" remote add origin https://github.com/ttrroyy/Rawline
 git -C "$CORE_DIR" fetch -q --depth 1 origin "$THRONE_CORE_REF"
 git -C "$CORE_DIR" checkout -q --detach FETCH_HEAD
 

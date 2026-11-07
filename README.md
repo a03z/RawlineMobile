@@ -67,7 +67,7 @@ APK собирает CI: [`.github/workflows/ci.yml`](.github/workflows/ci.yml),
 
 ## Благодарности
 
-- Ядра: [SagerNet/sing-box](https://github.com/SagerNet/sing-box), [XTLS/Xray-core](https://github.com/XTLS/Xray-core), [RawlineCore](https://github.com/ttrroyy/RawlineDesktop)
+- Ядра: [SagerNet/sing-box](https://github.com/SagerNet/sing-box), [XTLS/Xray-core](https://github.com/XTLS/Xray-core), [RawlineCore](https://github.com/ttrroyy/Rawline)
 - Основа клиента: [ThroneForAndroid](https://github.com/throneproj/ThroneForAndroid), [NekoBoxForAndroid](https://github.com/MatsuriDayo/NekoBoxForAndroid), [SagerNet](https://github.com/SagerNet/SagerNet)
 - VK и WebRTC: [MRTT](https://github.com/ttrroyy/mrtt), [proxy-turn-vk-android](https://github.com/SpaceNeuroX/proxy-turn-vk-android), [amurcanov/csqtt](https://github.com/amurcanov/csqtt), [WDTT Plus](https://github.com/Ivan4537/WDTT-Plus), [free-turn-proxy](https://github.com/hackdiaz-dev/free-turn-proxy), [olcRTC](https://github.com/openlibrecommunity/olcrtc), [OpenFlux](https://github.com/p1neappleXpress/OpenFlux), [openflux-server](https://github.com/wlruscfd/openflux-server)
 - DNS-туннели: [dnstt](https://www.bamsoftware.com/software/dnstt/), [VayDNS](https://github.com/net2share/vaydns), [slipstream-rust](https://github.com/Mygod/slipstream-rust), [MasterDnsVPN](https://github.com/masterking32/MasterDnsVPN), [CottenDNS](https://github.com/TaJirax/cottenDNS), [Soar](https://github.com/getlantern/soar), [dnst-url-spec](https://github.com/net2share/dnst-url-spec), [SlipNet](https://github.com/anonvector/SlipNet), [WhiteDNS](https://github.com/WhiteDNS/WhiteDNS-Android)

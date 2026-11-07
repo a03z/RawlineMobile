@@ -10,4 +10,5 @@
     <Preference app:key="settingsBackup" app:widgetLayout="@layout/qmobile_preference_arrow" app:title="@string/qmobile_backup" />
     <Preference app:fragment="app.rawline.mobile.ui.settings.UpdateSettingsFragment" app:widgetLayout="@layout/qmobile_preference_arrow" app:title="@string/qmobile_updates" />
     <Preference app:key="qmobileLogs" app:widgetLayout="@layout/qmobile_preference_arrow" app:title="@string/qmobile_logs" />
+    <Preference app:key="qmobileAbout" app:widgetLayout="@layout/qmobile_preference_arrow" app:title="@string/menu_about" />
 </PreferenceScreen>

@@ -1,0 +1,7 @@
+<PreferenceScreen xmlns:app="http://schemas.android.com/apk/res-auto">
+    <Preference app:key="aboutVersion" app:icon="@drawable/ic_mobile_update" app:title="@string/app_version" />
+    <Preference app:key="aboutCore" app:icon="@drawable/ic_mobile_core" app:title="RawlineCore" />
+    <Preference app:key="aboutSource" app:icon="@drawable/ic_mobile_link" app:title="@string/github" app:summary="github.com/ttrroyy/RawlineMobile" />
+    <Preference app:key="aboutBase" app:icon="@drawable/ic_mobile_globe" app:title="@string/about_based_on" app:summary="github.com/throneproj/ThroneForAndroid" />
+    <Preference app:key="aboutLicense" app:icon="@drawable/ic_mobile_info" app:title="@string/license" app:summary="GNU General Public License v3.0" />
+</PreferenceScreen>

@@ -218,6 +218,7 @@
     <string name="apply">Apply</string>
     <string name="need_reload">Reload proxy service to apply changes</string>
     <string name="license">License</string>
+    <string name="about_based_on">Based on ThroneForAndroid</string>
     <string name="lines">%d lines</string>
     <string name="night_mode">Night mode</string>
     <string name="language">Language</string>

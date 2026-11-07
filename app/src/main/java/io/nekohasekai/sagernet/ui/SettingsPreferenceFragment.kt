@@ -33,11 +33,6 @@ open class SettingsPreferenceFragment(private val advanced: Boolean = false) : P
             (activity as? MainActivity)?.displayFragment(LogcatFragment())
             true
         }
-        // The drawer that used to lead here is locked; the license and sources stay one tap away.
-        findPreference<Preference>("qmobileAbout")?.setOnPreferenceClickListener {
-            (activity as? MainActivity)?.displayFragment(AboutFragment())
-            true
-        }
         findPreference<Preference>("qmobileUpdate")?.setOnPreferenceClickListener { startActivity(android.content.Intent(requireContext(),app.rawline.mobile.update.UpdateActivity::class.java));true }
 
         findPreference<Preference>(KEY_BACKUP)!!.setOnPreferenceClickListener {

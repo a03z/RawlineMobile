@@ -103,6 +103,7 @@
 <string name="invalid_server">Неверное имя сервера</string>
 <string name="invert_selections">Инвертировать выбранное</string>
 <string name="license">Лицензия</string>
+<string name="about_based_on">Основан на ThroneForAndroid</string>
 <string name="lines">%d строк</string>
 <string name="log_level">Тип журнала</string>
 <string name="log_level_help">Удерживайте для настройки размера буфера.</string>

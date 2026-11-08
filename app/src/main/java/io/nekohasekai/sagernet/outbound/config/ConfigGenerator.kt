@@ -244,6 +244,41 @@ class ConfigGenerator @JvmOverloads constructor(
                 if (hijacked.none { Cidrs.overlap(range, it) }) pre.bypassedPrivateRanges.add(range)
             }
         }
+
+        collectPerAppDns(pre, route)
+    }
+
+    /**
+     * DNS exits of the app rules: the core resolves a connection through the dns rules with its own metadata
+     * (fakeip is skipped for those queries, dns/router.go:309), so a rule naming packages and a chain other than
+     * dns-remote's own `proxy` detour needs a per-chain resolver. The rule's network conditions carry over;
+     * reject/hijack-dns rules resolve nothing and `proxy`/`warp-bypass`-without-WARP already is dns-remote's detour.
+     * Consecutive rules sharing chain and networks merge; a package named by an earlier rule keeps that exit
+     * (route rules are first-match, and a later duplicate rule would shadow it).
+     */
+    private fun collectPerAppDns(pre: Prerequisites, route: RouteProfile) {
+        val seenPackages = HashSet<String>()
+        for (rule in route.rules) {
+            if (rule.type == RuleType.ENDPOINT_PREFERRED_BY.id) continue
+            if (rule.effectiveAction() != "route" || rule.package_name.isEmpty()) continue
+            val chain = pre.outboundMap[rule.outbound_id] ?: continue
+            val entry: PerAppDns = when {
+                chain == Tags.PROXY -> continue
+                chain == Tags.DIRECT -> PerAppDns(Tags.DNS_DIRECT, null)
+                else -> PerAppDns("${Tags.DNS_REMOTE_CHAIN_PREFIX}$chain", chain)
+            }
+            val packages = rule.package_name.map { it.trim() }.filter { it.isNotEmpty() && seenPackages.add(it) }
+            if (packages.isEmpty()) continue
+            val networks = rule.network_type.map { it.trim() }.filter { it.isNotEmpty() }
+            val last = pre.perAppDns.lastOrNull()
+            if (last != null && last.serverTag == entry.serverTag && last.networkTypes == networks) {
+                last.packages.addAll(packages)
+            } else {
+                entry.packages.addAll(packages)
+                entry.networkTypes.addAll(networks)
+                pre.perAppDns.add(entry)
+            }
+        }
     }
 
     /**
@@ -836,6 +871,8 @@ class ConfigGenerator @JvmOverloads constructor(
         val rules = JsonArray()
         // Merged in front of `rules` at the end.
         val headRules = JsonArray()
+        // The emitted remote resolver, cloned per route chain for the app rules below; null in a test box.
+        var remoteBase: JsonObject? = null
 
         if (!state.forTest) {
             // The authenticated SSTP bridge resolves this alias using only negotiated VPN resolvers.
@@ -853,6 +890,7 @@ class ConfigGenerator @JvmOverloads constructor(
             remoteDnsObj["domain_resolver"] = Tags.DNS_LOCAL
             remoteDnsObj["detour"] = state.sstpDnsTag.ifEmpty { Tags.PROXY }
             servers.add(remoteDnsObj)
+            remoteBase = remoteDnsObj
         }
 
         val directDnsObj = DnsServers.buildDnsObj(settings.directDns)
@@ -918,6 +956,27 @@ class ConfigGenerator @JvmOverloads constructor(
 
         // Below the fakeip rule, which keeps answering A / AAAA for these sites as on the desktop (R6 В§3.5).
         val pre = state.prerequisites
+        // App rules resolve through the chain their connections take (collectPerAppDns): a connection's own
+        // resolver query skips the fakeip rule anyway (dns/router.go:309), so sitting behind it routes the real
+        // answer per chain while the apps keep answering fakeip exactly as before. Ahead of the site lists, so
+        // the exit an app was routed to wins the way its route rule wins.
+        if (!state.forTest) for (entry in pre.perAppDns) {
+            if (entry.chainTag != null) {
+                val base = remoteBase ?: continue   // no remote resolver to clone (custom dns object)
+                if (servers.none { (it as? JsonObject)?.string("tag") == entry.serverTag }) {
+                    val clone = base.copy()
+                    clone["tag"] = entry.serverTag
+                    clone["detour"] = entry.chainTag
+                    servers.add(clone)
+                }
+            }
+            val rule = JsonObject()
+            rule["package_name"] = JsonValues.stringArray(entry.packages)
+            if (entry.networkTypes.isNotEmpty()) rule["network_type"] = JsonValues.stringArray(entry.networkTypes)
+            rule["action"] = "route"
+            rule["server"] = entry.serverTag
+            rules.add(rule)
+        }
         // Ahead of the site lists, so on its network a rule's DNS server wins the way its route does.
         for ((server, conditions, selectors) in pre.conditionalDns) {
             if (state.forTest && server == Tags.DNS_REMOTE) continue
@@ -1096,7 +1155,8 @@ class ConfigGenerator @JvmOverloads constructor(
         routeObj["rules"] = if (settings.blockQuic && !state.forTest) guardQuic(rules, quicGuardFrom, finalTag != Tags.DIRECT) else rules
         routeObj["rule_set"] = buildRuleSetArray(state)
         routeObj["final"] = finalTag
-        if (settings.trafficStats || (settings.blockUnownedTun && settings.vpnMode)) routeObj["find_process"] = true
+        if (settings.trafficStats || (settings.blockUnownedTun && settings.vpnMode) ||
+            state.prerequisites.perAppDns.isNotEmpty()) routeObj["find_process"] = true
         routeObj["default_domain_resolver"] = directDomainResolver(buildContext)
         if (settings.vpnMode) routeObj["auto_detect_interface"] = true
         state.coreConfig["route"] = routeObj

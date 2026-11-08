@@ -18,6 +18,8 @@ internal object Tags {
     const val DNS_FAKE = "dns-fake"
     const val DNS_HOSTS = "dns-hosts"
     const val DNS_ECH_PREFIX = "dns-ech"
+    /** Per-chain clones of dns-remote dialed through a route outbound: `dns-remote-<chain tag>`. */
+    const val DNS_REMOTE_CHAIN_PREFIX = "dns-remote-"
 
     const val DNS_IN = "dns-in"
     const val MIXED_IN = "mixed-in"
@@ -86,12 +88,30 @@ internal class Prerequisites {
     /** -1 proxy, -2 direct, -5 warp-bypass (proxy without WARP) and every route outbound profile id -> its `route-<n>` tag. */
     val outboundMap = HashMap<Long, String>()
 
+    /**
+     * Per-app DNS exits in route-rule order: (dns server tag, chain tag or null when the server exists already,
+     * packages, network types). App rules whose chain differs from dns-remote's `proxy` detour need the resolver
+     * dialled through their own chain; `buildDnsSection` clones the remote resolver per chain tag and emits one
+     * package rule per entry. Consecutive rules sharing server and networks merge into one entry.
+     */
+    val perAppDns = ArrayList<PerAppDns>()
+
     /** One hop list per route outbound, exit first. */
     val routeOutboundGroups = ArrayList<List<Long>>()
 
     /** route.rule_set: tag -> download URL, first-seen order. */
     val ruleSets = LinkedHashMap<String, String>()
 }
+
+/** One merged per-app DNS rule of [Prerequisites.perAppDns]. */
+internal class PerAppDns(
+    /** The DNS server tag the rule routes to (`dns-direct`, or `dns-remote-<chain>` to clone). */
+    @JvmField val serverTag: String,
+    /** The outbound the clone must detour through; null when [serverTag] names an existing server. */
+    @JvmField val chainTag: String?,
+    @JvmField val packages: MutableList<String> = mutableListOf(),
+    @JvmField val networkTypes: MutableList<String> = mutableListOf(),
+)
 
 /** The per-build state of generate.cpp:180-207 that the sections share. */
 internal class BuildState(val forTest: Boolean) {

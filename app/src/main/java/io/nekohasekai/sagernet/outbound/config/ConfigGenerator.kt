@@ -162,6 +162,8 @@ class ConfigGenerator @JvmOverloads constructor(
         state.proxyUsesXray = chains.proxyPathUsesXray(profile, plan?.build ?: emptyList())
 
         // Route outbounds (:580-618), each profile once (D12): a chain takes as many suffixes as it has hops.
+        // Each outbound is wrapped in its group's landing / front proxies exactly like the main chain
+        // (buildOutboundsSection), so a server the group only dials through its front proxy is not left bare here.
         var suffix = 0
         for (id in route.usedOutboundIds()) {
             if (id < 0) continue
@@ -174,6 +176,9 @@ class ConfigGenerator @JvmOverloads constructor(
                 state.error = "Профиль «${needed.displayName()}» нельзя выбрать в правилах маршрутизации: это полный конфиг Xray или sing-box, он работает только как основной. Выберите обычный профиль."
                 return
             }
+            val (landing, front) = routeChainWrap(reads, id)
+            val hopIds = ArrayList<Long>()
+            if (landing != null) hopIds.add(landing)
             if (needed.type == "chain") {
                 val hops = TypeAccess.chainHops(needed)
                 if (hops.isEmpty()) {
@@ -190,16 +195,19 @@ class ConfigGenerator @JvmOverloads constructor(
                         state.error = "Chain hops in routing profile cannot use an extra core, a custom full config, or be of type chain"
                         return
                     }
-                    if (chains.usesXrayCore(hop)) state.proxyUsesXray = true
                 }
-                pre.outboundMap[id] = hopTag(Tags.ROUTE_CHAIN_PREFIX, suffix)
-                pre.routeOutboundGroups.add(hops.asReversed().toList())
-                suffix += hops.size
+                hopIds.addAll(hops.asReversed().toList())
             } else {
-                if (chains.usesXrayCore(needed)) state.proxyUsesXray = true
-                pre.outboundMap[id] = hopTag(Tags.ROUTE_CHAIN_PREFIX, suffix++)
-                pre.routeOutboundGroups.add(listOf(id))
+                hopIds.add(id)
             }
+            if (front != null) hopIds.add(front)
+            for (hopId in hopIds) {
+                val hop = reads.get(hopId) ?: continue
+                if (chains.usesXrayCore(hop)) state.proxyUsesXray = true
+            }
+            pre.outboundMap[id] = hopTag(Tags.ROUTE_CHAIN_PREFIX, suffix)
+            pre.routeOutboundGroups.add(hopIds.toList())
+            suffix += hopIds.size
         }
 
         collectRuleSets(state, route)
@@ -251,6 +259,18 @@ class ConfigGenerator @JvmOverloads constructor(
             ids.add(group.landingProxyId)
         }
         return ids
+    }
+
+    /**
+     * The group pair of a route outbound, each side null when unset or dangling (the group editor resets a deleted
+     * front / landing proxy on open, as dialog_edit_group.cpp:42-49 does): a route chain must never fail the start
+     * over a stale group reference, it is built without that side instead.
+     */
+    private fun routeChainWrap(reads: ProfileProvider, id: Long): Pair<Long?, Long?> {
+        val (landing, front) = reads.groupProxies(id)
+        val l = if (landing > 0 && reads.get(landing) != null) landing else null
+        val f = if (front > 0 && reads.get(front) != null) front else null
+        return l to f
     }
 
     /**
@@ -1249,6 +1269,8 @@ private class RecordingProfiles(private val inner: ProfileProvider) : ProfilePro
     val ids = LinkedHashSet<Long>()
 
     override fun get(id: Long): Outbound? = inner.get(id)?.also { ids.add(id) }
+
+    override fun groupProxies(profileId: Long): Pair<Long, Long> = inner.groupProxies(profileId)
 }
 
 /**

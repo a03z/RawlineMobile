@@ -10,4 +10,12 @@ import app.rawline.mobile.outbound.Outbound
  */
 fun interface ProfileProvider {
     fun get(id: Long): Outbound?
+
+    /**
+     * The (landing_proxy_id, front_proxy_id) of the group [profileId] belongs to, each <= 0 when unset
+     * (ProxyGroup.landingProxyId / frontProxyId). The chain machinery wraps both around the profile itself: the
+     * main config resolves them for the selected profile in CoreConfigs.buildMain, route outbounds and auto-selector
+     * members resolve them through this lookup.
+     */
+    fun groupProxies(profileId: Long): Pair<Long, Long> = -1L to -1L
 }

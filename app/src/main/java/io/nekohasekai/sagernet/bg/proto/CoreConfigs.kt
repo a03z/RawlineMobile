@@ -23,11 +23,16 @@ import app.rawline.mobile.route.RouteDns
  */
 object CoreConfigs {
 
-    /** Stored profiles by id, each row parsed once per generation. */
+    /** Stored profiles by id, each row parsed once per generation; group pairs resolved once per profile id too. */
     private class DatabaseProfiles(private val geoFallback: app.rawline.mobile.outbound.json.JsonObject = app.rawline.mobile.outbound.json.JsonObject()) : ProfileProvider {
         private val cache = HashMap<Long, Outbound?>()
+        private val groupCache = HashMap<Long, Pair<Long, Long>>()
         override fun get(id: Long): Outbound? = cache.getOrPut(id) {
             SagerDatabase.proxyDao.getById(id)?.let { prepareOutbound(it, geoFallback) }
+        }
+        override fun groupProxies(profileId: Long): Pair<Long, Long> = groupCache.getOrPut(profileId) {
+            val groupId = SagerDatabase.proxyDao.getById(profileId)?.groupId ?: -1L
+            if (groupId > 0) groupProxyIds(groupId) else -1L to -1L
         }
     }
 
@@ -57,7 +62,7 @@ object CoreConfigs {
      * is GeneratorSettings.deferRuleSets, for a start the user let go without its rule-sets.
      */
     fun buildMain(profile: ProxyEntity, deferRuleSets: Boolean = false): GeneratedConfig {
-        val (landing, front) = groupProxies(profile.groupId)
+        val (landing, front) = groupProxyIds(profile.groupId)
         val options = SagerDatabase.groupDao.getById(profile.groupId)?.subOptions
         val chosenRoute = options?.routeProfileId?.takeIf { it > 0 }?.let(RouteManager::get)?.takeIf { !it.is_raw }
         val bound = options?.takeIf { it.routingProvider.isNotBlank() && it.providerRoutingEnabled }
@@ -104,7 +109,7 @@ object CoreConfigs {
         val groups = HashMap<Long, Pair<Long, Long>>()
         val candidates = profileIds.map { id ->
             val groupId = SagerDatabase.proxyDao.getById(id)?.groupId ?: -1L
-            val (landing, front) = groups.getOrPut(groupId) { groupProxies(groupId) }
+            val (landing, front) = groups.getOrPut(groupId) { groupProxyIds(groupId) }
             TestCandidate(id, landing, front)
         }
         val dns = RouteManager.customDns(DataStore.currentRouteId)
@@ -114,7 +119,7 @@ object CoreConfigs {
     }
 
     /** (landing_proxy_id, front_proxy_id) of a group, -1 when unset (any id <= 0 is "none"). */
-    private fun groupProxies(groupId: Long): Pair<Long, Long> {
+    private fun groupProxyIds(groupId: Long): Pair<Long, Long> {
         val group: ProxyGroup = (if (groupId > 0) SagerDatabase.groupDao.getById(groupId) else null) ?: return -1L to -1L
         val landing = group.landingProxyId.takeIf { it > 0 } ?: -1L
         val front = group.frontProxyId.takeIf { it > 0 } ?: -1L

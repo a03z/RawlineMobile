@@ -125,10 +125,11 @@ class GroupFragment : ToolbarFragment(R.layout.layout_group), Toolbar.OnMenuItem
         return true
     }
 
+    // One screen for a group, as the home screen opens it: its editing and its settings were merged.
     private fun edit(group: ProxyGroup) {
-        startActivity(Intent(requireContext(), SubscriptionEditorActivity::class.java).apply {
-            putExtra(GroupSettingsActivity.EXTRA_GROUP_ID, group.id)
-        })
+        startActivity(Intent(requireContext(), GroupSettingsActivity::class.java)
+            .putExtra(GroupSettingsActivity.EXTRA_GROUP_ID, group.id)
+            .putExtra(GroupSettingsActivity.EXTRA_SETTINGS, true))
     }
 
     private fun copyLinks(group: ProxyGroup, deepLinks: Boolean) {
@@ -308,13 +309,7 @@ class GroupFragment : ToolbarFragment(R.layout.layout_group), Toolbar.OnMenuItem
             binding.options.setOnClickListener { anchor ->
                 val popup = PopupMenu(requireContext(), anchor)
                 popup.menuInflater.inflate(R.menu.group_action_menu, popup.menu)
-                popup.menu.add(getString(R.string.qmobile_edit)).setOnMenuItemClickListener { edit(group);true }
-                if(group.isSubscription) popup.menu.add(getString(R.string.settings)).setOnMenuItemClickListener {
-                    startActivity(Intent(requireContext(),GroupSettingsActivity::class.java)
-                        .putExtra(GroupSettingsActivity.EXTRA_GROUP_ID,group.id)
-                        .putExtra(GroupSettingsActivity.EXTRA_SETTINGS,true))
-                    true
-                }
+                popup.menu.add(getString(R.string.settings)).setOnMenuItemClickListener { edit(group);true }
                 val menu = popup.menu
                 val index = groupAdapter.rows.indexOfFirst { it.group.id == group.id }
                 menu.findItem(R.id.action_share_subscription).isVisible = group.isSubscription

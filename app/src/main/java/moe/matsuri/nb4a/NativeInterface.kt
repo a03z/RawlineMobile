@@ -89,8 +89,15 @@ class NativeInterface : PlatformInterface {
 
     private fun packageNamesOf(uid: Int): List<String> {
         if (uid <= 1000) return listOf("android")
-        return PackageCache.snapshot().uidMap[uid].orEmpty()
+        PackageCache.snapshot().uidMap[uid]?.let { return it }
+        // Not in the listing (a failed or stale load, an app installed since): asked of the system directly, or the
+        // tun0 guard would take a plain app for a socket without an owner and refuse it.
+        return liveNames.getOrPut(uid) {
+            runCatching { app.rawline.mobile.ktx.app.packageManager.getPackagesForUid(uid)?.toList() }.getOrNull().orEmpty()
+        }
     }
+
+    private val liveNames = java.util.concurrent.ConcurrentHashMap<Int, List<String>>()
 
     // Registered synchronously so DefaultInterface() is populated before the box's first dial.
     override fun startDefaultInterfaceMonitor(listener: InterfaceUpdateListener) {

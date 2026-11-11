@@ -928,7 +928,18 @@ class MobileHomeFragment : ToolbarFragment() {
                     val pair=LinearLayout(requireContext()).apply { isBaselineAligned=false;if(landscape) orientation=LinearLayout.VERTICAL }
                     val switches=listOf(Key.MODE_VPN to R.string.service_mode_vpn,Key.MODE_PROXY to R.string.service_mode_proxy).mapIndexed { index,(mode,label) ->
                         // The switch only shows the state of the service, so a declined VPN request leaves it off.
-                        val switch=androidx.appcompat.widget.SwitchCompat(requireContext()).apply { isClickable=false;isFocusable=false }
+                        val switch=androidx.appcompat.widget.SwitchCompat(requireContext()).apply {
+                            isClickable=false;isFocusable=false
+                            // The style's own drawables, set here: taken from the theme while the screen is rebuilt for
+                            // a new look, the switch could show the stock one until its state next changed.
+                            setThumbResource(if(MobileStyle.new) R.drawable.mobile_switch_thumb_drop else R.drawable.mobile_switch_thumb)
+                            setTrackResource(if(MobileStyle.new) R.drawable.mobile_switch_track_new else R.drawable.mobile_switch_track)
+                            thumbTintList=androidx.core.content.ContextCompat.getColorStateList(requireContext(),
+                                if(MobileStyle.new) R.color.mobile_switch_thumb_alpha else R.color.mobile_switch_thumb_tint)
+                            if(MobileStyle.new) thumbTintMode=android.graphics.PorterDuff.Mode.MULTIPLY
+                            trackTintList=null
+                            jumpDrawablesToCurrentState()
+                        }
                         pair.addView(LinearLayout(requireContext()).apply {
                             gravity=Gravity.CENTER_VERTICAL;minimumHeight=dp(52);setPadding(dp(14),dp(2),dp(8),dp(2));background=tile();isFocusable=true
                             addView(text(getString(label),14f).apply { setPadding(0,dp(4),dp(6),dp(4)) },LinearLayout.LayoutParams(0,-2,1f))

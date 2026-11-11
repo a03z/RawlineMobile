@@ -17,8 +17,10 @@ object VpnAppGuard {
         val rules=JsonArray()
         for(tag in tunTags) {
             rules.add(if(allowedUids.isEmpty()) jsonObjectOf("inbound" to tag,"action" to "reject")
+            // TCP only: Android routes just the chosen apps into the tunnel anyway, and for UDP it often finds no
+            // owner at all, so a check there refused the chosen apps' own calls and QUIC.
             else jsonObjectOf("type" to "logical","mode" to "and","rules" to JsonArray.of(
-                jsonObjectOf("inbound" to tag),
+                jsonObjectOf("inbound" to tag,"network" to JsonArray.of("tcp")),
                 jsonObjectOf("user_id" to JsonArray.of(*allowedUids.toTypedArray()),"invert" to true)
             ),"action" to "reject"))
         }

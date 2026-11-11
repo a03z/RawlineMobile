@@ -12,6 +12,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.fragment.app.FragmentActivity
 import app.rawline.mobile.ui.MobileAlertDialogBuilder as MobileAlertDialogBuilder
 import app.rawline.mobile.R
+import app.rawline.mobile.group.SlipNetBundle
 import app.rawline.mobile.group.SubscriptionClient
 import app.rawline.mobile.database.GroupRepo
 import app.rawline.mobile.database.DataStore
@@ -58,10 +59,10 @@ object SubscribeFlows {
         val content = text.trim()
         if (content.isEmpty()) return
         // SlipNet's encrypted bundle: its owner's password opens it, then its profiles import as any text.
-        app.rawline.mobile.group.SlipNetBundle.links(content).firstOrNull()?.let { bundle ->
+        SlipNetBundle.links(content).firstOrNull()?.let { bundle ->
             askBundlePassword(activity) { password ->
                 runOnDefaultDispatcher {
-                    val opened = app.rawline.mobile.group.SlipNetBundle.decrypt(bundle, password)
+                    val opened = SlipNetBundle.decrypt(bundle, password)
                     onMainDispatcher {
                         if (activity.isFinishing || activity.isDestroyed) return@onMainDispatcher
                         if (opened == null) notify(activity, activity.getString(R.string.slipnet_bundle_wrong_password))

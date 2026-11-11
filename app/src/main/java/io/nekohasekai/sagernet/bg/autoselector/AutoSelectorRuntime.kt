@@ -10,11 +10,13 @@ import app.rawline.mobile.bg.ServiceNotification
 import app.rawline.mobile.bg.proto.ProxyInstance
 import app.rawline.mobile.database.DataStore
 import app.rawline.mobile.database.ProfileManager
+import app.rawline.mobile.database.SettingsMapper
 import app.rawline.mobile.group.SubscriptionQueue
 import app.rawline.mobile.ktx.Logs
 import app.rawline.mobile.ktx.app
 import app.rawline.mobile.ktx.readableMessage
 import app.rawline.mobile.outbound.config.AutoSelectorBuild
+import app.rawline.mobile.outbound.config.AutoSelectorPlanner
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
@@ -322,11 +324,11 @@ object AutoSelectorRuntime {
                 if (prunedBuilt || selector.lastBuilt.any { it in disturbedSet }) restart = true
                 // Servers the update added: a balancer has to take them into its rotation, not only replace lost ones.
                 if (!restart) {
-                    val plan = app.rawline.mobile.outbound.config.AutoSelectorPlanner(app.rawline.mobile.database.SettingsMapper.selectorStore()).plan(id, selector)
+                    val plan = AutoSelectorPlanner(SettingsMapper.selectorStore()).plan(id, selector)
                     val next = plan.build.toSet(); val built = selector.lastBuilt.toSet()
                     // A new member counts only when it is known to work: the build drops the ones that fail validation.
                     if (plan.ok && (built.any { it !in next } || next.any { it !in built &&
-                            (app.rawline.mobile.database.ProfileManager.getProfile(it)?.latency ?: 0) > 0 })) restart = true
+                            (ProfileManager.getProfile(it)?.latency ?: 0) > 0 })) restart = true
                 }
             }
             if (!restart || running == null) return@launch

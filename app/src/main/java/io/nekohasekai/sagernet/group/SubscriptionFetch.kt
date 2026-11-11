@@ -50,6 +50,23 @@ object SubscriptionFetch {
     }
 
     private fun request(url: String, identity: RequestIdentity): Result {
+        val result = requestAs(url, identity)
+        // Some subscription proxies (p.kfwl.lol) serve a web page to a client they do not know; with the app's own
+        // agent (not one the user set) the request is made once more as the widespread v2rayNG.
+        if (result.error == null && identity.userAgent.startsWith("Happ/3.0 ") && looksLikeWebPage(result.body)) {
+            Logs.i("The server returned a web page; requesting the subscription again as another client")
+            return requestAs(url, RequestIdentity("v2rayNG/1.10.16", identity.sendHwid, identity.device, identity.timeoutSeconds,
+                identity.sendHwidInCookie, identity.allowInsecureRequests))
+        }
+        return result
+    }
+
+    private fun looksLikeWebPage(body: String): Boolean {
+        val head = body.trimStart().take(16).lowercase()
+        return head.startsWith("<!doctype html") || head.startsWith("<html")
+    }
+
+    private fun requestAs(url: String, identity: RequestIdentity): Result {
         val response = httpGet(
             url,
             HttpGetOptions(userAgent = identity.userAgent, headers = identity.headers(), maxBytes = MAX_BYTES,

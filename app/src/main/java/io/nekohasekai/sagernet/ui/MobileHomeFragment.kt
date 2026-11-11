@@ -1530,7 +1530,9 @@ $server" else "")
             val result=state.rows[id].takeUnless { state.testCurrent }
             val busy=id in TestSessionClient.queuedProfiles.value || (state.running && result != null && result.phase != app.rawline.mobile.ui.test.RowPhase.DONE)
             val latency=result?.takeIf { it.ok }?.latency ?: (holder.tag as? Int ?: 0)
-            val unavailable=result?.failed==true || (result?.error?.isNotEmpty()==true && !ProxyEntity.isTestAborted(result.error))
+            // A failed test is stored as -1: the mark stays after the session that made it is gone.
+            val unavailable=result?.failed==true || (result?.error?.isNotEmpty()==true && !ProxyEntity.isTestAborted(result.error)) ||
+                (result==null && !busy && holder.tag as? Int == -1)
             val label=if(unavailable) getString(R.string.qmobile_unavailable) else if(latency>0) "$latency ms" else ""
             val marker=if(busy) "busy" else label
             val previous=holder.contentDescription?.toString()

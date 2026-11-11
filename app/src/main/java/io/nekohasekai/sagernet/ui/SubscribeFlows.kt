@@ -57,6 +57,20 @@ object SubscribeFlows {
     fun importText(activity: FragmentActivity, text: String, gid: Long = -1L) {
         val content = text.trim()
         if (content.isEmpty()) return
+        // SlipNet's encrypted bundle: its owner's password opens it, then its profiles import as any text.
+        app.rawline.mobile.group.SlipNetBundle.links(content).firstOrNull()?.let { bundle ->
+            askBundlePassword(activity) { password ->
+                runOnDefaultDispatcher {
+                    val opened = app.rawline.mobile.group.SlipNetBundle.decrypt(bundle, password)
+                    onMainDispatcher {
+                        if (activity.isFinishing || activity.isDestroyed) return@onMainDispatcher
+                        if (opened == null) notify(activity, activity.getString(R.string.slipnet_bundle_wrong_password))
+                        else importText(activity, content.replace(bundle, opened), gid)
+                    }
+                }
+            }
+            return
+        }
         if (ProviderRouting.isLink(content)) { importRoute(activity, content); return }
         if (RouteImports.isRouteLink(content)) { importRoute(activity, content); return }
         if (gid <= 0 && DataStore.mobileListMode == "groups") {
@@ -111,6 +125,20 @@ object SubscribeFlows {
     }
 
     /** Several payloads at once (importFromFiles): each URL or deep link on its own, the rest as one import. */
+    private fun askBundlePassword(activity: FragmentActivity, done: (String) -> Unit) {
+        val field = android.widget.EditText(activity).apply {
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+            hint = activity.getString(R.string.slipnet_bundle_password)
+        }
+        val box = android.widget.FrameLayout(activity).apply {
+            val pad = (20 * activity.resources.displayMetrics.density).toInt()
+            setPadding(pad, pad / 2, pad, 0); addView(field)
+        }
+        MobileAlertDialogBuilder(activity).setTitle("SlipNet").setMessage(R.string.slipnet_bundle_password).setView(box)
+            .setPositiveButton(android.R.string.ok) { _, _ -> field.text.toString().takeIf { it.isNotEmpty() }?.let(done) }
+            .setNegativeButton(android.R.string.cancel, null).show()
+    }
+
     fun importTexts(activity: FragmentActivity, payloads: List<String>, gid: Long = -1L) {
         if (payloads.size == 1) { importText(activity, payloads.single(), gid); return }
         if (gid <= 0 && DataStore.mobileListMode == "groups") {

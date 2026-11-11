@@ -1113,10 +1113,11 @@ class ConfigGenerator @JvmOverloads constructor(
         }
         // SO_BINDTODEVICE lets an app outside the VPN send through tun0 and read the server's address; Android reports
         // no owner for its socket. System services have a UID but no package, hence the second condition.
+        // TCP only: many ROMs find no owner for an ordinary app's UDP flow, and refusing those broke calls and QUIC.
         if (settings.blockUnownedTun && settings.vpnMode && !state.forTest) rules.add(jsonObjectOf(
             "type" to "logical", "mode" to "and", "action" to "reject",
             "rules" to JsonArray.of(
-                jsonObjectOf("inbound" to JsonArray.of(Tags.TUN_IN)),
+                jsonObjectOf("inbound" to JsonArray.of(Tags.TUN_IN), "network" to JsonArray.of("tcp")),
                 jsonObjectOf("package_name_regex" to JsonArray.of(".*"), "invert" to true),
                 jsonObjectOf("user_id" to JsonArray.of(0, 1000, 1001, 1002, 1010, 1016, 1020, 1021, 1036, 1051, 1052, 1073, 1076, 2000, 9999), "invert" to true),
             ),

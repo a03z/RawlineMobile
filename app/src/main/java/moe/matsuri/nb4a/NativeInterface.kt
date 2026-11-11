@@ -92,9 +92,11 @@ class NativeInterface : PlatformInterface {
         PackageCache.snapshot().uidMap[uid]?.let { return it }
         // Not in the listing (a failed or stale load, an app installed since): asked of the system directly, or the
         // tun0 guard would take a plain app for a socket without an owner and refuse it.
-        return liveNames.getOrPut(uid) {
-            runCatching { app.rawline.mobile.ktx.app.packageManager.getPackagesForUid(uid)?.toList() }.getOrNull().orEmpty()
-        }
+        liveNames[uid]?.let { return it }
+        val names = runCatching { app.rawline.mobile.ktx.app.packageManager.getPackagesForUid(uid)?.toList() }.getOrNull().orEmpty()
+        // Only an answer is kept: a miss is asked again on the next connection.
+        if (names.isNotEmpty()) liveNames[uid] = names
+        return names
     }
 
     private val liveNames = java.util.concurrent.ConcurrentHashMap<Int, List<String>>()

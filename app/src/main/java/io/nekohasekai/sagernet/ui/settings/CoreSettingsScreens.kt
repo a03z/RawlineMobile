@@ -257,9 +257,15 @@ class CoreSettingsFragment : PresetSettingsFragment(R.xml.settings_core_combined
         val port = pref<EditTextPreference>(KEY_API_PORT)
         val secret = pref<EditTextPreference>(SettingsRegistry.CORE_BOX_API_SECRET.key)
         fun portValue() = abs(DataStore.coreBoxApiPort).takeIf { it > 0 } ?: abs(SettingsRegistry.CORE_BOX_API_PORT.default)
+        // The new look has no drawer: the panel opens from here.
+        val open = findPreference<androidx.preference.Preference>("coreApiDashboardOpen")
+        open?.setOnPreferenceClickListener {
+            (activity as? MainActivity)?.displayFragment(app.rawline.mobile.ui.DashboardFragment()); true
+        }
         fun sync(on: Boolean) {
             port.isEnabled = on
             secret.isEnabled = on
+            open?.isEnabled = on
         }
 
         enabled.isChecked = DataStore.apiDashboardEnabled

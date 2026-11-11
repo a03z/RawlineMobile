@@ -63,6 +63,11 @@
             app:dialogMessage="@string/api_dashboard_secret_hint"
             app:key="core_box_api_secret"
             app:title="@string/clash_api_secret" />
+        <Preference app:icon="@drawable/ic_baseline_transform_24"
+            app:key="coreApiDashboardOpen"
+            app:persistent="false"
+            app:summary="@string/dashboard_open_sum"
+            app:title="@string/dashboard_open" />
     </PreferenceCategory>
 
     <PreferenceCategory app:title="@string/cag_xray">

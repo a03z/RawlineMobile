@@ -1668,6 +1668,8 @@
     <string name="api_dashboard_enable">Включить API sing-box</string>
     <string name="api_dashboard_enable_sum">Только локально (loopback). Предоставляет панель sing-box в боковом меню: трафик, соединения и журналы в реальном времени.</string>
     <string name="api_dashboard_secret_hint">Оставьте пустым, чтобы создать новый случайный секрет. Панель в приложении подхватит его сама.</string>
+    <string name="dashboard_open">Открыть панель sing-box</string>
+    <string name="dashboard_open_sum">Трафик, соединения и журналы работающего ядра</string>
     <string name="dashboard_reload">Обновить</string>
     <string name="dashboard_retry">Повторить</string>
     <string name="dashboard_loading">Загрузка панели…</string>

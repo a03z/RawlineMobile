@@ -661,6 +661,8 @@
     <string name="api_dashboard_enable">Enable sing-box API</string>
     <string name="api_dashboard_enable_sum">Loopback only. Serves the sing-box dashboard in the side menu, with live traffic, connections and logs.</string>
     <string name="api_dashboard_secret_hint">Leave empty to generate a new random secret. The dashboard in the app picks it up by itself.</string>
+    <string name="dashboard_open">Open the sing-box panel</string>
+    <string name="dashboard_open_sum">Traffic, connections and logs of the running core</string>
     <string name="dashboard_reload">Reload</string>
     <string name="dashboard_retry">Retry</string>
     <string name="dashboard_loading">Loading the dashboard…</string>

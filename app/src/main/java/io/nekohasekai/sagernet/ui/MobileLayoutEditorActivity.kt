@@ -340,6 +340,13 @@ class MobileLayoutEditorActivity : ServerScreenActivity() {
             val near = if (bottom) y < middle else y > middle
             if (near != MobileHomeLayout.chipNearList) { MobileHomeLayout.chipNearList = near; rearrange() }
         }
+        // And the control, dragged past the subscription on its side, goes between it and the edge or the list.
+        if (part == Part.CONTROL && MobileStyle.new && Part.CHIP in parts && bottom == MobileHomeLayout.chipBottom) {
+            val chip = parts.getValue(Part.CHIP)
+            val middle = chip.top + chip.height / 2f
+            val near = if (bottom) y > middle else y < middle
+            if (near != MobileHomeLayout.chipNearList) { MobileHomeLayout.chipNearList = near; rearrange() }
+        }
         follow()
     }
 

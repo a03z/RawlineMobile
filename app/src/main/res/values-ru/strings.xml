@@ -683,7 +683,7 @@
     <string name="enable_tls">Включить TLS</string>
     <string name="enable_tun_routing">Маршрутизация TUN</string>
     <string name="block_unowned_tun">Скрывать туннель от приложений вне VPN</string>
-    <string name="block_unowned_tun_sum">Отбрасывает соединения без владельца: приложение вне VPN могло отправить их через tun0 и узнать адрес сервера. Android 10 и новее. Ломает раздачу через VPN Hotspot и звонки на части прошивок, поэтому по умолчанию выключено.</string>
+    <string name="block_unowned_tun_sum">Не даёт приложениям вне VPN отправлять TCP-соединения через tun0 (SO_BINDTODEVICE) и так узнавать адрес сервера: отбрасываются соединения, владельца которых Android не нашёл. Android 10 и новее. При включении не работают: раздача через VPN Hotspot и другая пересылка трафика, а также приложения, которые сами привязывают сокет к интерфейсу VPN. UDP и ping защита не охватывает, чтобы не ломать звонки и QUIC. По умолчанию выключено.</string>
     <string name="enable_tun_routing_sum">Оставлять прямые IP-правила маршрутизирующего профиля вне tun</string>
     <string name="block_quic">Блокировать QUIC</string>
     <string name="block_quic_sum">Отклонять QUIC (UDP 443), идущий через прокси: браузер сразу переходит на TCP. Прямой трафик не затрагивается</string>

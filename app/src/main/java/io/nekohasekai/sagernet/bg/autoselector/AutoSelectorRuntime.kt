@@ -323,7 +323,10 @@ object AutoSelectorRuntime {
                 // Servers the update added: a balancer has to take them into its rotation, not only replace lost ones.
                 if (!restart) {
                     val plan = app.rawline.mobile.outbound.config.AutoSelectorPlanner(app.rawline.mobile.database.SettingsMapper.selectorStore()).plan(id, selector)
-                    if (plan.ok && plan.build.isNotEmpty() && plan.build.toSet() != selector.lastBuilt.toSet()) restart = true
+                    val next = plan.build.toSet(); val built = selector.lastBuilt.toSet()
+                    // A new member counts only when it is known to work: the build drops the ones that fail validation.
+                    if (plan.ok && (built.any { it !in next } || next.any { it !in built &&
+                            (app.rawline.mobile.database.ProfileManager.getProfile(it)?.latency ?: 0) > 0 })) restart = true
                 }
             }
             if (!restart || running == null) return@launch

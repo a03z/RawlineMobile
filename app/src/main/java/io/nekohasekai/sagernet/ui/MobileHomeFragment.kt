@@ -950,7 +950,7 @@ class MobileHomeFragment : ToolbarFragment() {
                     contentDescription = getString(R.string.qmobile_connect)
                     background = if(MobileStyle.new) MobileOrbArtwork(requireContext(),getString(R.string.qmobile_orb_idle)) else MobilePowerArtwork(blue)
                     // A remote or keyboard has no ripple to show where it stands.
-                    if(MobileStyle.new) setOnFocusChangeListener { button,focused -> (button.background as? MobileOrbArtwork)?.focused=focused }
+                    setOnFocusChangeListener { button,focused -> (button.background as? MobilePowerArtwork)?.focused=focused }
                     var pressAnimator: android.animation.ValueAnimator? = null
                     setOnTouchListener { _, event ->
                         val artwork=background as? MobilePowerArtwork

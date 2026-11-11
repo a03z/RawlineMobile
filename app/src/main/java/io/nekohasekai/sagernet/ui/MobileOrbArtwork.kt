@@ -29,7 +29,7 @@ class MobileOrbArtwork(context: Context, private val idleText: String) : MobileP
     private val waitForFocus = Runnable { invalidateSelf() }
     override var connected = false
         set(value) { if (field != value) { field = value; invalidateSelf() } }
-    var focused = false
+    override var focused = false
         set(value) { if (field != value) { field = value; invalidateSelf() } }
     override var connecting = false
         set(value) { if (field != value) { field = value; invalidateSelf() } }

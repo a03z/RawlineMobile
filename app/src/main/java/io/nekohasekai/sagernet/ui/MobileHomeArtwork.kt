@@ -56,9 +56,16 @@ open class MobilePowerArtwork(private val accent: Int) : Drawable() {
         set(value) { field=value; invalidateSelf() }
     var captionSize = 0f
     open var connecting = false
+    /** A remote or keyboard has no ripple to show where it stands: the ring says it. */
+    open var focused = false
+        set(value) { if (field != value) { field = value; invalidateSelf() } }
     override fun draw(canvas: Canvas) {
         val cx=bounds.exactCenterX(); val cy=bounds.exactCenterY()
         val r=minOf(bounds.width(),bounds.height())*.46f*pressScale
+        if(focused) {
+            paint.shader=null; paint.style=Paint.Style.STROKE; paint.strokeWidth=r*.045f; paint.color=MobilePalette.text
+            canvas.drawCircle(cx,cy,r*1.06f,paint)
+        }
         paint.style=Paint.Style.STROKE; paint.strokeWidth=r*.008f
         paint.shader=LinearGradient(cx-r,cy-r,cx+r,cy+r,androidx.core.graphics.ColorUtils.setAlphaComponent(accent,170),androidx.core.graphics.ColorUtils.setAlphaComponent(accent,80),Shader.TileMode.CLAMP)
         canvas.drawCircle(cx,cy,r,paint)

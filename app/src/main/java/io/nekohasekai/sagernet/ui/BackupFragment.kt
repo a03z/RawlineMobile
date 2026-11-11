@@ -126,11 +126,19 @@ class BackupFragment : Fragment(R.layout.layout_backup) {
         }
         style(view)
         fun showPage(page: Int) {
+            val previous = backupPage
             backupPage = page
             binding.backupMenu.isVisible = page == 0
             binding.backupContent.isVisible = page != 0
             binding.backupLocalPage.isVisible = page == 1
             binding.backupWebdavPage.isVisible = page == 2
+            // The button that had the focus is hidden now: a remote would only scroll the page, so the focus moves
+            // to the first item of what is shown, and back to the page's button on return.
+            if(view.isInTouchMode.not()) when(page) {
+                1 -> binding.backupProfiles.requestFocus()
+                2 -> binding.backupToWebdav.requestFocus()
+                else -> (if(previous == 2) binding.backupTabWebdav else binding.backupTabLocal).requestFocus()
+            }
             (parentFragment as? ToolsFragment)?.toolbar?.apply {
                 title=when(page) { 1 -> "Локально";2 -> "WebDAV";else -> "Резервное копирование" }
                 setNavigationOnClickListener {

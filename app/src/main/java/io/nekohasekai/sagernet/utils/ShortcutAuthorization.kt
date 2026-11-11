@@ -52,14 +52,22 @@ object ShortcutAuthorization {
         supplied != null && MessageDigest.isEqual(Base64.decode(supplied, Base64.NO_WRAP), signature(context, intent))
     } catch (_: Exception) { false }
 
+    // Actions the user let run without asking: a remote button (tvQuickActions and the like) presses the same one each time.
+    private fun trusted(context: Context) = context.getSharedPreferences("shortcut_trust", Context.MODE_PRIVATE)
+
     fun run(activity: Activity, intent: Intent, command: () -> Unit) {
-        if (isAuthorized(activity, intent)) {
+        val action = intent.component?.className.orEmpty()
+        if (isAuthorized(activity, intent) || (action.isNotEmpty() && trusted(activity).getBoolean(action, false))) {
             command()
         } else {
             MobileAlertDialogBuilder(activity)
                 .setTitle(R.string.shortcut_permission_title)
                 .setMessage(R.string.shortcut_permission_message)
                 .setPositiveButton(android.R.string.ok) { _, _ -> command() }
+                .setNeutralButton(R.string.shortcut_permission_always) { _, _ ->
+                    if (action.isNotEmpty()) trusted(activity).edit().putBoolean(action, true).apply()
+                    command()
+                }
                 .setNegativeButton(android.R.string.cancel) { _, _ -> activity.finish() }
                 .setOnCancelListener { activity.finish() }
                 .show()

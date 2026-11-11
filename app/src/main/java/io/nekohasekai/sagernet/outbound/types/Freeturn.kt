@@ -73,8 +73,8 @@ class Freeturn : Outbound("freeturn"), NativeCarrier {
         serverPort = if (obj.contains("server_port")) obj.int("server_port") else 56000
         provider = obj.string("provider").ifEmpty { "vk" }
         links = obj.string("links").trim()
-        // A link without a call takes one from the account: the call is each client's own, the server's link never holds it.
-        hashSource = obj.string("hash_source").ifEmpty { if (links.isEmpty() && provider != "direct") "auto" else "manual" }
+        // Manual unless chosen otherwise, as for the other relay protocols.
+        hashSource = obj.string("hash_source").ifEmpty { "manual" }
         threads = if (obj.contains("threads")) obj.int("threads") else DEFAULT_THREADS
         streamsPerCred = if (obj.contains("streams_per_cred")) obj.int("streams_per_cred") else DEFAULT_THREADS
         relayTransport = obj.string("relay_transport").ifEmpty { "tcp" }

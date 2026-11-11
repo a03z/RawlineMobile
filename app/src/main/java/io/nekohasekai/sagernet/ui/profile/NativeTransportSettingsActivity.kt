@@ -32,6 +32,10 @@ class NativeTransportSettingsActivity : ProfileSettingsActivity<Outbound>() {
     private var hashCheckJob: Job? = null
     private var captchaController: app.rawline.mobile.ui.MobileCaptchaController? = null
     private var resetHashResults: (() -> Unit)? = null
+    /** FreeTurn's calls, one per line or comma, as its client reads them. */
+    private fun freeturnCalls() = document.string("links").split(',', '\n').map { it.trim() }.filter { it.isNotEmpty() }
+    /** Six fields as CSQTT has; a profile that came with more calls keeps a field for each. */
+    private fun freeturnSlots() = maxOf(6, freeturnCalls().size)
 
     private fun stopHashCheck() {
         val session=hashCheck
@@ -155,12 +159,20 @@ class NativeTransportSettingsActivity : ProfileSettingsActivity<Outbound>() {
             "masterdns","cottendns" -> listOf("name","domain","mkey","encryption","cotten.configPreset","resolvers","options")
             "soar" -> listOf("name","domain","pubkey","resolvers","soar.discovery","soar.country")
             "sstp" -> listOf("name","server","server_port","username","password","sni","allow_insecure","use_server_dns")
-            "freeturn" -> listOf("name","server","server_port","provider","hash_source","links","wg_config","tunnel_mode","bond","relay_transport","threads","streams_per_cred",
+            "freeturn" -> listOf("name","server","server_port","provider","hash_source") + (1..freeturnSlots()).map { "hash_$it" } + listOf("wg_config","tunnel_mode","bond","relay_transport","threads","streams_per_cred",
                 "obf_profile","obf_key","obf_timing","client_id","dns_mode","dns_servers","manual_captcha","turn_host")
             "openfluxkey" -> listOf("name","transport","doc_url","key_token","e2e_encryption")
             "s3bypass" -> listOf("name") + listOf("endpoint","region","bucket","prefix","sessionsDir","accessKey","secretKey").map { "storage.$it" } +
                 listOf("pollIntervalMs","writeIntervalMs","idleTimeoutSec","maxFileSizeBytes").map { "tuning.$it" }
             else -> listOf("name","provider","transport","room","key","token","channel","dns","device_id") + optionDefaults.keys.map { "options.$it" }
+        }
+        if(type=="freeturn") {
+            // The calls are kept as the client reads them, one per line; each gets a field like the other relays' hashes.
+            val calls=freeturnCalls()
+            for(i in 1..freeturnSlots()) {
+                fields["hash_$i"]=calls.getOrElse(i-1) { "" }
+                DataStore.profileCacheStore.putString(cache("hash_$i"),calls.getOrElse(i-1) { "" })
+            }
         }
         if(type in listOf("qwdtt","csqtt","mrtt","wdttplus")) {
             val hashes=document.array("hashes").strings()
@@ -217,6 +229,8 @@ class NativeTransportSettingsActivity : ProfileSettingsActivity<Outbound>() {
             // Another room than the link's has no server seats to go by.
             if(result.string("jitsi_room")!=document.string("jitsi_room")) result["jitsi_seats"]=0
         }
+        if(type=="freeturn")
+            result["links"]=fields.keys.filter { it.startsWith("hash_") && it != "hash_source" }.map { DataStore.profileCacheStore.getString(cache(it))?.trim().orEmpty() }.filter { it.isNotEmpty() }.joinToString("\n")
         if(type in listOf("qwdtt","csqtt","mrtt","wdttplus")) {
             result["hashes"]=JsonArray.of(*fields.keys.filter { it.startsWith("hash_") && it != "hash_source" }.map { DataStore.profileCacheStore.getString(cache(it))?.trim().orEmpty() }.filter { it.isNotEmpty() }.toTypedArray())
             // Hand-edited slots win over the subscription's on the next refresh.
@@ -381,13 +395,13 @@ class NativeTransportSettingsActivity : ProfileSettingsActivity<Outbound>() {
         fun refreshEditors() {
             val source=DataStore.profileCacheStore.getString(cache("hash_source"))
             val automatic = source in listOf("auto","auto_js")
-            hashPick.isVisible=source=="auto"
-            if(source=="auto") refreshHashPick()
+            hashPick.isVisible=source=="auto" && editingOutbound.type!="freeturn"
+            if(hashPick.isVisible) refreshHashPick()
             editors["vk_access_token"]?.isVisible=source=="auto_js"
             (editors["vk_access_token"] as? EditTextPreference)?.dialogMessage="Необязательно: если поле пустое, токен берётся из общей привязки VK в настройках VK-релея."
             editors["rt_masque_server_bootstrap"]?.isEnabled=DataStore.profileCacheStore.getString(cache("rt_masque")) == "true"
             editors.filterKeys { it.startsWith("hash_") && it != "hash_source" }.values.forEach { it.isVisible = !automatic }
-            checkButton.isVisible=!automatic
+            checkButton.isVisible=!automatic && editingOutbound.type!="freeturn"
             checkButton.isEnabled=hashCheck!=null || fields.keys.any { it.startsWith("hash_") && it!="hash_source" && !DataStore.profileCacheStore.getString(cache(it)).isNullOrBlank() }
             editors["raw_port"]?.isEnabled=DataStore.profileCacheStore.getString(cache("mode"))!="wg"
             // A plain WDTT link: qWDTT's mode and RAW port matter only on the qWDTT engine.
@@ -561,7 +575,7 @@ class NativeTransportSettingsActivity : ProfileSettingsActivity<Outbound>() {
             editors[path]=preference
             preferenceScreen.addPreference(preference)
             if(path=="hash_source") preferenceScreen.addPreference(hashPick)
-            if(path=="hash_"+(if(editingOutbound.type in listOf("csqtt","mrtt")) 6 else 4)) {
+            if(editingOutbound.type!="freeturn" && path=="hash_"+(if(editingOutbound.type in listOf("csqtt","mrtt")) 6 else 4)) {
                 preferenceScreen.addPreference(checkButton)
             }
         }

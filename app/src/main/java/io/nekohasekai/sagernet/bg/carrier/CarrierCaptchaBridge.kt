@@ -28,7 +28,13 @@ class CarrierCaptchaBridge(private val process: Process, private val onlyIfUiIdl
     @Synchronized fun accept(line: String) {
         if(closed) return
         // FreeTurn's page answers its local proxy by itself; the client says when it has what it needs.
-        if(client=="freeturn" && line.trim()=="CAPTCHA_DONE") { finishRequest();return }
+        if(client=="freeturn" && line.trim()=="CAPTCHA_DONE") { FreeturnPowPage.close();finishRequest();return }
+        // Its automatic check needs no screen: the page is loaded unseen and answers the client by itself.
+        if(client=="freeturn" && line.startsWith("CAPTCHA_SOLVE|auto|")) {
+            val url=line.split('|',limit=4).getOrNull(2).orEmpty()
+            if(FreeturnPowPage.allowed(url)) FreeturnPowPage.open(url)
+            return
+        }
         val turn=line.startsWith("VK_AUTH_REQUIRED|")
         if(!turn && !line.startsWith("CAPTCHA_SOLVE|")) return
         // WDTT Plus numbers its requests: CAPTCHA_SOLVE|id|mode|uri|token, answered as CAPTCHA_RESULT|id|value.
@@ -96,6 +102,7 @@ class CarrierCaptchaBridge(private val process: Process, private val onlyIfUiIdl
         finishRequest()
     }
     @Synchronized override fun close() {
+        if(client=="freeturn") FreeturnPowPage.close()
         closed=true
         finishRequest()
     }

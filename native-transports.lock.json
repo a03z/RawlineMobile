@@ -249,13 +249,13 @@
     ]
   },
   "freeturn": {
-    "build_commit": "e3b143ed5f19e6d3eb1c1c3d7ad915dd7fc10b34",
+    "build_commit": "e945d6365898081a469a33001f2437be07727aa1",
     "inputs": {
       "carriers/freeturn/bridge.go": "dc0cd6e2457f5ce94c2adccdb4a48b5e1ce3e905adcb98342943cebf2d9b4e3d",
       "carriers/freeturn/dns.go": "bdb37e983d72c9d2892964edfce12f98443454b529b99a56988f87e50b265cfb",
       "carriers/freeturn/e2e_test.go": "96e37ed0d0dc4791043585af30ea6fcf7602c2f70ab1eee41ddfc2a3d09310f0",
       "carriers/freeturn/forward_test.go": "a984884668480c8d527255be459e46f9d581caedb4ef13e0b3f83b2c0b87b325",
-      "carriers/freeturn/main.go": "902baa4386a8f2a8625ac2d5bd8ec36645010a0dccd6f93abdaaf4bfd936bf6d",
+      "carriers/freeturn/main.go": "9fc1a7172c145550b27f16625dba502154a03b9497d2b530e39b1e17ef991c3b",
       "carriers/freeturn/pipe.go": "5ddf79a2543edb979e7ce95047ef03449ec8e751b8b6730a1bb528a976e1daf2",
       "carriers/freeturn/socks5.go": "dcf3dcb4ee40656befd458ac6f135cf5f2f2b9e9caea1b6ede38115b7059f11f",
       "carriers/freeturn/stack.go": "8e9b8bd9d184c767540ac67fce25a1a35b6255bb646df6e2ce1578b6d2060326",
@@ -264,24 +264,24 @@
     "archives": [
       {
         "abi": "armeabi-v7a",
-        "name": "rawline-freeturn-e3b143ed-armeabi-v7a.tar.gz",
-        "sha256": "57c318d1bb5ed7d76b786e36e3baf379ac97f039692f4ac999321645f349d55d",
-        "sources": "RawlineMobile FreeTurn e3b143ed5f19e6d3eb1c1c3d7ad915dd7fc10b34\nfree-turn-proxy 6d857e1e847a38fdee3e150314fb37009e3c37a6\nAndroid ABI armeabi-v7a\n",
-        "url": "https://github.com/ttrroyy/RawlineMobile/releases/download/v1.0.0/rawline-freeturn-e3b143ed-armeabi-v7a.tar.gz"
+        "name": "rawline-freeturn-e945d636-armeabi-v7a.tar.gz",
+        "sha256": "a7ac121ceb1c510929a56f72942cc6457c2cb10309638e6ac87a4886c94d92a8",
+        "sources": "RawlineMobile FreeTurn e945d6365898081a469a33001f2437be07727aa1\nfree-turn-proxy 6d857e1e847a38fdee3e150314fb37009e3c37a6\nAndroid ABI armeabi-v7a\n",
+        "url": "https://github.com/ttrroyy/RawlineMobile/releases/download/v1.0.0/rawline-freeturn-e945d636-armeabi-v7a.tar.gz"
       },
       {
         "abi": "arm64-v8a",
-        "name": "rawline-freeturn-e3b143ed-arm64-v8a.tar.gz",
-        "sha256": "152c6cf5b856b9cd0400cca1979f166ee2594411790d520ee29446d112d499c0",
-        "sources": "RawlineMobile FreeTurn e3b143ed5f19e6d3eb1c1c3d7ad915dd7fc10b34\nfree-turn-proxy 6d857e1e847a38fdee3e150314fb37009e3c37a6\nAndroid ABI arm64-v8a\n",
-        "url": "https://github.com/ttrroyy/RawlineMobile/releases/download/v1.0.0/rawline-freeturn-e3b143ed-arm64-v8a.tar.gz"
+        "name": "rawline-freeturn-e945d636-arm64-v8a.tar.gz",
+        "sha256": "bb8bcf5c046ce2c7bdfd81a6e808703c69273c33729fbbcaa82cd6367cdd4270",
+        "sources": "RawlineMobile FreeTurn e945d6365898081a469a33001f2437be07727aa1\nfree-turn-proxy 6d857e1e847a38fdee3e150314fb37009e3c37a6\nAndroid ABI arm64-v8a\n",
+        "url": "https://github.com/ttrroyy/RawlineMobile/releases/download/v1.0.0/rawline-freeturn-e945d636-arm64-v8a.tar.gz"
       },
       {
         "abi": "x86_64",
-        "name": "rawline-freeturn-e3b143ed-x86_64.tar.gz",
-        "sha256": "61751ebe205d03e6a80f337f24ebfabfd2936cc7f0cc1f08671b5d2953b72d87",
-        "sources": "RawlineMobile FreeTurn e3b143ed5f19e6d3eb1c1c3d7ad915dd7fc10b34\nfree-turn-proxy 6d857e1e847a38fdee3e150314fb37009e3c37a6\nAndroid ABI x86_64\n",
-        "url": "https://github.com/ttrroyy/RawlineMobile/releases/download/v1.0.0/rawline-freeturn-e3b143ed-x86_64.tar.gz"
+        "name": "rawline-freeturn-e945d636-x86_64.tar.gz",
+        "sha256": "0337fd3b848590572a270fe8387addcb489556cc62eab5383df91f27115c4a05",
+        "sources": "RawlineMobile FreeTurn e945d6365898081a469a33001f2437be07727aa1\nfree-turn-proxy 6d857e1e847a38fdee3e150314fb37009e3c37a6\nAndroid ABI x86_64\n",
+        "url": "https://github.com/ttrroyy/RawlineMobile/releases/download/v1.0.0/rawline-freeturn-e945d636-x86_64.tar.gz"
       }
     ]
   },

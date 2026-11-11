@@ -64,7 +64,8 @@ class Csqtt:Qwdtt() {
             obj["password"]=q.valueFully("password")
             if(q.has("name")) obj["tag"]=q.valueFully("name") else if(q.has("remark")) obj["tag"]=q.valueFully("remark")
             if(q.has("device_id")) obj["device_id"]=q.valueFully("device_id")
-            if(q.has("hashes")) {
+            // An empty "hashes=" is a link without calls: the hashes are added in the client.
+            if(q.has("hashes") && q.value("hashes").isNotBlank()) {
                 val hashes=q.value("hashes").split('+').map { LinkCodec.decodeFully(it) }.filter { it.isNotBlank() }.distinct().take(6)
                 if(hashes.size !in 1..6 || hashes.any { it.length<16 || it.any(Char::isWhitespace) } || hashes.distinct().size!=hashes.size) return false
                 obj["hashes"]=JsonArray.of(*hashes.toTypedArray())

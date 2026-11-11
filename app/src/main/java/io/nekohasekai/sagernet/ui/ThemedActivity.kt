@@ -130,6 +130,19 @@ abstract class ThemedActivity : AppCompatActivity, androidx.preference.Preferenc
     fun snackbar(@StringRes resId: Int): Snackbar = snackbar("").setText(resId)
     fun snackbar(text: CharSequence): Snackbar = snackbarInternal(text).apply {
         val density=resources.displayMetrics.density
+        // Pulled down it goes away, as notifications do; the sideways swipe stays as well.
+        var downY=Float.NaN
+        view.setOnTouchListener { bar,event ->
+            when(event.actionMasked) {
+                android.view.MotionEvent.ACTION_DOWN -> downY=event.rawY
+                android.view.MotionEvent.ACTION_MOVE -> if(!downY.isNaN()) bar.translationY=(event.rawY-downY).coerceAtLeast(0f)
+                android.view.MotionEvent.ACTION_UP,android.view.MotionEvent.ACTION_CANCEL -> {
+                    if(!downY.isNaN() && event.rawY-downY>32*density) dismiss() else bar.animate().translationY(0f).setDuration(120).start()
+                    downY=Float.NaN
+                }
+            }
+            false
+        }
         setTextColor(MobilePalette.text)
         setActionTextColor(MobilePalette.accent(this@ThemedActivity))
         view.backgroundTintList=null

@@ -125,6 +125,11 @@ object DataStore : OnPreferenceDataStoreChangeListener {
 
     // general
     var rememberEnable by SettingsRegistry.REMEMBER_ENABLE
+    var relayDefaultQwdttMode by SettingsRegistry.RELAY_DEFAULT_QWDTT_MODE
+    var relayDefaultWdttPlusMode by SettingsRegistry.RELAY_DEFAULT_WDTTPLUS_MODE
+    var relayDefaultCsqttTransport by SettingsRegistry.RELAY_DEFAULT_CSQTT_TRANSPORT
+    var relayDefaultCsqttSrtp by SettingsRegistry.RELAY_DEFAULT_CSQTT_SRTP
+    var relayDefaultMrttTransport by SettingsRegistry.RELAY_DEFAULT_MRTT_TRANSPORT
     var skipDeleteConfirmation by SettingsRegistry.SKIP_DELETE_CONFIRMATION
     var allowBetaUpdate by SettingsRegistry.ALLOW_BETA_UPDATE
 

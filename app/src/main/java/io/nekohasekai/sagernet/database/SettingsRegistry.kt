@@ -152,6 +152,12 @@ object SettingsRegistry {
     @JvmField val INBOUND_SOCKS_PORT = int("inbound_socks_port", 10808, SettingValidators::isPort)
     @JvmField val INBOUND_HTTP_PORT = int("inbound_http_port", 10809, SettingValidators::isPort)
     @JvmField val INBOUND_ADDRESS = string("inbound_address", LOOPBACK_ADDRESS) { it.isNotBlank() }
+    // Modes a new relay profile takes when its link names none; the originals' defaults.
+    @JvmField val RELAY_DEFAULT_QWDTT_MODE = string("relay_default_qwdtt_mode", "wg") { it in listOf("wg","raw") }
+    @JvmField val RELAY_DEFAULT_WDTTPLUS_MODE = string("relay_default_wdttplus_mode", "wg") { it in listOf("wg","raw") }
+    @JvmField val RELAY_DEFAULT_CSQTT_TRANSPORT = string("relay_default_csqtt_transport", "udp") { it in listOf("udp","tcp_tls") }
+    @JvmField val RELAY_DEFAULT_CSQTT_SRTP = string("relay_default_csqtt_srtp", "auto") { it in listOf("auto","wrap","dtls") }
+    @JvmField val RELAY_DEFAULT_MRTT_TRANSPORT = string("relay_default_mrtt_transport", "udp") { it in listOf("udp","tcp_tls") }
     @JvmField val DISABLE_MIXED_INBOUND = bool("disable_mixed_inbound", false)
     @JvmField val RANDOM_INBOUND_PORT = bool("random_inbound_port", false)
     @JvmField val INBOUND_AUTH = bool("inbound_auth", false)

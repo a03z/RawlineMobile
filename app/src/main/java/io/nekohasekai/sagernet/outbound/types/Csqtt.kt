@@ -27,12 +27,13 @@ class Csqtt:Qwdtt() {
             hashSource="auto_js";vkAnonPath="auto_js"
         } else if(vkAnonPath=="auto_js") vkAnonPath="vkcalls"
         vkAccessToken = obj.string("vk_access_token")
-        turnTransport = obj.string("turn_transport").ifEmpty { if(turnTcp) "tcp" else "udp" }
+        turnTransport = obj.string("turn_transport").ifEmpty { if(turnTcp) "tcp" else if(!obj.contains("turn_tcp"))
+            runCatching { app.rawline.mobile.database.DataStore.relayDefaultCsqttTransport }.getOrDefault("udp") else "udp" }
         turnTransport = when(turnTransport.lowercase()) { "tcp","tcp-tls","tcp/tls" -> "tcp_tls"; else -> turnTransport.lowercase() }
         srtpMode = when(val value=obj.string("srtp_mode").lowercase()) {
             "wrap-srtp","wrap_srtp","legacy" -> "wrap"
             "dtls-srtp","dtls_srtp" -> "dtls"
-            "" -> "auto"
+            "" -> runCatching { app.rawline.mobile.database.DataStore.relayDefaultCsqttSrtp }.getOrDefault("auto")
             else -> value
         }
         fingerprint = obj.string("fingerprint").ifEmpty { "firefox" }

@@ -151,6 +151,21 @@ class VkRelayActivity : ThemedActivity() {
             val account = PreferenceCategory(requireContext()).apply { title = "Аккаунт и хеши" }
             accountGroup=account
             preferenceScreen.addPreference(account);VkRelayPreferences.bind(this,account)
+            // The mode each relay protocol takes when a link or a new profile names none.
+            val modes = PreferenceCategory(requireContext()).apply { title = "Режимы по умолчанию";summary="Для новых и импортированных профилей, если ссылка режим не задаёт" }
+            preferenceScreen.addPreference(modes)
+            fun choice(title: String, values: List<String>, labels: List<String>, get: () -> String, set: (String) -> Unit) =
+                modes.addPreference(SimpleMenuPreference(requireContext()).apply {
+                    this.title = title;isPersistent=false;key="relay_default_"+title
+                    entries=labels.toTypedArray();entryValues=values.toTypedArray();value=get()
+                    summaryProvider=ListPreference.SimpleSummaryProvider.getInstance()
+                    setOnPreferenceChangeListener { _,new -> set(new.toString());true }
+                })
+            choice("qWDTT",listOf("wg","raw"),listOf("WG (по умолчанию)","RAW"),{ DataStore.relayDefaultQwdttMode }) { DataStore.relayDefaultQwdttMode=it }
+            choice("WDTT на движке qWDTT",listOf("wg","raw"),listOf("WG (по умолчанию)","RAW"),{ DataStore.relayDefaultWdttPlusMode }) { DataStore.relayDefaultWdttPlusMode=it }
+            choice("CSQTT: транспорт TURN",listOf("udp","tcp_tls"),listOf("UDP (по умолчанию)","TCP/TLS"),{ DataStore.relayDefaultCsqttTransport }) { DataStore.relayDefaultCsqttTransport=it }
+            choice("CSQTT: режим SRTP",listOf("auto","wrap","dtls"),listOf("Автоматически (по умолчанию)","WRAP-SRTP","DTLS-SRTP"),{ DataStore.relayDefaultCsqttSrtp }) { DataStore.relayDefaultCsqttSrtp=it }
+            choice("MRTT: транспорт TURN",listOf("udp","tcp_tls"),listOf("UDP (по умолчанию)","TCP/TLS"),{ DataStore.relayDefaultMrttTransport }) { DataStore.relayDefaultMrttTransport=it }
             val deploy = PreferenceCategory(requireContext()).apply { title = "Управление серверами" }
             preferenceScreen.addPreference(deploy)
             for(kind in listOf("mrtt","qwdtt","csqtt","wdttplus","freeturn")) deploy.addPreference(Preference(requireContext()).apply {

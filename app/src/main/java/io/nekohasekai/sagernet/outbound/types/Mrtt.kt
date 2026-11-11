@@ -45,7 +45,7 @@ class Mrtt:Qwdtt() {
         jitsiRoom=obj.string("jitsi_room").trim().lowercase()
         jitsiSeats=if(obj.contains("jitsi_seats")) obj.int("jitsi_seats").coerceIn(0,MAX_JITSI_WORKERS) else 0
         jitsiWorkers=(if(obj.contains("jitsi_workers")) obj.int("jitsi_workers") else DEFAULT_JITSI_WORKERS).coerceIn(MIN_JITSI_WORKERS,MAX_JITSI_WORKERS)
-        turnTransport=obj.string("turn_transport").ifEmpty { "udp" }
+        turnTransport=obj.string("turn_transport").ifEmpty { runCatching { app.rawline.mobile.database.DataStore.relayDefaultMrttTransport }.getOrDefault("udp") }
         srtpMode=obj.string("srtp_mode").ifEmpty { "auto" }
         fingerprint=obj.string("fingerprint").ifEmpty { "firefox" }
         clientIds=obj.string("client_ids").ifEmpty { "8202606,6287487" }

@@ -941,7 +941,9 @@ class MobileHomeFragment : ToolbarFragment() {
                     rows.addView(pair,LinearLayout.LayoutParams(-1,-2))
                     modeSwitches=switches.toMap()
                     power=text("",13f,muted).apply { gravity=Gravity.CENTER;maxLines=2;ellipsize=android.text.TextUtils.TruncateAt.END }
-                    rows.addView(power,LinearLayout.LayoutParams(-1,-2))
+                    // Docked at the bottom, the state and the server in use sit above the switches, read first.
+                    if(dockBottom) rows.addView(power,0,LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(6) })
+                    else rows.addView(power,LinearLayout.LayoutParams(-1,-2))
                     controlParent.addView(rows,LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(if(dockBottom) 2 else 10) })
                 } else {
                 power = action("") { if(!powerCovered()) host().toggleService() }.apply {
@@ -1497,7 +1499,10 @@ class MobileHomeFragment : ToolbarFragment() {
             if(background !is MobilePowerArtwork) {
                 val elapsed=String.format(java.util.Locale.ROOT,"%02d:%02d:%02d",seconds/3600,seconds/60%60,seconds%60)
                 val workers=snapshot?.takeIf { it.total>0 && !testing }?.let { "  ${it.active}/${it.total}" }.orEmpty()
-                val label=caption.ifEmpty { getString(R.string.qmobile_orb_idle) }+(if(state.connected) "  $elapsed" else "")+workers
+                val server=if(state.connected) runningServerName() else ""
+                val label=caption.ifEmpty { getString(R.string.qmobile_orb_idle) }+(if(state.connected) "  $elapsed" else "")+workers+
+                    (if(server.isNotEmpty()) "
+$server" else "")
                 if(text.toString()!=label) text=label
             }
             val fontSize=textSize
@@ -1509,6 +1514,15 @@ class MobileHomeFragment : ToolbarFragment() {
                 workersText=snapshot?.takeIf { it.total>0 && !testing }?.let { "${it.active}/${it.total}" }.orEmpty()
             }
         }
+    }
+    private var runningServer: Pair<Long,String>?=null
+    /** The server in use under the state line: its name, looked up once per selection. */
+    private fun runningServerName(): String {
+        val id=DataStore.currentProfile.takeIf { it>0 } ?: DataStore.selectedProxy
+        runningServer?.takeIf { it.first==id }?.let { return it.second }
+        val name=runCatching { app.rawline.mobile.database.SagerDatabase.proxyDao.getById(id)?.displayName() }.getOrNull().orEmpty()
+        runningServer=id to name
+        return name
     }
     private fun updateLatencies() {
         val state=TestSessionClient.state.value

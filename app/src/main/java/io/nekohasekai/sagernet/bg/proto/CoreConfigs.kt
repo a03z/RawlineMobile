@@ -62,6 +62,31 @@ object CoreConfigs {
      * is GeneratorSettings.deferRuleSets, for a start the user let go without its rule-sets.
      */
     fun buildMain(profile: ProxyEntity, deferRuleSets: Boolean = false): GeneratedConfig {
+        val group = SagerDatabase.groupDao.getById(profile.groupId)
+        val options = group?.subOptions
+        if (options != null && options.routingProvider.isNotBlank() && options.providerRoutingEnabled && options.routeProfileId <= 0) {
+            try {
+                return buildMainWith(profile, deferRuleSets)
+            } catch (e: Exception) {
+                // A provider profile that cannot be used must not cost the connection: the subscription's own
+                // routing goes off and the client's takes over, as when it was never enabled. Kept on when the
+                // profile fails anyway, as the provider's routing was not the cause then.
+                group.subOptions = options.copy(providerRoutingEnabled = false)
+                SagerDatabase.groupDao.update(group)
+                val fallback = runCatching { buildMainWith(profile, deferRuleSets) }
+                if (fallback.isFailure) {
+                    group.subOptions = options
+                    SagerDatabase.groupDao.update(group)
+                    throw e
+                }
+                moe.matsuri.nb4a.utils.CoreLog.write("[Warning] Happ / Incy routing of \"${group.name}\" is unavailable (${e.message}); turned off, the client's routing is used")
+                return fallback.getOrThrow()
+            }
+        }
+        return buildMainWith(profile, deferRuleSets)
+    }
+
+    private fun buildMainWith(profile: ProxyEntity, deferRuleSets: Boolean): GeneratedConfig {
         val (landing, front) = groupProxyIds(profile.groupId)
         val options = SagerDatabase.groupDao.getById(profile.groupId)?.subOptions
         val chosenRoute = options?.routeProfileId?.takeIf { it > 0 }?.let(RouteManager::get)?.takeIf { !it.is_raw }

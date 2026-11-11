@@ -114,7 +114,6 @@ internal class TestSession(
     }
 
     suspend fun run() {
-        var completed=false
         notification.start()
         try {
             coroutineScope {
@@ -126,7 +125,6 @@ internal class TestSession(
                     refresher.cancel(); sorter.cancel()
                 }
             }
-            completed=true
         } catch (e: CancellationException) {
             stop()
             throw e

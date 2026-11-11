@@ -133,9 +133,13 @@ internal class TestSession(
         } catch (e: Exception) {
             Logs.w(e)
         } finally {
-            try { if(completed && !cancelled && kind==TestSpec.KIND_URL && spec.sortGroupId>0 &&
-                GroupRepo.get(spec.sortGroupId)?.subOptions?.effectiveSortRule==ServerSortRule.PING) {
-                GroupSort.sortProfiles(spec.sortGroupId,GroupSortAction(GroupSortMethod.BY_LATENCY))
+            // Every group of the tested profiles that keeps a ping order is sorted, also after a stop: a ping started
+            // on another subscription takes over the unfinished ones of this one, which then was never sorted.
+            try { if(kind==TestSpec.KIND_URL && !spec.testCurrent) {
+                val groups = (ProfileManager.getProfiles(spec.profileIds.toList()).map { it.groupId } + spec.sortGroupId)
+                    .filter { it > 0 }.distinct()
+                for (gid in groups) if (GroupRepo.get(gid)?.subOptions?.effectiveSortRule==ServerSortRule.PING)
+                    GroupSort.sortProfiles(gid,GroupSortAction(GroupSortMethod.BY_LATENCY))
             } } catch(error: Exception) { Logs.w("Ping sort failed: ${error.readableMessage}") }
             notification.finish(assetProblems)
             notifyClient { it.onDone(id, cancelled) }

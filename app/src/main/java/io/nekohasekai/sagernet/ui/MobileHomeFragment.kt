@@ -1512,8 +1512,7 @@ class MobileHomeFragment : ToolbarFragment() {
                 val workers=snapshot?.takeIf { it.total>0 && !testing }?.let { "  ${it.active}/${it.total}" }.orEmpty()
                 val server=if(state.connected) runningServerName() else ""
                 val label=caption.ifEmpty { getString(R.string.qmobile_orb_idle) }+(if(state.connected) "  $elapsed" else "")+workers+
-                    (if(server.isNotEmpty()) "
-$server" else "")
+                    (if(server.isNotEmpty()) "\n$server" else "")
                 if(text.toString()!=label) text=label
             }
             val fontSize=textSize

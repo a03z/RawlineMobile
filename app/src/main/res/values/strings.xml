@@ -584,7 +584,7 @@
     <string name="vpn_ipv6_sum">Give the tun an IPv6 address and route IPv6 through it</string>
     <string name="enable_tun_routing">Tun routing</string>
     <string name="block_unowned_tun">Hide the tunnel from apps outside the VPN</string>
-    <string name="block_unowned_tun_sum">Keeps apps outside the VPN from sending TCP connections through tun0 (SO_BINDTODEVICE) to learn the server's address: connections whose owner Android cannot find are dropped. Android 10 or newer. While on, these do not work: sharing through VPN Hotspot and other forwarding, and apps that bind their own sockets to the VPN interface. UDP and ping are not covered, so calls and QUIC keep working. Off by default.</string>
+    <string name="block_unowned_tun_sum">Keeps apps outside the VPN from sending traffic through tun0 (SO_BINDTODEVICE) to learn the server\'s address: connections from the tun address whose owner Android cannot find are dropped. TCP and UDP; a UDP owner is remembered for 10 seconds, so QUIC retries and calls keep working. Android 10 or newer. Sharing through VPN Hotspot works with its masquerade mode set to None; with masquerade, shared traffic looks like the attack and is dropped. Not working: ping from the phone (ICMP has no owner), apps that bind their own sockets to the VPN interface, and the rare UDP packet sent right before its socket closes. Off by default.</string>
     <string name="enable_tun_routing_sum">Keep the direct IP rules of the route profile outside the tun</string>
     <string name="block_quic">Block QUIC</string>
     <string name="block_quic_sum">Refuse QUIC (UDP 443) sent through a proxy so browsers switch to TCP at once. Direct traffic is not affected</string>

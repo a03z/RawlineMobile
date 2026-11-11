@@ -72,11 +72,19 @@ class NativeInterface : PlatformInterface {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
             error("android: connection owner lookup requires API 29")
         }
-        val uid = SagerNet.connectivity.getConnectionOwnerUid(
+        var uid = SagerNet.connectivity.getConnectionOwnerUid(
             ipProtocol,
             InetSocketAddress(sourceAddress, sourcePort),
             InetSocketAddress(destinationAddress, destinationPort),
         )
+        if (ipProtocol == OsConstants.IPPROTO_UDP) {
+            val found = UdpOwnerCache.resolve(
+                "$sourceAddress|$sourcePort|$destinationAddress|$destinationPort",
+                if (uid == Process.INVALID_UID) UdpOwnerCache.NOT_FOUND else uid,
+                android.os.SystemClock.elapsedRealtime(),
+            )
+            if (found != UdpOwnerCache.NOT_FOUND) uid = found
+        }
         if (uid == Process.INVALID_UID) error("android: connection owner not found")
         return ConnectionOwner().apply {
             userId = uid

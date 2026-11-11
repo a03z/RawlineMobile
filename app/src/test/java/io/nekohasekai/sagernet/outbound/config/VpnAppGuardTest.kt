@@ -16,8 +16,9 @@ class VpnAppGuardTest {
         val route=config.obj("route")
         val first=route.array("rules")[0] as JsonObject
         assertEquals("reject",first.string("action"))
-        assertEquals("tcp",(first.array("rules")[0] as JsonObject).array("network")[0].toString().trim('"'))
-        val uid=first.array("rules")[1] as JsonObject
+        val known=first.array("rules")[1] as JsonObject
+        assertFalse(known.bool("invert"))
+        val uid=first.array("rules")[2] as JsonObject
         assertTrue(uid.bool("invert"))
         assertEquals(10001,uid.array("user_id")[0].toString().toInt())
         assertTrue(route.bool("find_process"))

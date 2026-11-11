@@ -181,7 +181,8 @@ object SettingsRegistry {
         ranges.all { SettingValidators.isPrivateRange(it) }
     }
     @JvmField val ENABLE_TUN_ROUTING = bool("enable_tun_routing", false)
-    @JvmField val BLOCK_UNOWNED_TUN = bool("block_unowned_tun", true)
+    // Off by default, as the original has no such guard: VPN Hotspot and other forwarding have no owner and broke.
+    @JvmField val BLOCK_UNOWNED_TUN = bool("block_unowned_tun", false)
     @JvmField val BLOCK_QUIC = bool("block_quic", true)
 
     // ------------------------------------------------------------------------------------------------ routing

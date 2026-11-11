@@ -18,7 +18,7 @@
             app:summary="@string/enable_tun_routing_sum"
             app:title="@string/enable_tun_routing" />
         <SwitchPreference
-            app:defaultValue="true"
+            app:defaultValue="false"
             app:icon="@drawable/ic_baseline_legend_toggle_24"
             app:key="block_unowned_tun"
             app:summary="@string/block_unowned_tun_sum"

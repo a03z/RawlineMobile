@@ -320,9 +320,14 @@ object AutoSelectorRuntime {
                 if (running == null || running.build.selectorId != id) continue
                 // A replaced member keeps its id, so only the disturbed set spots it.
                 if (prunedBuilt || selector.lastBuilt.any { it in disturbedSet }) restart = true
+                // Servers the update added: a balancer has to take them into its rotation, not only replace lost ones.
+                if (!restart) {
+                    val plan = app.rawline.mobile.outbound.config.AutoSelectorPlanner(app.rawline.mobile.database.SettingsMapper.selectorStore()).plan(id, selector)
+                    if (plan.ok && plan.build.isNotEmpty() && plan.build.toSet() != selector.lastBuilt.toSet()) restart = true
+                }
             }
             if (!restart || running == null) return@launch
-            Logs.i("[Auto selector] The subscription replaced profiles it was running on , rebuilding.")
+            Logs.i("[Auto selector] The subscription changed the profiles it runs on, rebuilding.")
             post(R.string.autosel_notice_subscription)
             withContext(Dispatchers.Main) { if (current() === running) rebuild(running, null) }
         }

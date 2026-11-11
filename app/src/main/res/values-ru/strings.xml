@@ -451,7 +451,7 @@
     <string name="autosel_notice_recheck_failed">Не удалось перепроверить профили: %s</string>
     <string name="autosel_notice_rechecking">Перепроверяем все профили…</string>
     <string name="autosel_notice_select_failed">Не удалось переключить профиль: %s</string>
-    <string name="autosel_notice_subscription">Подписка заменила рабочие профили — перестраиваемся.</string>
+    <string name="autosel_notice_subscription">Подписка изменила рабочие профили, перестраиваемся.</string>
     <string name="autosel_notification_measuring">%1$s: измеряем %2$d проф.…</string>
     <string name="autosel_only_problems">Показывать только профили с проблемами</string>
     <string name="autosel_pinned">Предпочтительный профиль</string>

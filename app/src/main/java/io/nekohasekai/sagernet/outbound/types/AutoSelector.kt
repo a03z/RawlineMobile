@@ -45,7 +45,8 @@ class AutoSelector : Outbound("autoselector") {
     @JvmField var watchIntervalSec: Int = 15
     @JvmField var activeSize: Int = 8
     @JvmField var sampling: Int = 10
-    @JvmField var toleranceMs: Int = 300
+    // sing-box's own default: a wider margin kept a slow server while a much faster one was available.
+    @JvmField var toleranceMs: Int = 50
 
     /** 0 = no ceiling. */
     @JvmField var maxRTTms: Int = 0
@@ -117,7 +118,9 @@ class AutoSelector : Outbound("autoselector") {
         if (obj.contains("watch_interval_sec")) watchIntervalSec = intOr(obj["watch_interval_sec"], 15)
         if (obj.contains("active_size")) activeSize = intOr(obj["active_size"], 8)
         if (obj.contains("sampling")) sampling = intOr(obj["sampling"], 10)
-        if (obj.contains("tolerance_ms")) toleranceMs = intOr(obj["tolerance_ms"], 300)
+        if (obj.contains("tolerance_ms")) toleranceMs = intOr(obj["tolerance_ms"], 50)
+        // 300 was the old default, stored with every selector: it meant "default", not a choice.
+        if (toleranceMs == 300) toleranceMs = 50
         if (obj.contains("max_rtt_ms")) maxRTTms = intOr(obj["max_rtt_ms"], 0)
         if (obj.contains("expected")) expected = intOr(obj["expected"], 3)
         if (obj.contains("dial_retries")) dialRetries = intOr(obj["dial_retries"], 2)

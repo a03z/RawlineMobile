@@ -178,7 +178,11 @@ internal object SubscriptionRefresh {
 
             val stale = ArrayList<Long>()
             val keptWorking = ArrayList<Long>()
-            for (id in plan.stale) (if (id in working) keptWorking else stale).add(id)
+            // A working server is kept only while the provider sends nothing in its place: one of the same type and
+            // name in this refresh replaces it, or a provider that rotates its servers would pile up copies.
+            val arrivedNames = sink.entries.mapTo(HashSet()) { it.display }
+            val oldNames = old.associate { it.id to it.display }
+            for (id in plan.stale) (if (id in working && oldNames[id] !in arrivedNames) keptWorking else stale).add(id)
 
             val previousOrder = ProfileManager.memberIds(gid)
             val order = ArrayList(plan.order)

@@ -57,7 +57,8 @@ object MobileSettingsStyle {
                 if (preference is androidx.preference.PreferenceGroup) compact(preference)
             }
         }
-        compact(fragment.preferenceScreen)
+        // A screen restored after rotation before its data loaded has no preferences yet; the reloaded one is styled.
+        fragment.preferenceScreen?.let(::compact)
         root.setBackgroundColor(background)
         val list=fragment.listView
         fragment.setDivider(null)

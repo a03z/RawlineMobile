@@ -50,7 +50,7 @@ object CoreDiagnostics {
     fun stop() = Mobile.stopDiagnostics()
 
     private fun notification() = NotificationCompat.Builder(app, CoreForeground.CHANNEL)
-        .setSmallIcon(R.drawable.ic_throne_tile)
+        .setSmallIcon(R.drawable.ic_rawline_tile)
         .setContentTitle(app.getString(R.string.app_name))
         .setContentText(app.getString(R.string.diagnostics_notification))
         .setProgress(0, 0, true)

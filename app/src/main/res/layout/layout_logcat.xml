@@ -37,7 +37,6 @@
                 android:fontFamily="monospace"
                 android:gravity="start|top"
                 android:textIsSelectable="true"
-                android:fontFamily="monospace"
                 android:textSize="12sp"
                 tools:ignore="LabelFor" />
         </ScrollView>

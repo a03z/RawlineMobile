@@ -3,7 +3,7 @@ package mobile
 import (
 	"context"
 
-	"qThroneCore/internal/resolve"
+	"RawlineCore/internal/resolve"
 
 	E "github.com/sagernet/sing/common/exceptions"
 )

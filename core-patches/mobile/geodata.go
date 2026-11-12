@@ -1,6 +1,6 @@
 package mobile
 
-import "qThroneCore/internal/providergeo"
+import "RawlineCore/internal/providergeo"
 
 func ConvertGeoRuleSet(input, output, kind, selector string) error {
 	return providergeo.Convert(input, output, kind, selector)

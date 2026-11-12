@@ -25,7 +25,7 @@ func TestRegistrationUsesTunnelDialerForEveryModeAndHost(t *testing.T) {
 				}
 				return nil, failure
 			}
-			_, err := RegisterWithDialer(context.Background(), mode, "http://127.0.0.1:1", []string{"one.invalid", "two.invalid"}, dial)
+			_, err := RegisterWithDialer(context.Background(), mode, "http://127.0.0.1:1", []string{"one.invalid", "two.invalid"}, dial, TLSFragmentOptions{})
 			if err == nil || !strings.Contains(err.Error(), failure.Error()) || calls != 2 {
 				t.Fatalf("calls=%d error=%v; must never dial the host or proxy directly", calls, err)
 			}
@@ -47,7 +47,7 @@ func TestTunnelRegistrationKeepsTLSVerification(t *testing.T) {
 		calls++
 		return (&net.Dialer{}).DialContext(ctx, network, host)
 	}
-	if _, err := RegisterWithDialer(context.Background(), TunnelWireGuard, "", []string{host}, dial); err == nil {
+	if _, err := RegisterWithDialer(context.Background(), TunnelWireGuard, "", []string{host}, dial, TLSFragmentOptions{}); err == nil {
 		t.Fatal("untrusted API certificate must be rejected through the tunnel too")
 	}
 	previous := http.DefaultTransport
@@ -57,7 +57,7 @@ func TestTunnelRegistrationKeepsTLSVerification(t *testing.T) {
 	transport.TLSClientConfig = &tls.Config{RootCAs: roots}
 	http.DefaultTransport = transport
 	defer func() { http.DefaultTransport = previous; transport.CloseIdleConnections() }()
-	identity, err := RegisterWithDialer(context.Background(), TunnelWireGuard, "", []string{host}, dial)
+	identity, err := RegisterWithDialer(context.Background(), TunnelWireGuard, "", []string{host}, dial, TLSFragmentOptions{})
 	if err != nil || identity.DeviceID != "fixture" || len(identity.Reserved) != 3 || calls < 2 {
 		t.Fatalf("registration through tunnel: identity=%v error=%v calls=%d", identity, err, calls)
 	}

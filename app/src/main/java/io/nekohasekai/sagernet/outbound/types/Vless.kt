@@ -87,8 +87,9 @@ class Vless : Outbound("vless") {
         settings["encryption"] = "none"
         if (flow.isNotEmpty() && flow != "none") settings["flow"] = flow
         obj["settings"] = settings
-        val streamObj = getXrayStream().build(ctx)
-        if (streamObj.isNotEmpty()) obj["streamSettings"] = streamObj
+        val stream = getXrayStream().build(ctx)
+        if (!stream.ok) return stream
+        if (stream.json.isNotEmpty()) obj["streamSettings"] = stream.json
         return BuildResult(obj)
     }
 

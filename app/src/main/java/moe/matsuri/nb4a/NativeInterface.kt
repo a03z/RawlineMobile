@@ -85,7 +85,14 @@ class NativeInterface : PlatformInterface {
             )
             if (found != UdpOwnerCache.NOT_FOUND) uid = found
         }
-        if (uid == Process.INVALID_UID) error("android: connection owner not found")
+        val wasBroken = OwnerLookupHealth.broken
+        val broken = if (ipProtocol == OsConstants.IPPROTO_TCP) OwnerLookupHealth.tcp(uid) else wasBroken
+        if (broken && !wasBroken) Logs.w("Android does not name the owners of app connections on this device: the tun0 guard is off until the VPN restarts")
+        if (uid == Process.INVALID_UID) {
+            // An owner the guard lets through: on such a device it would otherwise drop every connection.
+            if (broken) return ConnectionOwner().apply { userId = uid; setAndroidPackageNames(listOf("unknown").toStringIterator()) }
+            error("android: connection owner not found")
+        }
         return ConnectionOwner().apply {
             userId = uid
             setAndroidPackageNames(packageNamesOf(uid).toStringIterator())

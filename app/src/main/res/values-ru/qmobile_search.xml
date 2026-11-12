@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+<string name="qmobile_search">Поиск</string>
+<string name="qmobile_search_hint">Название или адрес сервера</string>
+<string name="qmobile_search_nothing">Ничего не найдено</string>
+<string name="qmobile_search_more">Ещё %d: уточните запрос</string>
+</resources>

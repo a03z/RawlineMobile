@@ -30,6 +30,9 @@ import app.rawline.mobile.TrafficFormat
 import app.rawline.mobile.SagerNet
 import app.rawline.mobile.database.*
 import app.rawline.mobile.group.SubscriptionClient
+import app.rawline.mobile.group.SubscriptionQueue
+import app.rawline.mobile.ktx.confirmAction
+import app.rawline.mobile.ktx.readableMessage
 import app.rawline.mobile.ui.profile.profileSettingsIntent
 import app.rawline.mobile.update.UpdateActivity
 import app.rawline.mobile.update.UpdateDiscovery
@@ -1644,6 +1647,16 @@ class MobileHomeFragment : ToolbarFragment() {
             startActivity(Intent(requireContext(),ProviderRoutingActivity::class.java).putExtra("groupId",group.id))
         }
         entry(getString(R.string.qmobile_ping),R.drawable.ic_mobile_test) { viewLifecycleOwner.lifecycleScope.launch { val ids=withContext(Dispatchers.IO) { SagerDatabase.proxyDao.getByGroup(group.id).map { it.id }.toLongArray() };testMenu(ids,group.displayName(),group.id,true) } }
+        entry(getString(R.string.qmobile_search),R.drawable.ic_baseline_manage_search_24) { searchGroup(group) }
+        if(group.isSubscription) entry(getString(R.string.profiles_resolve_domains),R.drawable.ic_action_dns) {
+            requireContext().confirmAction(getString(R.string.confirm_resolve_domains),getString(R.string.confirm_resolve_domains_message,group.displayName()),R.string.confirm_resolve) {
+                viewLifecycleOwner.lifecycleScope.launch {
+                    val report=try { SubscriptionClient.groupAction(group.id,SubscriptionQueue.ACTION_RESOLVE_DOMAINS) } catch(e:Exception) { app.rawline.mobile.ktx.Logs.w(e);e.readableMessage }
+                    if(report.isNotBlank()) MobileAlertDialogBuilder(requireContext()).setMessage(report).setPositiveButton(android.R.string.ok,null).show()
+                    refresh()
+                }
+            }
+        }
         entry(getString(R.string.settings),R.drawable.ic_mobile_settings) { editGroup(group,true) }
         entry(getString(R.string.connection_test_clear_results),R.drawable.ic_mobile_clear_test) {
             viewLifecycleOwner.lifecycleScope.launch {
@@ -1679,6 +1692,59 @@ class MobileHomeFragment : ToolbarFragment() {
         dialog.behavior.maxHeight=(height-(bars?.top ?: 0)-(bars?.bottom ?: 0)-dp(16)).coerceAtLeast(1)
         dialog.behavior.state=com.google.android.material.bottomsheet.BottomSheetBehavior.STATE_EXPANDED
         dialog.show()
+    }
+    private val SEARCH_LIMIT = 200
+
+    /** The group's servers matching a name or address, picked as a tap on the list picks them. */
+    private fun searchGroup(group: ProxyGroup) {
+        val dialog=MobileSheetDialog(requireContext())
+        val body=LinearLayout(requireContext()).apply { orientation=LinearLayout.VERTICAL; setPadding(dp(16),dp(16),dp(16),dp(24)); setBackgroundColor(backgroundColor) }
+        body.addView(text(group.displayName(),18f).apply { setTypeface(typeface,Typeface.BOLD) })
+        val field=EditText(requireContext()).apply {
+            hint=getString(R.string.qmobile_search_hint); isSingleLine=true; setTextColor(foregroundColor); setHintTextColor(muted)
+            imeOptions=android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH
+        }
+        body.addView(field,LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(8) })
+        val results=LinearLayout(requireContext()).apply { orientation=LinearLayout.VERTICAL }
+        body.addView(results,LinearLayout.LayoutParams(-1,-2))
+        var profiles=emptyList<ProxyEntity>()
+        fun show() {
+            val query=field.text.toString().trim()
+            val found=if(query.isEmpty()) profiles else profiles.filter { it.displayName().contains(query,true) || it.outbound.displayAddress().contains(query,true) }
+            results.removeAllViews()
+            if(found.isEmpty()) { results.addView(text(getString(R.string.qmobile_search_nothing),15f,muted).apply { setPadding(dp(4),dp(16),dp(4),dp(8)) }); return }
+            // A few hundred rows keep the sheet quick; the query narrows the rest.
+            for(profile in found.take(SEARCH_LIMIT)) {
+                val row=LinearLayout(requireContext()).apply {
+                    orientation=LinearLayout.VERTICAL; background=tile(profile.id==DataStore.selectedProxy); isFocusable=true
+                    setPadding(dp(14),dp(10),dp(14),dp(10)); contentDescription=profile.displayName()
+                    setOnClickListener {
+                        dialog.dismiss()
+                        DataStore.selectedProxy=profile.id
+                        if(DataStore.serviceState.canStop) SagerNet.reloadService()
+                        refresh()
+                    }
+                    MobileFeedback.apply(this)
+                }
+                row.addView(text(profile.displayName(),15f).apply { setTypeface(typeface,Typeface.BOLD); maxLines=1; ellipsize=android.text.TextUtils.TruncateAt.END })
+                row.addView(text(profile.outbound.displayAddress(),12f,muted).apply { maxLines=1; ellipsize=android.text.TextUtils.TruncateAt.END })
+                results.addView(row,LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(6) })
+            }
+            if(found.size>SEARCH_LIMIT) results.addView(text(getString(R.string.qmobile_search_more,found.size-SEARCH_LIMIT),13f,muted).apply { setPadding(dp(4),dp(10),dp(4),0) })
+        }
+        field.addTextChangedListener(object: android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
+            override fun afterTextChanged(s: android.text.Editable?) = show()
+        })
+        dialog.setContentView(androidx.core.widget.NestedScrollView(requireContext()).apply { clipToPadding=false; addView(body,FrameLayout.LayoutParams(-1,-2)) })
+        dialog.behavior.state=com.google.android.material.bottomsheet.BottomSheetBehavior.STATE_EXPANDED
+        dialog.show()
+        viewLifecycleOwner.lifecycleScope.launch {
+            profiles=withContext(Dispatchers.IO) { ProfileManager.members(group.id) }
+            show()
+            field.requestFocus()
+        }
     }
     private fun editGroup(group: ProxyGroup, settings: Boolean) {
         startActivity(Intent(requireContext(), if(settings) GroupSettingsActivity::class.java else SubscriptionEditorActivity::class.java)

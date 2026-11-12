@@ -203,6 +203,40 @@ for item in mrtt['archives']:
     (license_dir / 'MRTT-SOURCES.txt').write_bytes(files['SOURCES.txt'])
     print('Verified MRTT transport:', item['abi'])
 
+# AIVPN and S3 Bypass: this archive adds libaivpn.so and replaces the transports archive's libs3bypass.so.
+aivpn = lock.get('aivpn')
+if aivpn:
+    source_paths = {p.relative_to(root).as_posix() for p in [*(root / 'carriers/aivpn').glob('*'), *(root / 'carriers/s3bypass').glob('*.go')]}
+    source_paths.add('scripts/build_aivpn.sh')
+    assert source_paths == set(aivpn['inputs']), 'Rebuild AIVPN after adding or removing source files'
+    for name, expected in aivpn['inputs'].items():
+        assert hashlib.sha256((root / name).read_bytes()).hexdigest() == expected, 'Rebuild AIVPN after changing ' + name
+    assert {item['abi'] for item in aivpn['archives']} == {item['abi'] for item in lock['archives']}
+    for item in aivpn['archives']:
+        with urllib.request.urlopen(item['url'], timeout=60) as response:
+            archive = response.read()
+        assert hashlib.sha256(archive).hexdigest() == item['sha256'], 'AIVPN archive checksum mismatch'
+        files = {}
+        with tarfile.open(fileobj=io.BytesIO(archive), mode='r:gz') as tar:
+            for member in tar.getmembers():
+                assert member.isfile() and '/' not in member.name and chr(92) not in member.name
+                assert member.name not in files, 'Duplicate AIVPN archive entry'
+                files[member.name] = tar.extractfile(member).read()
+        assert set(files) == {'libaivpn.so', 'libs3bypass.so', 'AIVPN-LICENSE', 'Xray-fedarisha-LICENSE', 'AIVPN.json', 'SOURCES.txt', 'SHA256SUMS'}
+        provenance = json.loads(files['AIVPN.json'])
+        assert provenance == {'build_commit': aivpn['build_commit'], 'abi': item['abi'], 'inputs': aivpn['inputs']}, 'AIVPN build provenance mismatch'
+        assert files['SOURCES.txt'].decode() == item['sources']
+        sums = dict(line.split()[::-1] for line in files['SHA256SUMS'].decode().splitlines())
+        assert set(sums) == {'libaivpn.so', 'libs3bypass.so'}
+        for name, expected in sums.items():
+            assert hashlib.sha256(files[name]).hexdigest() == expected, 'AIVPN binary checksum mismatch'
+            (root / 'deployment/carriers' / item['abi'] / name).write_bytes(files[name])
+        license_dir = root / 'app/src/main/assets/carrier-licenses' / item['abi']
+        for name in ('AIVPN-LICENSE', 'Xray-fedarisha-LICENSE'):
+            (license_dir / name).write_bytes(files[name])
+        (license_dir / 'AIVPN-SOURCES.txt').write_bytes(files['SOURCES.txt'])
+        print('Verified AIVPN and S3 Bypass transports:', item['abi'])
+
 # CottenDNS, Soar, OpenFlux and OpenFlux Key are pinned apart from the other transports.
 assert 'dns_engines' in lock, 'Build and pin the DNS engines before packaging this version'
 dns = lock['dns_engines']

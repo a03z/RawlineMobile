@@ -37,8 +37,7 @@
     "carriers/dnstun/slipstream.go": "510c2d018b6ee17f6828d6e82d58210a58bfad81a6706268c644b4f16e478292",
     "carriers/dnstun/socks.go": "3403b057215d03aeb701be21cac3047f855a6a96a50841b5b27f2c00ed95d9d7",
     "carriers/dnstun/tunnel.go": "14934adea51d82e3a7dc8f6bdc6a8e6d111580320a449b30eae8d00df30cd50b",
-    "carriers/masterdns/main.go": "807ce6e1d0035c744b5911f03ce42fc7f6ad47ab0603dcc4eeacfdf10cf61f99",
-    "carriers/s3bypass/main.go": "ac0b8b6cdbff5f18c5a5b60bbadb4bbaed6e44eb58fbf1f6ce6c53152fdd69be"
+    "carriers/masterdns/main.go": "807ce6e1d0035c744b5911f03ce42fc7f6ad47ab0603dcc4eeacfdf10cf61f99"
   },
   "secure_socks": {
     "build_commit": "8a472e404a6f6cf4f24721c961d7ca11f30b7a84",

@@ -7,24 +7,62 @@ import app.rawline.mobile.utils.Theme
 import com.google.android.material.color.MaterialColors
 
 object MobileStyle {
-    val new get() = DataStore.uiStyle == "new"
+    /** A third look: the new style's screens, with its own light and dark paint. */
+    val pastel get() = DataStore.uiStyle == "pastel"
+    val new get() = DataStore.uiStyle == "new" || pastel
 }
 
 object MobilePalette {
-    val oled get() = (DataStore.amoledTheme || MobileStyle.new) && Theme.usingNightMode()
+    /** Pastel night stays plum. True black is only the OLED choice. New still treats every night as OLED. */
+    val oled get() = Theme.usingNightMode() && (if (MobileStyle.pastel) DataStore.amoledTheme else DataStore.amoledTheme || MobileStyle.new)
     val light get() = !oled && !Theme.usingNightMode()
-    val background get() = if (oled) Color.BLACK else if (light) (if (MobileStyle.new) Color.WHITE else Color.rgb(236,237,239)) else Color.rgb(30,30,30)
+    private val lilac = Color.rgb(0x7C, 0x6B, 0xF2)
+    val background get() = when {
+        MobileStyle.pastel && oled -> Color.BLACK
+        MobileStyle.pastel && light -> Color.rgb(255, 228, 214)
+        MobileStyle.pastel -> Color.rgb(22, 20, 31)
+        oled -> Color.BLACK
+        light -> if (MobileStyle.new) Color.WHITE else Color.rgb(236, 237, 239)
+        else -> Color.rgb(30, 30, 30)
+    }
     /** Translucent in the new style: anything that has to hide what is under it uses [solid] or [frosted]. */
-    val surface get() = if (MobileStyle.new) (if (light) Color.argb(190,255,255,255) else Color.argb(18,255,255,255)) else solid
-    val solid get() = if (MobileStyle.new) (if (light) Color.rgb(243,243,246) else Color.rgb(21,21,24))
-        else if (oled) Color.rgb(15,15,15) else if (light) Color.rgb(248,249,250) else Color.rgb(49,51,54)
+    val surface get() = when {
+        MobileStyle.pastel && light -> Color.argb(235, 255, 255, 255)
+        MobileStyle.pastel -> Color.argb(36, 255, 255, 255)
+        MobileStyle.new -> if (light) Color.argb(190, 255, 255, 255) else Color.argb(18, 255, 255, 255)
+        else -> solid
+    }
+    val solid get() = when {
+        MobileStyle.pastel && light -> Color.rgb(255, 247, 252)
+        MobileStyle.pastel && oled -> Color.rgb(16, 14, 22)
+        MobileStyle.pastel -> Color.rgb(36, 31, 51)
+        MobileStyle.new -> if (light) Color.rgb(243, 243, 246) else Color.rgb(21, 21, 24)
+        oled -> Color.rgb(15, 15, 15)
+        light -> Color.rgb(248, 249, 250)
+        else -> Color.rgb(49, 51, 54)
+    }
     val toolbar get() = if (MobileStyle.new) Color.TRANSPARENT else if (oled) Color.BLACK else if (light) (if (MobileStyle.new) Color.WHITE else Color.rgb(231,233,235)) else Color.rgb(34,35,37)
-    val text get() = if (MobileStyle.new) (if (light) Color.rgb(10,10,11) else Color.rgb(245,245,247))
-        else if (light) Color.rgb(39,44,48) else Color.rgb(231,234,237)
-    val muted get() = if (MobileStyle.new) (if (light) Color.rgb(105,105,112) else Color.rgb(142,142,150))
-        else if (light) Color.rgb(100,110,119) else Color.rgb(173,182,191)
+    val text get() = when {
+        MobileStyle.pastel && light -> Color.rgb(0x1B, 0x1C, 0x2A)
+        MobileStyle.pastel -> Color.rgb(0xF4, 0xF2, 0xFA)
+        MobileStyle.new -> if (light) Color.rgb(10, 10, 11) else Color.rgb(245, 245, 247)
+        light -> Color.rgb(39, 44, 48)
+        else -> Color.rgb(231, 234, 237)
+    }
+    val muted get() = when {
+        MobileStyle.pastel && light -> Color.rgb(110, 108, 136)
+        MobileStyle.pastel -> Color.rgb(176, 170, 198)
+        MobileStyle.new -> if (light) Color.rgb(105, 105, 112) else Color.rgb(142, 142, 150)
+        light -> Color.rgb(100, 110, 119)
+        else -> Color.rgb(173, 182, 191)
+    }
     /** The dark field inside a card; on true black a lighter one, or it would vanish. */
-    val well get() = if (MobileStyle.new) (if (light) Color.argb(16,0,0,0) else Color.argb(20,255,255,255)) else androidx.core.graphics.ColorUtils.blendARGB(surface, Color.BLACK, .14f)
+    val well get() = when {
+        MobileStyle.pastel && light -> Color.argb(18, 124, 107, 242)
+        MobileStyle.pastel -> Color.argb(28, 255, 255, 255)
+        MobileStyle.new -> if (light) Color.argb(16, 0, 0, 0) else Color.argb(20, 255, 255, 255)
+        else -> androidx.core.graphics.ColorUtils.blendARGB(surface, Color.BLACK, .14f)
+    }
     /** Corner radii in dp: the new style is rounder throughout. */
     val rowDp get() = if (MobileStyle.new) 20 else 5
     val cardDp get() = if (MobileStyle.new) 28 else 12
@@ -35,10 +73,19 @@ object MobilePalette {
     /** The blur behind sheets and dialogs: enough to lift them off the screen, while what is behind stays recognisable. */
     const val BLUR_DP = 20
     val windowDim get() = if (light) .35f else .6f
-    val frosted get() = if (light) Color.argb(248,250,250,252) else Color.argb(248,0,0,0)
+    val frosted get() = when {
+        MobileStyle.pastel && light -> Color.argb(248, 255, 250, 252)
+        MobileStyle.pastel -> Color.argb(248, 24, 20, 36)
+        light -> Color.argb(248, 250, 250, 252)
+        else -> Color.argb(248, 0, 0, 0)
+    }
     val outline get() = androidx.core.graphics.ColorUtils.setAlphaComponent(muted,55)
-    fun accent(context: Context) = if (MobileStyle.new) text else if (!DataStore.useSystemTheme && DataStore.appTheme == Theme.CYAN) Color.rgb(87,190,229)
-        else MaterialColors.getColor(context, androidx.appcompat.R.attr.colorAccent, Color.rgb(87,190,229))
+    fun accent(context: Context) = when {
+        MobileStyle.pastel -> lilac
+        MobileStyle.new -> text
+        !DataStore.useSystemTheme && DataStore.appTheme == Theme.CYAN -> Color.rgb(87, 190, 229)
+        else -> MaterialColors.getColor(context, androidx.appcompat.R.attr.colorAccent, Color.rgb(87, 190, 229))
+    }
 
     /** A row or button: every list row and action in the app. */
     fun rowShape(context: Context): android.graphics.drawable.Drawable = shape(context, rowDp)

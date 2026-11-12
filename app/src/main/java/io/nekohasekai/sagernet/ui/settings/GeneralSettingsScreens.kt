@@ -119,7 +119,9 @@ class AppearanceSettingsFragment : SettingsScreenFragment(R.xml.settings_appeara
     override fun bind() {
         pref<SimpleMenuPreference>("qmobileUiStyle").setOnPreferenceChangeListener { _, _ -> applyThemeInstantly(); true }
         // The new style is black or white with one look: accent colours, seasonal art and a bottom tile bar mean nothing there.
+        // Pastel keeps that structure, and uses the light/dark/OLED list so night is not forced to black.
         val modern = app.rawline.mobile.ui.MobileStyle.new
+        val pastel = app.rawline.mobile.ui.MobileStyle.pastel
         listOf(Key.APP_THEME, "seasonal_decoration", "qmobileListMode").forEach { pref<Preference>(it).isVisible = !modern }
         pref<Preference>("qmobileEditLayout").setOnPreferenceClickListener {
             startActivity(android.content.Intent(requireContext(), app.rawline.mobile.ui.MobileLayoutEditorActivity::class.java)); true
@@ -131,17 +133,17 @@ class AppearanceSettingsFragment : SettingsScreenFragment(R.xml.settings_appeara
             true
         }
         pref<SimpleMenuPreference>("qmobileSurfaceTheme").apply {
-            if (modern) {
+            if (modern && !pastel) {
                 setEntries(R.array.qmobile_surface_themes_new)
                 setEntryValues(R.array.qmobile_surface_values_new)
             }
-            value = if (modern && DataStore.nightTheme == 1) "oled" else if (DataStore.amoledTheme && DataStore.nightTheme == 1) "oled" else when (DataStore.nightTheme) {
+            value = if (modern && !pastel && DataStore.nightTheme == 1) "oled" else if (DataStore.amoledTheme && DataStore.nightTheme == 1) "oled" else when (DataStore.nightTheme) {
                 0 -> "system"
                 2 -> "light"
                 else -> "dark"
             }
             setOnPreferenceChangeListener { _, selected ->
-                if (!modern) DataStore.amoledTheme = selected == "oled"
+                if (!modern || pastel) DataStore.amoledTheme = selected == "oled"
                 DataStore.nightTheme = when (selected) { "system" -> 0; "light" -> 2; else -> 1 }
                 Theme.currentNightMode = DataStore.nightTheme
                 // The recreated host applies night mode. Applying it here as well

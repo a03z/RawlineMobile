@@ -180,8 +180,8 @@ class MobileOrbArtwork(context: Context, private val idleText: String) : MobileP
         // a screen change or a scrolling list pauses it, so that all the frame time is theirs.
         if (animated) {
             unscheduleSelf(waitForFocus)
-            val free = !frozen && now >= scrollingUntil && (callback as? android.view.View)?.hasWindowFocus() != false
-            scheduleSelf(waitForFocus, now + if (free) 16L else 150L)
+            val focusedWindow = (callback as? android.view.View)?.hasWindowFocus() != false
+            scheduleSelf(waitForFocus, now + frameDelay(now, focusedWindow))
         }
     }
 
@@ -190,6 +190,8 @@ class MobileOrbArtwork(context: Context, private val idleText: String) : MobileP
         @JvmStatic var frozen = false
         private var scrollingUntil = 0L
         fun pauseWhileScrolling() { scrollingUntil = SystemClock.uptimeMillis() + 180L }
+        /** A window over the control, or a list scrolling under it, yields the frame. */
+        fun frameDelay(now: Long, windowFocused: Boolean) = if (!frozen && now >= scrollingUntil && windowFocused) 16L else 150L
         /** Where the disc sits in a button of [size]: the panel at the bottom curves around it. */
         fun radius(size: Int) = size * .27f
         fun centerY(size: Int) = radius(size) * 1.6f

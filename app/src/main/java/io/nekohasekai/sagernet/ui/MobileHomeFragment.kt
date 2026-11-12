@@ -959,7 +959,11 @@ class MobileHomeFragment : ToolbarFragment() {
                 } else {
                 power = action("") { if(!powerCovered()) host().toggleService() }.apply {
                     contentDescription = getString(R.string.qmobile_connect)
-                    background = if(MobileStyle.new) MobileOrbArtwork(requireContext(),getString(R.string.qmobile_orb_idle)) else MobilePowerArtwork(blue)
+                    background = when {
+                        MobileStyle.pastel -> MobilePastelArtwork(requireContext(), getString(R.string.qmobile_orb_idle))
+                        MobileStyle.new -> MobileOrbArtwork(requireContext(), getString(R.string.qmobile_orb_idle))
+                        else -> MobilePowerArtwork(blue)
+                    }
                     // A remote or keyboard has no ripple to show where it stands.
                     setOnFocusChangeListener { button,focused -> (button.background as? MobilePowerArtwork)?.focused=focused }
                     var pressAnimator: android.animation.ValueAnimator? = null
@@ -1616,7 +1620,7 @@ class MobileHomeFragment : ToolbarFragment() {
     private fun groupMenu(group: ProxyGroup, anchor: View) {
         val dialog=MobileSheetDialog(requireContext())
         val body=LinearLayout(requireContext()).apply {
-            orientation=LinearLayout.VERTICAL; setPadding(dp(16),dp(12),dp(16),dp(24)); setBackgroundColor(backgroundColor)
+            orientation=LinearLayout.VERTICAL; setPadding(dp(16),dp(12),dp(16),dp(24)); setBackgroundColor(if(MobileStyle.pastel) MobilePalette.frosted else backgroundColor)
         }
         val handle=FrameLayout(requireContext()).apply {
             contentDescription=getString(android.R.string.cancel);isFocusable=true;setOnClickListener { dialog.dismiss() }
@@ -1816,7 +1820,7 @@ class MobileHomeFragment : ToolbarFragment() {
         val sheet=MobileSheetDialog(requireContext())
         val body=LinearLayout(requireContext()).apply {
             orientation=LinearLayout.VERTICAL;setPadding(dp(16),dp(12),dp(16),0)
-            setBackgroundColor(backgroundColor)
+            setBackgroundColor(if(MobileStyle.pastel) MobilePalette.frosted else backgroundColor)
         }
         body.addView(View(requireContext()).apply {
             background=GradientDrawable().apply { setColor(muted);cornerRadius=dp(2).toFloat() }

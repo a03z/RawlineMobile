@@ -106,6 +106,67 @@
         <item name="qtWellColor">#10000000</item>
         <item name="qtSheetColor">#F8FAFAFC</item>
     </style>
+    <!-- Pastel keeps a light bar in the day and a dark one at night, so the status icons stay readable. -->
+    <style name="MobileSurfacePastelLight" parent="MobileSurfaceNewWhite">
+        <item name="android:windowBackground">#FFE4D6</item>
+        <item name="android:colorBackground">#FFE4D6</item>
+        <item name="colorSurface">#FFF7FC</item>
+        <item name="colorPrimary">#FFE4D6</item>
+        <item name="colorPrimaryDark">#FFE4D6</item>
+        <item name="colorOnSurface">#1B1C2A</item>
+        <item name="colorOnPrimary">#1B1C2A</item>
+        <item name="android:textColorPrimary">#1B1C2A</item>
+        <item name="android:textColorSecondary">#6E6C88</item>
+        <item name="colorControlNormal">#6E6C88</item>
+        <item name="colorAccent">#7C6BF2</item>
+        <item name="qtWellColor">#127C6BF2</item>
+        <item name="qtSheetColor">#F8FFFAFC</item>
+        <item name="elevationOverlayEnabled">false</item>
+    </style>
+    <style name="MobileSurfacePastelDark" parent="MobileSurfaceNewOled">
+        <item name="android:windowBackground">#16141F</item>
+        <item name="android:colorBackground">#16141F</item>
+        <item name="colorSurface">#241F33</item>
+        <item name="colorPrimary">#16141F</item>
+        <item name="colorPrimaryDark">#16141F</item>
+        <item name="colorOnSurface">#F4F2FA</item>
+        <item name="colorOnPrimary">#F4F2FA</item>
+        <item name="android:textColorPrimary">#F4F2FA</item>
+        <item name="android:textColorSecondary">#B0AAC6</item>
+        <item name="colorControlNormal">#B0AAC6</item>
+        <item name="colorAccent">#7C6BF2</item>
+        <item name="qtWellColor">#1CFFFFFF</item>
+        <item name="qtSheetColor">#F8181424</item>
+        <item name="elevationOverlayEnabled">false</item>
+    </style>
+    <style name="Theme.SagerNet.Pastel" parent="Theme.SagerNet">
+        <item name="colorPrimary">#FFE4D6</item>
+        <item name="colorPrimaryDark">#FFE4D6</item>
+        <item name="colorAccent">#7C6BF2</item>
+        <item name="colorOnPrimary">#1B1C2A</item>
+        <item name="android:textColorPrimary">#1B1C2A</item>
+    </style>
+    <style name="Theme.SagerNet.Pastel.Night" parent="Theme.SagerNet.Black">
+        <item name="colorPrimary">#16141F</item>
+        <item name="colorPrimaryDark">#16141F</item>
+        <item name="colorAccent">#7C6BF2</item>
+        <item name="colorOnPrimary">#F4F2FA</item>
+        <item name="android:textColorPrimary">#F4F2FA</item>
+    </style>
+    <style name="Theme.SagerNet.Dialog.Pastel" parent="Theme.SagerNet.Dialog">
+        <item name="colorPrimary">#FFE4D6</item>
+        <item name="colorPrimaryDark">#FFE4D6</item>
+        <item name="colorAccent">#7C6BF2</item>
+        <item name="colorOnPrimary">#1B1C2A</item>
+        <item name="android:textColorPrimary">#1B1C2A</item>
+    </style>
+    <style name="Theme.SagerNet.Dialog.Pastel.Night" parent="Theme.SagerNet.Dialog.Black">
+        <item name="colorPrimary">#16141F</item>
+        <item name="colorPrimaryDark">#16141F</item>
+        <item name="colorAccent">#7C6BF2</item>
+        <item name="colorOnPrimary">#F4F2FA</item>
+        <item name="android:textColorPrimary">#F4F2FA</item>
+    </style>
     <style name="MobileSheetFast">
         <item name="android:windowEnterAnimation">@anim/sheet_fast_enter</item>
         <item name="android:windowExitAnimation">@anim/sheet_fast_exit</item>

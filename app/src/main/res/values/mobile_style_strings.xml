@@ -9,6 +9,12 @@
     <string name="qmobile_orb_idle">Tap to connect</string>
     <string name="qmobile_client">VPN Client</string>
     <string name="qmobile_servers">Servers</string>
+    <string name="qmobile_tun">TUN</string>
+    <string name="qmobile_proxy">System Proxy</string>
+    <string name="qmobile_mode_on">Enabled</string>
+    <string name="qmobile_mode_off">Disabled</string>
+    <string name="qmobile_collapse">Collapse</string>
+    <string name="qmobile_expand">Expand</string>
     <string name="qmobile_edit_layout">Edit interface</string>
     <string name="qmobile_layout_hint_move">Hold an element and drag it up or down.</string>
     <string name="qmobile_layout_hint_control">Double-tap the connection control to switch between the button and switches.</string>

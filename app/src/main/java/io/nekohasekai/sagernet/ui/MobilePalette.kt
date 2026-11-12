@@ -27,8 +27,9 @@ object MobilePalette {
     }
     /** Translucent in the new style: anything that has to hide what is under it uses [solid] or [frosted]. */
     val surface get() = when {
-        MobileStyle.pastel && light -> Color.argb(235, 255, 255, 255)
-        MobileStyle.pastel -> Color.argb(36, 255, 255, 255)
+        MobileStyle.pastel && light -> Color.WHITE
+        MobileStyle.pastel && oled -> Color.BLACK
+        MobileStyle.pastel -> Color.rgb(42, 36, 62)
         MobileStyle.new -> if (light) Color.argb(190, 255, 255, 255) else Color.argb(18, 255, 255, 255)
         else -> solid
     }
@@ -94,6 +95,10 @@ object MobilePalette {
     /** The chosen row or the main action: a tint and an outline of [color], never a solid fill, the same on every theme. */
     fun selectedShape(context: Context, color: Int = accent(context)): android.graphics.drawable.Drawable {
         val density = context.resources.displayMetrics.density
+        if (MobileStyle.pastel) return android.graphics.drawable.GradientDrawable().apply {
+            setColor(if (light) Color.rgb(0xF0, 0xEB, 0xFF) else Color.argb(56, 0x7C, 0x6B, 0xF2))
+            cornerRadius = rowDp * density
+        }
         if (MobileStyle.new) return MobileGlass(rowDp * density, color)
         return android.graphics.drawable.GradientDrawable().apply {
             setColor(androidx.core.graphics.ColorUtils.blendARGB(surface, color, .16f))
@@ -111,6 +116,14 @@ object MobilePalette {
     }
     private fun shape(context: Context, radius: Int): android.graphics.drawable.Drawable {
         val density = context.resources.displayMetrics.density
+        if (MobileStyle.pastel) return android.graphics.drawable.GradientDrawable().apply {
+            setColor(when {
+                light -> Color.WHITE
+                oled -> Color.rgb(16, 14, 22)
+                else -> Color.rgb(42, 36, 62)
+            })
+            cornerRadius = radius * density
+        }
         if (MobileStyle.new) return MobileGlass(radius * density)
         return android.graphics.drawable.GradientDrawable().apply { setColor(surface); cornerRadius = radius * density; setStroke(1, outline) }
     }

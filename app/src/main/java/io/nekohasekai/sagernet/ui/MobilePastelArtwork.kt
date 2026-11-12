@@ -4,8 +4,12 @@ import android.animation.ValueAnimator
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.ColorFilter
+import android.graphics.LinearGradient
+import android.graphics.Outline
 import android.graphics.Paint
-import android.graphics.RadialGradient
+import android.graphics.Path
+import android.graphics.PixelFormat
 import android.graphics.RectF
 import android.graphics.Shader
 import android.graphics.SweepGradient
@@ -13,6 +17,7 @@ import android.graphics.Typeface
 import android.graphics.drawable.Drawable
 import android.os.Build
 import android.os.SystemClock
+import android.view.View
 import androidx.core.content.res.ResourcesCompat
 import androidx.core.graphics.ColorUtils
 import app.rawline.mobile.R
@@ -20,12 +25,11 @@ import kotlin.math.abs
 import kotlin.math.exp
 
 /**
- * Pastel's connect control: a plain disc in the same place as the wavy orb.
- * Idle stays pale, connected turns green, and connecting keeps a stroke running round the edge.
+ * Pastel's connect control. The disc sits in the middle of its view; the caption under it is a real text row.
+ * Idle is a white disc with a soft shadow, connected is the green button with two pale rings.
  */
-class MobilePastelArtwork(context: Context, private val idleText: String) : MobilePowerArtwork(0) {
+class MobilePastelArtwork(context: Context, @Suppress("unused") private val idleText: String) : MobilePowerArtwork(0) {
     private val density = context.resources.displayMetrics.density
-    private val font = runCatching { ResourcesCompat.getFont(context, R.font.geologica) }.getOrNull() ?: Typeface.DEFAULT
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val box = RectF()
     private val tick = Runnable { invalidateSelf() }
@@ -60,29 +64,34 @@ class MobilePastelArtwork(context: Context, private val idleText: String) : Mobi
             spin = spinTo
         }
 
-        val size = minOf(bounds.width(), bounds.height())
         val cx = bounds.exactCenterX()
-        val cy = bounds.top + MobileOrbArtwork.centerY(size)
-        val base = MobileOrbArtwork.radius(size) * pressScale
+        val cy = bounds.exactCenterY()
+        val base = minOf(bounds.width() * .30f, bounds.height() * .34f) * pressScale
         val day = MobilePalette.light
-        // A flat disc, the same in both modes: pale while idle, green once connected. A metal gradient read as the old orb.
         val fill = ColorUtils.blendARGB(Color.WHITE, green, lit)
         val icon = ColorUtils.blendARGB(Color.rgb(0x5C, 0x58, 0x78), Color.WHITE, lit)
 
         paint.style = Paint.Style.FILL
         paint.shader = null
-        paint.color = Color.argb(if (day) 36 else 70, 70, 40, 110)
-        canvas.drawCircle(cx, cy + base * .16f, base * .94f, paint)
-        if (lit > .01f) {
-            paint.shader = RadialGradient(cx, cy, base * 1.7f, ColorUtils.setAlphaComponent(green, (80f * lit).toInt()), Color.TRANSPARENT, Shader.TileMode.CLAMP)
-            canvas.drawCircle(cx, cy, base * 1.7f, paint)
+        if (lit < .98f) {
+            paint.color = Color.argb(if (day) ((28 * (1f - lit)).toInt()) else ((50 * (1f - lit)).toInt()), 80, 60, 120)
+            canvas.drawCircle(cx, cy + base * .12f, base * .96f, paint)
         }
-        paint.shader = null
+        if (lit > .01f) {
+            paint.color = Color.argb((34f * lit).toInt(), 0x34, 0xC7, 0x59)
+            canvas.drawCircle(cx, cy, base * 1.62f, paint)
+            paint.color = Color.argb((70f * lit).toInt(), 0x3D, 0xD6, 0x6A)
+            canvas.drawCircle(cx, cy, base * 1.32f, paint)
+        }
         paint.color = fill
         canvas.drawCircle(cx, cy, base, paint)
-        paint.shader = RadialGradient(cx - base * .15f, cy - base * .42f, base * .85f, Color.argb(if (day) 90 else 70, 255, 255, 255), Color.TRANSPARENT, Shader.TileMode.CLAMP)
-        canvas.drawCircle(cx, cy, base, paint)
-        paint.shader = null
+        if (lit < .98f) {
+            paint.style = Paint.Style.STROKE
+            paint.strokeWidth = density
+            paint.color = Color.argb(((1f - lit) * 40).toInt(), 0x6E, 0x6A, 0x88)
+            canvas.drawCircle(cx, cy, base - density, paint)
+            paint.style = Paint.Style.FILL
+        }
 
         paint.style = Paint.Style.STROKE
         if (focused) {
@@ -105,44 +114,131 @@ class MobilePastelArtwork(context: Context, private val idleText: String) : Mobi
             paint.alpha = 255
         }
 
-        val glyph = base * .34f
+        val glyph = base * .36f
         paint.style = Paint.Style.STROKE
         paint.strokeCap = Paint.Cap.ROUND
-        paint.strokeWidth = base * .07f
+        paint.strokeWidth = base * .075f
         paint.color = icon
         box.set(cx - glyph, cy - glyph, cx + glyph, cy + glyph)
         canvas.drawArc(box, -55f, 290f, false, paint)
         canvas.drawLine(cx, cy - glyph * 1.28f, cx, cy - glyph * .12f, paint)
-
-        paint.style = Paint.Style.FILL
-        paint.textAlign = Paint.Align.CENTER
-        paint.typeface = font
-        val rest = MobileOrbArtwork.radius(size)
-        val top = cy + rest + 22f * density
-        paint.textSize = 13f * density
-        paint.color = MobilePalette.muted
-        val caption = statusText.ifEmpty { idleText }
-        val width = paint.measureText(caption)
-        val limit = bounds.width() * .84f
-        if (width > limit && width > 0f) paint.textSize *= limit / width
-        canvas.drawText(caption, cx, top, paint)
-        if (connected) {
-            paint.textSize = 16f * density
-            paint.color = MobilePalette.text
-            paint.isFakeBoldText = true
-            canvas.drawText(if (workersText.isEmpty()) elapsedText else "$elapsedText   $workersText", cx, top + 25f * density, paint)
-            paint.isFakeBoldText = false
-        } else if (workersText.isNotEmpty()) {
-            paint.textSize = 13f * density
-            paint.color = MobilePalette.muted
-            canvas.drawText(workersText, cx, top + 22f * density, paint)
-        }
 
         val settled = abs(lit - litTo) < .004f && spin < .01f
         if (moving() && !settled) {
             unscheduleSelf(tick)
             val windowFocused = (callback as? android.view.View)?.hasWindowFocus() != false
             scheduleSelf(tick, now + MobileOrbArtwork.frameDelay(now, windowFocused))
+        }
+    }
+}
+
+/** The hero card: solid paper, with the concept's faint waves across the lower half. */
+class PastelHeroPaper : Drawable() {
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val path = Path()
+    private val density get() = android.content.res.Resources.getSystem().displayMetrics.density
+
+    override fun draw(canvas: Canvas) {
+        if (bounds.isEmpty) return
+        val radius = 28f * density
+        paint.style = Paint.Style.FILL
+        paint.shader = null
+        paint.color = when {
+            MobilePalette.light -> Color.WHITE
+            MobilePalette.oled -> Color.rgb(16, 14, 22)
+            else -> Color.rgb(42, 36, 62)
+        }
+        canvas.drawRoundRect(bounds.left.toFloat(), bounds.top.toFloat(), bounds.right.toFloat(), bounds.bottom.toFloat(), radius, radius, paint)
+        if (!MobilePalette.light) return
+        val left = bounds.left.toFloat()
+        val right = bounds.right.toFloat()
+        val top = bounds.top.toFloat()
+        val width = bounds.width().toFloat()
+        val height = bounds.height().toFloat()
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = 1.4f * density
+        fun wave(y: Float, lift: Float, color: Int) {
+            path.rewind()
+            path.moveTo(left - 20f, top + height * y)
+            path.cubicTo(left + width * .28f, top + height * (y - lift), left + width * .62f, top + height * (y + lift), right + 20f, top + height * (y - lift * .3f))
+            paint.color = color
+            canvas.drawPath(path, paint)
+        }
+        wave(.58f, .07f, Color.argb(28, 186, 170, 240))
+        wave(.70f, .05f, Color.argb(22, 150, 180, 245))
+        wave(.82f, .06f, Color.argb(18, 255, 186, 170))
+    }
+
+    override fun getOutline(outline: Outline) {
+        outline.setRoundRect(bounds, 28f * density)
+    }
+    override fun setAlpha(alpha: Int) {}
+    override fun setColorFilter(colorFilter: ColorFilter?) {}
+    @Deprecated("Deprecated in Java") override fun getOpacity() = PixelFormat.TRANSLUCENT
+}
+
+/** The wordmark: a gradient R, the same colour run as the concept. */
+class PastelMark(context: Context) : View(context) {
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        textAlign = Paint.Align.CENTER
+        typeface = Typeface.create(runCatching { ResourcesCompat.getFont(context, R.font.geologica) }.getOrNull() ?: Typeface.DEFAULT_BOLD, Typeface.BOLD)
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        paint.textSize = height * .78f
+        paint.shader = LinearGradient(0f, 0f, width.toFloat(), height.toFloat(), Color.rgb(0x7A, 0x5C, 0xF0), Color.rgb(0x4C, 0x86, 0xF2), Shader.TileMode.CLAMP)
+        val y = height / 2f - (paint.descent() + paint.ascent()) / 2f
+        canvas.drawText("R", width / 2f, y, paint)
+    }
+}
+
+/** Four rising bars. The count comes from a measured latency, never a fixed picture. */
+class PastelBars(context: Context) : View(context) {
+    var level = 0
+        set(value) { field = value; invalidate() }
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+
+    override fun onDraw(canvas: Canvas) {
+        val gap = width / 11f
+        val bar = (width - gap * 3f) / 4f
+        for (index in 0 until 4) {
+            val barHeight = height * (.38f + .18f * index)
+            val left = index * (bar + gap)
+            paint.color = if (index < level) Color.rgb(0x34, 0xC7, 0x59) else Color.argb(48, 140, 136, 160)
+            canvas.drawRoundRect(left, height - barHeight, left + bar, height.toFloat(), bar / 3f, bar / 3f, paint)
+        }
+    }
+}
+
+/** The round mark at the end of a server row: a lilac check when it is the one in use. */
+class PastelChoice(context: Context) : View(context) {
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val lilac = Color.rgb(0x7C, 0x6B, 0xF2)
+
+    override fun setSelected(selected: Boolean) {
+        super.setSelected(selected)
+        invalidate()
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        val cx = width / 2f
+        val cy = height / 2f
+        val radius = minOf(cx, cy) - paint.strokeWidth
+        if (isSelected) {
+            paint.style = Paint.Style.FILL
+            paint.color = lilac
+            canvas.drawCircle(cx, cy, radius, paint)
+            paint.style = Paint.Style.STROKE
+            paint.strokeCap = Paint.Cap.ROUND
+            paint.strokeWidth = radius * .22f
+            paint.color = Color.WHITE
+            canvas.drawLine(cx - radius * .38f, cy + radius * .02f, cx - radius * .08f, cy + radius * .32f, paint)
+            canvas.drawLine(cx - radius * .08f, cy + radius * .32f, cx + radius * .42f, cy - radius * .28f, paint)
+        } else {
+            paint.style = Paint.Style.STROKE
+            paint.strokeWidth = resources.displayMetrics.density * 1.4f
+            paint.color = Color.argb(90, 120, 116, 145)
+            canvas.drawCircle(cx, cy, radius - paint.strokeWidth, paint)
         }
     }
 }

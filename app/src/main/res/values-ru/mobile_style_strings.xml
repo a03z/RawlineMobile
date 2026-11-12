@@ -7,6 +7,12 @@
     <string name="qmobile_orb_idle">Нажмите для подключения</string>
     <string name="qmobile_client">VPN-клиент</string>
     <string name="qmobile_servers">Серверы</string>
+    <string name="qmobile_tun">TUN</string>
+    <string name="qmobile_proxy">Системный прокси</string>
+    <string name="qmobile_mode_on">Включено</string>
+    <string name="qmobile_mode_off">Выключено</string>
+    <string name="qmobile_collapse">Свернуть</string>
+    <string name="qmobile_expand">Развернуть</string>
     <string name="qmobile_edit_layout">Редактировать интерфейс</string>
     <string name="qmobile_layout_hint_move">Зажмите элемент и перетащите его вверх или вниз.</string>
     <string name="qmobile_layout_hint_tiles">Дважды нажмите на плитки, чтобы переключить расширенный и стандартный вид.</string>

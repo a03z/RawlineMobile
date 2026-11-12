@@ -87,7 +87,6 @@ class MobileHomeFragment : ToolbarFragment() {
     private var pastelDownTotal: TextView? = null
     private var pastelUpWave: PastelSpeedWave? = null
     private var pastelDownWave: PastelSpeedWave? = null
-    private var pastelFolded = false
     private var restartAfterStop = false
     private fun controlAtBottom()=MobileHomeLayout.controlBottom
     private fun chipAtBottom()=MobileHomeLayout.chipBottom
@@ -127,6 +126,19 @@ class MobileHomeFragment : ToolbarFragment() {
             setImageResource(icon)
             imageTintList = android.content.res.ColorStateList.valueOf(if (MobilePalette.light) Color.rgb(0x6E, 0x6A, 0x86) else MobilePalette.muted)
         }, FrameLayout.LayoutParams(dp(20), dp(20), Gravity.CENTER))
+    }
+    private fun pastelRoundButton(icon: Int, description: String, turn: Float = 0f, onClick: () -> Unit) = ImageButton(requireContext()).apply {
+        setImageResource(icon)
+        imageTintList=android.content.res.ColorStateList.valueOf(if(MobilePalette.light) Color.rgb(0x6E,0x6A,0x86) else MobilePalette.muted)
+        background=GradientDrawable().apply {
+            shape=GradientDrawable.OVAL
+            setColor(if(MobilePalette.light) Color.rgb(0xF3,0xF0,0xFB) else Color.argb(36,255,255,255))
+        }
+        rotation=turn
+        setPadding(dp(8),dp(8),dp(8),dp(8)); minimumWidth=0; minimumHeight=0
+        contentDescription=description
+        setOnClickListener { onClick() }
+        MobileFeedback.apply(this, circle=true)
     }
     private fun pastelSwitch() = androidx.appcompat.widget.SwitchCompat(requireContext()).apply {
         isClickable=false; isFocusable=false
@@ -907,7 +919,7 @@ class MobileHomeFragment : ToolbarFragment() {
                     !byGroups && !group.isSubscription && group.name==SagerDatabase.defaultGroupName() && profiles.isEmpty()
                 }
                 val windows=groups.associate { (group,profiles) -> group.id to MobileProfilePaging.window(profiles.map { it.id },pageSnapshot[group.id],selected) }
-                val keys=groups.map { (group,profiles) -> GroupContent(group.copy(subOptions=group.subOptions.copy()),profiles.map { ProfileContent(it.id,it.type,it.name,it.outboundJson) },(!byGroups && group.subOptions.allowCollapse && group.id in collapsedSnapshot) || (MobileStyle.pastel && pastelFolded),windows.getValue(group.id).page,colors) }
+                val keys=groups.map { (group,profiles) -> GroupContent(group.copy(subOptions=group.subOptions.copy()),profiles.map { ProfileContent(it.id,it.type,it.name,it.outboundJson) },!byGroups && group.subOptions.allowCollapse && group.id in collapsedSnapshot,windows.getValue(group.id).page,colors) }
                 // Parse only displayed profiles off the UI thread. A collapsed subscription creates no rows.
                 if(previousStructure != keys) groups.forEach { (group,profiles) ->
                     if((!byGroups || group.id==focusedGroup) && (byGroups || !group.subOptions.allowCollapse || group.id !in collapsedSnapshot)) {
@@ -1529,17 +1541,14 @@ class MobileHomeFragment : ToolbarFragment() {
                         setOnClickListener { addMenu(it) }
                         MobileFeedback.apply(this, circle=true)
                     },LinearLayout.LayoutParams(dp(36),dp(36)).apply { marginEnd=dp(2) })
-                    if(hasServers) title.addView(LinearLayout(requireContext()).apply {
-                        gravity=Gravity.CENTER_VERTICAL; isFocusable=true
-                        setPadding(dp(8),dp(8),dp(10),dp(8))
-                        addView(text(getString(if(pastelFolded) R.string.qmobile_expand else R.string.qmobile_collapse),13f,muted).apply { setPadding(0,0,dp(2),0) })
-                        addView(ImageView(requireContext()).apply {
-                            setImageResource(R.drawable.ic_mobile_chevron)
-                            imageTintList=android.content.res.ColorStateList.valueOf(muted)
-                            rotation=if(pastelFolded) 90f else -90f
-                        },LinearLayout.LayoutParams(dp(16),dp(16)))
-                        setOnClickListener { pastelFolded=!pastelFolded; refresh() }
-                    },LinearLayout.LayoutParams(-2,-2))
+                    if(profiles.isNotEmpty()) {
+                        title.addView(pastelRoundButton(R.drawable.ic_mobile_test, getString(R.string.qmobile_test_ping)) {
+                            testMenu(profiles.map { it.id }.toLongArray(), group.displayName(), group.id, true)
+                        }, LinearLayout.LayoutParams(dp(36), dp(36)).apply { marginEnd=dp(2) })
+                        title.addView(pastelRoundButton(R.drawable.ic_mobile_chevron, getString(R.string.qmobile_all_servers), -90f) {
+                            showServerDrawer(group, profiles)
+                        }, LinearLayout.LayoutParams(dp(36), dp(36)).apply { marginEnd=dp(2) })
+                    }
                 } else {
                 if (group.isSubscription) title.addView(iconAction(R.drawable.ic_mobile_refresh,getString(R.string.qmobile_refresh)) { SubscriptionClient.refreshGroup(group.id,false) }.apply { isEnabled=!SubscriptionClient.states.value.containsKey(group.id); alpha=1f;nextRefreshButtons[group.id]=this },LinearLayout.LayoutParams(dp(40),dp(48)))
                 title.addView(iconAction(R.drawable.ic_mobile_test,getString(R.string.qmobile_tests)) { testMenu(profiles.map { it.id }.toLongArray(),group.displayName(),group.id,true) },LinearLayout.LayoutParams(dp(40),dp(48)))
@@ -1967,6 +1976,114 @@ class MobileHomeFragment : ToolbarFragment() {
             option(getString(R.string.qmobile_qr),R.drawable.ic_mobile_qr) { app.rawline.mobile.widget.QRCodeDialog(link,profile.displayName()).show(parentFragmentManager,"profile-qr") },
             option("JSON",R.drawable.ic_mobile_json) { copy(org.json.JSONObject(profile.outbound.exportToJson().toCompact()).toString(2)) },
         )
+    }
+    /** Every server in the group, in a sheet. The card on the home screen stays as it is. */
+    private fun showServerDrawer(group: ProxyGroup, profiles: List<ProxyEntity>) {
+        val sheet=MobileSheetDialog(requireContext())
+        val lilac=Color.rgb(0x7C,0x6B,0xF2)
+        val paper=when {
+            MobilePalette.light -> Color.WHITE
+            MobilePalette.oled -> Color.rgb(16,14,22)
+            else -> Color.rgb(42,36,62)
+        }
+        val rowColor=when {
+            MobilePalette.light -> Color.rgb(0xF6,0xF4,0xFC)
+            MobilePalette.oled -> Color.rgb(24,22,32)
+            else -> Color.rgb(58,50,82)
+        }
+        val body=LinearLayout(requireContext()).apply {
+            orientation=LinearLayout.VERTICAL
+            setPadding(dp(16),dp(8),dp(16),dp(24))
+            background=GradientDrawable().apply {
+                setColor(paper)
+                val radius=dp(28).toFloat()
+                cornerRadii=floatArrayOf(radius,radius,radius,radius,0f,0f,0f,0f)
+            }
+        }
+        val handle=FrameLayout(requireContext()).apply {
+            contentDescription=getString(android.R.string.cancel); isFocusable=true
+            setOnClickListener { sheet.dismiss() }
+            addView(View(requireContext()).apply {
+                background=GradientDrawable().apply { setColor(muted); cornerRadius=dp(2).toFloat() }
+            }, FrameLayout.LayoutParams(dp(40),dp(4),Gravity.CENTER))
+        }
+        body.addView(handle,LinearLayout.LayoutParams(-1,dp(28)))
+        sheet.dragOnlyFrom(handle)
+        body.addView(text(getString(R.string.qmobile_servers),20f).apply {
+            gravity=Gravity.CENTER; setTypeface(typeface,Typeface.BOLD); setPadding(0,dp(4),0,0)
+        })
+        body.addView(text(group.displayName(),13f,muted).apply {
+            gravity=Gravity.CENTER; setPadding(0,dp(2),0,dp(12))
+        })
+        if(profiles.isNotEmpty()) body.addView(LinearLayout(requireContext()).apply {
+            gravity=Gravity.CENTER; minimumHeight=dp(48); isFocusable=true
+            background=GradientDrawable().apply { setColor(lilac); cornerRadius=dp(16).toFloat() }
+            contentDescription=getString(R.string.qmobile_test_ping)
+            addView(ImageView(requireContext()).apply {
+                setImageResource(R.drawable.ic_mobile_test)
+                imageTintList=android.content.res.ColorStateList.valueOf(Color.WHITE)
+            }, LinearLayout.LayoutParams(dp(18),dp(18)).apply { marginEnd=dp(8) })
+            addView(text(getString(R.string.qmobile_test_ping),15f,Color.WHITE).apply {
+                setTypeface(typeface,Typeface.BOLD); setPadding(0,0,0,0)
+            })
+            setOnClickListener {
+                testMenu(profiles.map { it.id }.toLongArray(), group.displayName(), group.id, true)
+                sheet.dismiss()
+            }
+            MobileFeedback.apply(this)
+        }, LinearLayout.LayoutParams(-1,dp(48)).apply { bottomMargin=dp(12) })
+        val selected=DataStore.selectedProxy
+        if(profiles.isEmpty()) body.addView(text(getString(R.string.qmobile_empty),14f,muted).apply { gravity=Gravity.CENTER })
+        profiles.forEach { profile ->
+            val raw=profile.displayName().trim()
+            val leading=MobileCountryFlags.leading(raw)
+            val name=if(leading.isNotEmpty()) raw.substring(leading.length).trimStart() else raw
+            val picked=profile.id==selected
+            val row=LinearLayout(requireContext()).apply {
+                gravity=Gravity.CENTER_VERTICAL; minimumHeight=dp(64); isFocusable=true
+                setPadding(dp(12),dp(8),dp(12),dp(8))
+                background=GradientDrawable().apply {
+                    setColor(if(picked && MobilePalette.light) Color.rgb(0xF0,0xEB,0xFF) else rowColor)
+                    cornerRadius=dp(16).toFloat()
+                    if(picked) setStroke(dp(1).coerceAtLeast(1), lilac)
+                }
+                contentDescription=name.ifEmpty { raw }
+                setOnClickListener {
+                    DataStore.selectedProxy=profile.id
+                    if(DataStore.serviceState.canStop) SagerNet.reloadService()
+                    sheet.dismiss()
+                    refresh()
+                }
+                MobileFeedback.apply(this)
+            }
+            val badge=flagBadge(raw)
+            badge.outlineProvider=object:android.view.ViewOutlineProvider() {
+                override fun getOutline(view:View, outline:android.graphics.Outline) { outline.setRoundRect(0,0,view.width,view.height,dp(3).toFloat()) }
+            }
+            badge.clipToOutline=true
+            row.addView(badge,LinearLayout.LayoutParams(dp(24),dp(16)))
+            row.addView(LinearLayout(requireContext()).apply {
+                orientation=LinearLayout.VERTICAL
+                setPadding(dp(10),0,dp(8),0)
+                addView(text(name.ifEmpty { raw },15f).apply {
+                    setTypeface(typeface,Typeface.BOLD); setPadding(0,0,0,0); maxLines=1
+                    ellipsize=android.text.TextUtils.TruncateAt.END
+                })
+                val detail=if(profile.latency>0) "${profile.latency} ms" else profile.displayProtocol()
+                addView(text(detail,12f,muted).apply { setPadding(0,dp(2),0,0); maxLines=1 })
+            }, LinearLayout.LayoutParams(0,-2,1f))
+            row.addView(PastelChoice(requireContext()).apply { isSelected=picked; isClickable=false }, LinearLayout.LayoutParams(dp(22),dp(22)))
+            body.addView(row,LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(8) })
+        }
+        sheet.setContentView(androidx.core.widget.NestedScrollView(requireContext()).apply {
+            isNestedScrollingEnabled=true
+            addView(body,FrameLayout.LayoutParams(-1,-2))
+        })
+        val bars=view?.let { ViewCompat.getRootWindowInsets(it)?.getInsets(WindowInsetsCompat.Type.systemBars()) }
+        val height=view?.height?.takeIf { it>0 } ?: resources.displayMetrics.heightPixels
+        sheet.behavior.maxHeight=(height-(bars?.top ?: 0)-(bars?.bottom ?: 0)-dp(16)).coerceAtLeast(1)
+        sheet.behavior.state=com.google.android.material.bottomsheet.BottomSheetBehavior.STATE_EXPANDED
+        sheet.show()
     }
     private fun groupMenu(group: ProxyGroup, anchor: View) {
         val dialog=MobileSheetDialog(requireContext())

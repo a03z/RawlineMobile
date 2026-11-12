@@ -18,6 +18,8 @@
     <string name="qmobile_upload">Upload</string>
     <string name="qmobile_download">Download</string>
     <string name="qmobile_traffic_total">Total %1$s</string>
+    <string name="qmobile_test_ping">Test ping</string>
+    <string name="qmobile_all_servers">All servers</string>
     <string name="qmobile_edit_layout">Edit interface</string>
     <string name="qmobile_layout_hint_move">Hold an element and drag it up or down.</string>
     <string name="qmobile_layout_hint_control">Double-tap the connection control to switch between the button and switches.</string>

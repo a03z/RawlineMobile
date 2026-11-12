@@ -174,13 +174,17 @@ fun Project.setupApp() {
         }
 
         // RawlineCore is built for android/arm64, android/arm and android/amd64 only.
+        // -PrawlineAbis=arm64-v8a builds just that split and skips the universal APK.
+        val abis = (findProperty("rawlineAbis") as String?)
+            ?.split(',')
+            ?.map { it.trim() }
+            ?.filter { it.isNotEmpty() }
+            ?: listOf("armeabi-v7a", "arm64-v8a", "x86_64")
         splits.abi {
             reset()
             isEnable = true
-            isUniversalApk = true
-            include("armeabi-v7a")
-            include("arm64-v8a")
-            include("x86_64")
+            isUniversalApk = abis.size > 1
+            abis.forEach { include(it) }
         }
 
         flavorDimensions += "vendor"

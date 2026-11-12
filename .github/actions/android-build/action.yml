@@ -19,6 +19,10 @@ inputs:
     description: sign release builds (true/false)
     required: false
     default: 'false'
+  gradle-args:
+    description: extra arguments for every Gradle invocation, such as -PrawlineAbis=arm64-v8a
+    required: false
+    default: ''
 runs:
   using: composite
   steps:
@@ -68,5 +72,5 @@ runs:
         fi
         # Room variants export the same schema file; never run their KSP workers together.
         for task in ${{ inputs.tasks }}; do
-          ./gradlew --stacktrace "$task"
+          ./gradlew --stacktrace ${{ inputs.gradle-args }} "$task"
         done

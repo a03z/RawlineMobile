@@ -45,12 +45,14 @@ jobs:
         uses: ./.github/actions/android-build
         with:
           tasks: app:testOssDebugUnitTest app:assembleOssDebug app:assembleOssDebugAndroidTest
+          # Temporary, for phone testing: one arm64 APK instead of every ABI plus universal.
+          gradle-args: -PrawlineAbis=arm64-v8a
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v7
         with:
           name: RawlineMobile-debug
-          path: app/build/outputs/apk/oss/debug/*.apk
+          path: app/build/outputs/apk/oss/debug/*arm64-v8a*.apk
           if-no-files-found: error
       - name: Upload test reports
         if: always()

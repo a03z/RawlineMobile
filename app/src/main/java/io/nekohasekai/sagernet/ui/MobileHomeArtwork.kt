@@ -64,12 +64,14 @@ class MobileHomeBackdrop : Drawable() {
             return
         }
         paint.shader = LinearGradient(0f, 0f, w, h,
-            intArrayOf(Color.rgb(32, 24, 48), Color.rgb(22, 20, 31), Color.rgb(16, 28, 52)),
-            floatArrayOf(0f, .45f, 1f), Shader.TileMode.CLAMP)
+            intArrayOf(Color.rgb(92, 58, 96), Color.rgb(46, 40, 78), Color.rgb(36, 62, 112)),
+            floatArrayOf(0f, .46f, 1f), Shader.TileMode.CLAMP)
         canvas.drawRect(bounds, paint)
-        paint.shader = RadialGradient(w * .9f, h * .06f, w * .75f, Color.argb(80, 96, 64, 150), Color.TRANSPARENT, Shader.TileMode.CLAMP)
+        paint.shader = RadialGradient(w * .08f, h * .02f, w * .8f, Color.argb(120, 255, 150, 130), Color.TRANSPARENT, Shader.TileMode.CLAMP)
         canvas.drawRect(bounds, paint)
-        paint.shader = RadialGradient(w * .06f, h * .88f, w * .7f, Color.argb(70, 40, 72, 150), Color.TRANSPARENT, Shader.TileMode.CLAMP)
+        paint.shader = RadialGradient(w * .96f, h * .12f, w * .85f, Color.argb(110, 170, 130, 255), Color.TRANSPARENT, Shader.TileMode.CLAMP)
+        canvas.drawRect(bounds, paint)
+        paint.shader = RadialGradient(w * .2f, h * .96f, w * .9f, Color.argb(100, 90, 150, 255), Color.TRANSPARENT, Shader.TileMode.CLAMP)
         canvas.drawRect(bounds, paint)
         paint.shader = null
     }

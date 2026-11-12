@@ -830,7 +830,7 @@ class MobileHomeFragment : ToolbarFragment() {
                 openSwipe=null
                 val header = LinearLayout(requireContext()).apply { gravity = Gravity.CENTER_VERTICAL }
                 fun headerIcon(icon: Int, description: String, callback: (View) -> Unit) = ImageButton(requireContext()).apply {
-                    setImageResource(icon); imageTintList=android.content.res.ColorStateList.valueOf(foregroundColor); background = tile(); setPadding(dp(12),dp(12),dp(12),dp(12))
+                    setImageResource(icon); imageTintList=android.content.res.ColorStateList.valueOf(foregroundColor); background = if(MobileStyle.pastel) MobileGlass(dp(24).toFloat()) else tile(); setPadding(dp(12),dp(12),dp(12),dp(12))
                     contentDescription = description; androidx.appcompat.widget.TooltipCompat.setTooltipText(this,description); setOnClickListener { callback(it) }; MobileFeedback.apply(this)
                 }
                 val extended=extendedTiles()

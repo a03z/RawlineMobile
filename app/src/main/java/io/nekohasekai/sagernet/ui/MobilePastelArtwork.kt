@@ -65,28 +65,26 @@ class MobilePastelArtwork(context: Context, private val idleText: String) : Mobi
         val cy = bounds.top + MobileOrbArtwork.centerY(size)
         val base = MobileOrbArtwork.radius(size) * pressScale
         val day = MobilePalette.light
-        val idle = if (day) Color.WHITE else Color.argb(64, 255, 255, 255)
-        val fill = ColorUtils.blendARGB(idle, green, lit)
+        // A flat disc, the same in both modes: pale while idle, green once connected. A metal gradient read as the old orb.
+        val fill = ColorUtils.blendARGB(Color.WHITE, green, lit)
+        val icon = ColorUtils.blendARGB(Color.rgb(0x5C, 0x58, 0x78), Color.WHITE, lit)
 
+        paint.style = Paint.Style.FILL
+        paint.shader = null
+        paint.color = Color.argb(if (day) 36 else 70, 70, 40, 110)
+        canvas.drawCircle(cx, cy + base * .16f, base * .94f, paint)
         if (lit > .01f) {
-            paint.style = Paint.Style.FILL
-            paint.shader = RadialGradient(cx, cy, base * 1.75f, ColorUtils.setAlphaComponent(green, (70f * lit).toInt()), Color.TRANSPARENT, Shader.TileMode.CLAMP)
-            canvas.drawCircle(cx, cy, base * 1.75f, paint)
+            paint.shader = RadialGradient(cx, cy, base * 1.7f, ColorUtils.setAlphaComponent(green, (80f * lit).toInt()), Color.TRANSPARENT, Shader.TileMode.CLAMP)
+            canvas.drawCircle(cx, cy, base * 1.7f, paint)
         }
-        if (day && lit < .98f) {
-            paint.shader = null
-            paint.color = Color.argb(((1f - lit) * 28f).toInt(), 80, 60, 120)
-            canvas.drawCircle(cx, cy + base * .08f, base * 1.04f, paint)
-        }
-        paint.shader = RadialGradient(cx - base * .28f, cy - base * .36f, base * 1.4f,
-            ColorUtils.blendARGB(Color.WHITE, green, lit * .35f), fill, Shader.TileMode.CLAMP)
+        paint.shader = null
+        paint.color = fill
+        canvas.drawCircle(cx, cy, base, paint)
+        paint.shader = RadialGradient(cx - base * .15f, cy - base * .42f, base * .85f, Color.argb(if (day) 90 else 70, 255, 255, 255), Color.TRANSPARENT, Shader.TileMode.CLAMP)
         canvas.drawCircle(cx, cy, base, paint)
         paint.shader = null
-        paint.style = Paint.Style.STROKE
-        paint.strokeWidth = density
-        paint.color = if (lit > .5f) ColorUtils.setAlphaComponent(Color.WHITE, 90) else ColorUtils.setAlphaComponent(if (day) Color.BLACK else Color.WHITE, if (day) 18 else 40)
-        canvas.drawCircle(cx, cy, base - paint.strokeWidth, paint)
 
+        paint.style = Paint.Style.STROKE
         if (focused) {
             paint.color = MobilePalette.text
             paint.strokeWidth = 2f * density
@@ -111,7 +109,7 @@ class MobilePastelArtwork(context: Context, private val idleText: String) : Mobi
         paint.style = Paint.Style.STROKE
         paint.strokeCap = Paint.Cap.ROUND
         paint.strokeWidth = base * .07f
-        paint.color = ColorUtils.blendARGB(MobilePalette.muted, Color.WHITE, lit)
+        paint.color = icon
         box.set(cx - glyph, cy - glyph, cx + glyph, cy + glyph)
         canvas.drawArc(box, -55f, 290f, false, paint)
         canvas.drawLine(cx, cy - glyph * 1.28f, cx, cy - glyph * .12f, paint)

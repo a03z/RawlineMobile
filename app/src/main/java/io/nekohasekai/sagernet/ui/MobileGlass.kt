@@ -22,21 +22,21 @@ class MobileGlass(private val radius: Float, private val tint: Int? = null) : Dr
         box.set(bounds); box.inset(inset, inset)
         val pastel = MobileStyle.pastel
         val high = tint?.let { ColorUtils.setAlphaComponent(it, if (pastel && light) 88 else if (pastel) 96 else if (light) 36 else 44) } ?: when {
-            pastel && light -> Color.argb(235, 255, 255, 255)
-            pastel -> Color.argb(46, 255, 255, 255)
+            pastel && light -> Color.argb(248, 255, 255, 255)
+            pastel -> Color.argb(236, 54, 46, 82)
             light -> Color.argb(205, 255, 255, 255)
             else -> Color.argb(15, 255, 255, 255)
         }
         val low = tint?.let { ColorUtils.setAlphaComponent(it, if (pastel && light) 48 else if (pastel) 64 else if (light) 20 else 26) } ?: when {
-            pastel && light -> Color.argb(220, 248, 246, 255)
-            pastel -> Color.argb(28, 255, 255, 255)
+            pastel && light -> Color.argb(242, 255, 250, 252)
+            pastel -> Color.argb(230, 36, 40, 70)
             light -> Color.argb(160, 248, 248, 250)
             else -> Color.argb(9, 255, 255, 255)
         }
         body = LinearGradient(0f, top, 0f, top + h, high, low, Shader.TileMode.CLAMP)
-        val line = tint ?: if (pastel) Color.rgb(0x7C, 0x6B, 0xF2) else if (light) Color.BLACK else Color.WHITE
-        val rimTop = if (tint != null) 90 else if (pastel && light) 48 else if (pastel) 72 else if (light) 20 else 30
-        val rimBottom = if (tint != null) 50 else if (pastel && light) 24 else if (pastel) 40 else if (light) 12 else 14
+        val line = tint ?: if (pastel) Color.WHITE else if (light) Color.BLACK else Color.WHITE
+        val rimTop = if (tint != null) 90 else if (pastel && light) 200 else if (pastel) 56 else if (light) 20 else 30
+        val rimBottom = if (tint != null) 50 else if (pastel && light) 70 else if (pastel) 24 else if (light) 12 else 14
         rim = LinearGradient(0f, top, 0f, top + h,
             ColorUtils.setAlphaComponent(line, rimTop),
             ColorUtils.setAlphaComponent(line, rimBottom), Shader.TileMode.CLAMP)
@@ -44,6 +44,14 @@ class MobileGlass(private val radius: Float, private val tint: Int? = null) : Dr
 
     override fun draw(canvas: Canvas) {
         if (bounds.isEmpty) return
+        if (MobileStyle.pastel && tint == null) {
+            paint.style = Paint.Style.FILL
+            paint.shader = null
+            paint.color = Color.argb(if (MobilePalette.light) 28 else 64, 60, 36, 100)
+            val shadow = RectF(box)
+            shadow.offset(0f, density * 5f)
+            canvas.drawRoundRect(shadow, corner, corner, paint)
+        }
         paint.style = Paint.Style.FILL
         paint.shader = body
         canvas.drawRoundRect(box, corner, corner, paint)
@@ -90,21 +98,21 @@ class MobileDockGlass(private val corner: Float, private val discY: Float, priva
         val pastel = MobileStyle.pastel
         val high = centreY - radius
         val topColor = when {
-            pastel && light -> Color.argb(235, 255, 255, 255)
-            pastel -> Color.argb(46, 255, 255, 255)
+            pastel && light -> Color.argb(248, 255, 255, 255)
+            pastel -> Color.argb(236, 54, 46, 82)
             light -> Color.argb(205, 255, 255, 255)
             else -> Color.argb(22, 255, 255, 255)
         }
         val bottomColor = when {
-            pastel && light -> Color.argb(220, 248, 246, 255)
-            pastel -> Color.argb(28, 255, 255, 255)
+            pastel && light -> Color.argb(242, 255, 250, 252)
+            pastel -> Color.argb(230, 36, 40, 70)
             light -> Color.argb(160, 248, 248, 250)
             else -> Color.argb(9, 255, 255, 255)
         }
         body = LinearGradient(0f, high, 0f, bottom, topColor, bottomColor, Shader.TileMode.CLAMP)
-        val line = if (pastel) Color.rgb(0x7C, 0x6B, 0xF2) else if (light) Color.BLACK else Color.WHITE
-        val rimTop = if (pastel) if (light) 48 else 72 else if (light) 24 else 44
-        val rimBottom = if (pastel) if (light) 24 else 40 else if (light) 12 else 14
+        val line = if (pastel) Color.WHITE else if (light) Color.BLACK else Color.WHITE
+        val rimTop = if (pastel) if (light) 200 else 56 else if (light) 24 else 44
+        val rimBottom = if (pastel) if (light) 70 else 24 else if (light) 12 else 14
         rim = LinearGradient(0f, high, 0f, bottom, ColorUtils.setAlphaComponent(line, rimTop), ColorUtils.setAlphaComponent(line, rimBottom), Shader.TileMode.CLAMP)
     }
 

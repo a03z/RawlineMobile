@@ -106,7 +106,7 @@ class XrayMultiplex : MuxStateModel<XrayMuxSettings> {
         maxConnections = readQueryCount(q, "mux_max_connections", maxConnections)
         xudpConcurrency = readQueryCount(q, "mux_xudp_concurrency", xudpConcurrency)
         if (q.has("mux_xudp_proxy_udp443")) {
-            val value = q.value("mux_xudp_proxy_udp443").trim()
+            val value = q.value("mux_xudp_proxy_udp443").trim().lowercase()
             if (acceptOptional("mux_xudp_proxy_udp443", XrayMuxChecks.xrayXudpProxyUDP443(value), value)) xudpProxyUDP443 = value
         }
         dropLegacyXudpDefault()

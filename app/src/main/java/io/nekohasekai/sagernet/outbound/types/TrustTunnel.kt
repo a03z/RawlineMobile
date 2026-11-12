@@ -301,7 +301,9 @@ class TrustTunnel : Outbound("trusttunnel") {
         private fun importCongestion(value: String): String {
             val congestion = canonicalCongestion(value)
             val message = Validation.oneOf(congestion, trustTunnelCongestionControls)
-            if (!ParseDiag.active() || acceptOptional("quic_congestion_control", message, congestion)) return congestion
+            // An unknown name is dropped (and reported while importing) rather than run as BBR under another label.
+            if (message.isEmpty()) return congestion
+            if (ParseDiag.active()) acceptOptional("quic_congestion_control", message, congestion)
             return ""
         }
 

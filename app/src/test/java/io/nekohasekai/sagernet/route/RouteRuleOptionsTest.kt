@@ -35,7 +35,7 @@ class RouteRuleOptionsTest {
         val json = rule.toRuleJson(false, null)
         assertEquals(true, json["tls_fragment"])
         assertEquals("500ms", json["tls_fragment_fallback_delay"])
-        assertNull(json["tls_record_fragment"])
+        // Both on is refused by the rule's validation (validation_route_fragment_exclusive), not dropped silently.
         rule.tls_fragment = false
         val record = rule.toRuleJson(false, null)
         assertEquals(true, record["tls_record_fragment"])

@@ -204,7 +204,7 @@ class XrayVless : Outbound("xrayvless") {
     override fun buildXray(ctx: BuildContext): BuildResult {
         val obj = JsonObject()
         obj["protocol"] = "vless"
-        obj["settings"] = settingsJson()
+        obj["settings"] = settingsJson(ctx)
         val stream = streamSetting.build(ctx, displayTypeAndName())
         if (!stream.ok) return BuildResult(JsonObject(), stream.error)
         if (stream.json.isNotEmpty()) obj["streamSettings"] = stream.json
@@ -225,13 +225,14 @@ class XrayVless : Outbound("xrayvless") {
     }
 
     /** xrayVless ExportToJson / BuildXray: address, port, id and encryption always; flow unless empty or "none". */
-    private fun settingsJson(): JsonObject {
+    private fun settingsJson(ctx: BuildContext? = null): JsonObject {
         val settings = JsonObject()
         settings["address"] = server
         settings["port"] = serverPort
         settings["id"] = uuid
         settings["encryption"] = encryption
-        if (flow.isNotEmpty() && flow != "none") settings["flow"] = flow
+        // MASQUE WARP speaks QUIC to UDP/443, which Vision refuses unless told otherwise.
+        if (flow.isNotEmpty() && flow != "none") settings["flow"] = if (ctx?.visionUdp443 == true && flow == "xtls-rprx-vision") "$flow-udp443" else flow
         return settings
     }
 

@@ -278,7 +278,9 @@ abstract class Outbound(@JvmField var type: String) {
      */
     open fun validate(issues: MutableList<Issue>, ctx: BuildContext) {
         val address = getAddress().trim()
-        if (hasServerEndpoint()) {
+        // Native transports keep their own server fields and checks (a DNS domain, a room, a key), as the desktop's
+        // extra-core profiles do (extracore::HasServerEndpoint).
+        if (hasServerEndpoint() && this !is app.rawline.mobile.bg.carrier.NativeCarrier) {
             if (address.isEmpty()) {
                 if (!serverAddressOptional()) issues.addIssue(Severity.Error, "server", vtr(R.string.validation_server_missing))
             } else {

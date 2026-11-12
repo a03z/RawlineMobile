@@ -25,6 +25,7 @@ enum class CarrierKind(val executable: String, val configFlag: String, val minim
     COTTENDNS("libcottendns.so", "--rawline-config", 24),
     SOAR("libsoar.so", "--rawline-config", 24),
     S3BYPASS("libs3bypass.so", "--rawline-config", 24),
+    AIVPN("libaivpn.so", "--rawline-config", 24),
     SSTP("libsstp.so", "--rawline-config", 24),
     // WDTT Plus takes flags and its secrets as START_CONFIG on stdin, as its own app starts it.
     WDTTPLUS("libwdttplus.so", "", 24),
@@ -225,6 +226,13 @@ class CarrierProcess private constructor(private val process: Process, private v
                         }
                         // Lifecycle events (stream count, panel restarts) for the watchdog; no addresses or hashes.
                         if (kind == CarrierKind.MRTT) builder.environment()["MRTT_DIAGNOSTICS"] = "1"
+                        // aivpn-client keeps its server descriptors under HOME and its control token under XDG_RUNTIME_DIR.
+                        if (kind == CarrierKind.AIVPN) {
+                            val state = File(privateDirectory, "aivpn")
+                            check(state.isDirectory || state.mkdirs()) { "Cannot create private AIVPN state" }
+                            builder.environment()["HOME"] = state.absolutePath
+                            builder.environment()["XDG_RUNTIME_DIR"] = sessionDirectory.absolutePath
+                        }
                         val child = try { launch(builder) } catch (_: Exception) {
                             throw IllegalStateException("Cannot start transport client")
                         }

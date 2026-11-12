@@ -131,6 +131,9 @@ class NativeTransportSettingsActivity : ProfileSettingsActivity<Outbound>() {
                 if(!tuning.contains(key)) tuning[key]=value
             document["tuning"]=tuning
         }
+        if(type == "aivpn")
+            for((key,value) in mapOf("key" to "","mask" to "auto","polymorphic" to false,"adaptive_level" to 0,"dns" to ""))
+                if(!document.contains(key)) document[key]=value
         fun write(obj: JsonObject, prefix: String = "") {
             for ((key, value) in obj) {
                 if (key == "type") continue
@@ -162,6 +165,7 @@ class NativeTransportSettingsActivity : ProfileSettingsActivity<Outbound>() {
             "freeturn" -> listOf("name","server","server_port","provider","hash_source") + (1..freeturnSlots()).map { "hash_$it" } + listOf("wg_config","tunnel_mode","bond","relay_transport","threads","streams_per_cred",
                 "obf_profile","obf_key","obf_timing","client_id","dns_mode","dns_servers","manual_captcha","turn_host")
             "openfluxkey" -> listOf("name","transport","doc_url","key_token","e2e_encryption")
+            "aivpn" -> listOf("name","key","mask","polymorphic","adaptive_level","dns")
             "s3bypass" -> listOf("name") + listOf("endpoint","region","bucket","prefix","sessionsDir","accessKey","secretKey").map { "storage.$it" } +
                 listOf("pollIntervalMs","writeIntervalMs","idleTimeoutSec","maxFileSizeBytes").map { "tuning.$it" }
             else -> listOf("name","provider","transport","room","key","token","channel","dns","device_id") + optionDefaults.keys.map { "options.$it" }
@@ -289,7 +293,7 @@ class NativeTransportSettingsActivity : ProfileSettingsActivity<Outbound>() {
 
     override fun PreferenceFragmentCompat.createPreferences(savedInstanceState: Bundle?, rootKey: String?) {
         preferenceScreen = preferenceManager.createPreferenceScreen(requireContext())
-        val labels = mapOf("tag" to "Название", "name" to "Название", "server" to "Адрес сервера",
+        val labels = mutableMapOf("tag" to "Название", "name" to "Название", "server" to "Адрес сервера",
             "server_port" to "Порт сервера", "password" to "Пароль", "hashes" to "Хэши VK",
             "hash_source" to "Источник хешей", "workers" to "Воркеры", "turn_tcp" to "Транспорт TURN", "mode" to "Режим",
             "turn_transport" to "Транспорт TURN", "srtp_mode" to "Режим SRTP", "fingerprint" to "TLS-профиль VK",
@@ -323,6 +327,7 @@ class NativeTransportSettingsActivity : ProfileSettingsActivity<Outbound>() {
             "idleTimeoutSec" to "Тайм-аут простоя, с", "maxFileSizeBytes" to "Наибольший объект, байт",
             "doc_url" to "Ссылка на документ или доску", "key_token" to "Ключ доступа", "e2e_encryption" to "Сквозное шифрование ключом",
             "options" to "Дополнительные параметры MasterDNS (JSON)",
+            "mask" to "Маска трафика", "polymorphic" to "Полиморфная маска на основе выбранной", "adaptive_level" to "Уровень адаптации",
             "max_group" to "ID группы MAX (пусто: группа привязки)", "jitsi_room" to "Ссылка на комнату Jitsi", "jitsi_workers" to "Воркеры Jitsi", "mtu" to "MTU")
         val choices = mutableMapOf("hash_source" to listOf("manual","auto"),"mode" to listOf("raw","wg"), "obfs" to listOf("audio","video"),
             "vk_anon_path" to listOf("vkcalls","legacy"), "captcha_mode" to listOf("auto","wv","rjs"),
@@ -346,6 +351,13 @@ class NativeTransportSettingsActivity : ProfileSettingsActivity<Outbound>() {
             "tunnel_mode" to listOf("UDP: встроенный WireGuard","TCP: первое звено цепочки"),"relay_transport" to listOf("TCP/TLS","UDP"),
             "dns_mode" to listOf("Автоматически","UDP/53","DNS-over-HTTPS"))
         if(editingOutbound.type=="freeturn") captions["provider"]=listOf("Через TURN звонка VK","Напрямую к серверу")
+        if(editingOutbound.type=="aivpn") {
+            choices["mask"]=app.rawline.mobile.outbound.types.Aivpn.MASKS
+            captions["mask"]=listOf("Автоматически")+app.rawline.mobile.outbound.types.Aivpn.MASKS.drop(1)
+            choices["adaptive_level"]=listOf("0","1","2","3")
+            labels["key"]="Ключ подключения (aivpn://…)"
+            labels["dns"]="DNS внутри туннеля (до четырёх IPv4 через запятую; пусто — как в оригинале)"
+        }
         if(editingOutbound.type=="openfluxkey") {
             choices["transport"]=app.rawline.mobile.outbound.types.OpenFluxKey.TRANSPORTS
             captions["transport"]=listOf("Яндекс Документы","Яндекс Волга","MAX","Яндекс Доски","Mail.ru","МТС Линк","Телемост","Cups.online","Авито","Яндекс Документы, несколько")

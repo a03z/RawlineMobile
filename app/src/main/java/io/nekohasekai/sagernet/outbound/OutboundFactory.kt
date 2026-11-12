@@ -14,6 +14,7 @@ import app.rawline.mobile.outbound.types.DnsTunnel
 import app.rawline.mobile.outbound.types.Http
 import app.rawline.mobile.outbound.types.OpenFluxKey
 import app.rawline.mobile.outbound.types.S3Bypass
+import app.rawline.mobile.outbound.types.Aivpn
 import app.rawline.mobile.outbound.types.Freeturn
 import app.rawline.mobile.outbound.types.Mrtt
 import app.rawline.mobile.outbound.types.Sstp
@@ -45,7 +46,7 @@ object OutboundFactory {
     /** Every factory string of OutboundFactory.cpp:35-61 (R2 Р В РІР‚в„ўР вЂ™Р’В§A). */
     @JvmField
     val ALL_TYPES: List<String> = listOf(
-        "qwdtt", "csqtt", "mrtt", "wdttplus", "freeturn", "openflux", "openfluxkey", "olcrtc", "dnstt", "vaydns", "slipstream", "masterdns", "cottendns", "soar", "s3bypass", "sstp", "socks", "http", "shadowsocks", "chain", "autoselector", "vmess", "trojan", "vless", "xrayvless", "hysteria",
+        "qwdtt", "csqtt", "mrtt", "wdttplus", "freeturn", "openflux", "openfluxkey", "olcrtc", "dnstt", "vaydns", "slipstream", "masterdns", "cottendns", "soar", "s3bypass", "aivpn", "sstp", "socks", "http", "shadowsocks", "chain", "autoselector", "vmess", "trojan", "vless", "xrayvless", "hysteria",
         "shadowsocksr", "tuic", "juicity", "trusttunnel", "anytls", "mieru", "snell", "shadowtls", "wireguard", "masque", "openvpn",
         "openconnect", "tailscale", "ssh", "custom", "extracore", "naive", "direct",
     )
@@ -82,6 +83,7 @@ object OutboundFactory {
         "cottendns" to { DnsTunnel("cottendns") },
         "soar" to { DnsTunnel("soar") },
         "s3bypass" to { S3Bypass() },
+        "aivpn" to { Aivpn() },
         "openfluxkey" to { OpenFluxKey() },
         "sstp" to { Sstp() },
         "freeturn" to { Freeturn() },
@@ -148,6 +150,7 @@ object OutboundFactory {
         Protocol("cottendns", emptyList(), listOf("cottendns"), emptyList()),
         Protocol("soar", emptyList(), listOf("soar"), emptyList()),
         Protocol("s3bypass", emptyList(), listOf("s3bypass"), emptyList()),
+        Protocol("aivpn", listOf("aivpn://"), listOf("aivpn"), emptyList()),
         Protocol("sstp", listOf("sstp://"), listOf("sstp"), emptyList()),
         Protocol("freeturn", listOf("freeturn://"), listOf("freeturn"), emptyList()),
         Protocol("csqtt", listOf("csqtt://"), listOf("csqtt"), emptyList()),

@@ -20,13 +20,26 @@ class MobileGlass(private val radius: Float, private val tint: Int? = null) : Dr
         corner = minOf(radius, h / 2, bounds.width() / 2f)
         val inset = density * .5f
         box.set(bounds); box.inset(inset, inset)
-        val high = tint?.let { ColorUtils.setAlphaComponent(it, if (light) 36 else 44) } ?: if (light) Color.argb(205, 255, 255, 255) else Color.argb(15, 255, 255, 255)
-        val low = tint?.let { ColorUtils.setAlphaComponent(it, if (light) 20 else 26) } ?: if (light) Color.argb(160, 248, 248, 250) else Color.argb(9, 255, 255, 255)
+        val pastel = MobileStyle.pastel
+        val high = tint?.let { ColorUtils.setAlphaComponent(it, if (pastel && light) 88 else if (pastel) 96 else if (light) 36 else 44) } ?: when {
+            pastel && light -> Color.argb(235, 255, 255, 255)
+            pastel -> Color.argb(46, 255, 255, 255)
+            light -> Color.argb(205, 255, 255, 255)
+            else -> Color.argb(15, 255, 255, 255)
+        }
+        val low = tint?.let { ColorUtils.setAlphaComponent(it, if (pastel && light) 48 else if (pastel) 64 else if (light) 20 else 26) } ?: when {
+            pastel && light -> Color.argb(220, 248, 246, 255)
+            pastel -> Color.argb(28, 255, 255, 255)
+            light -> Color.argb(160, 248, 248, 250)
+            else -> Color.argb(9, 255, 255, 255)
+        }
         body = LinearGradient(0f, top, 0f, top + h, high, low, Shader.TileMode.CLAMP)
-        val line = tint ?: if (light) Color.BLACK else Color.WHITE
+        val line = tint ?: if (pastel) Color.rgb(0x7C, 0x6B, 0xF2) else if (light) Color.BLACK else Color.WHITE
+        val rimTop = if (tint != null) 90 else if (pastel && light) 48 else if (pastel) 72 else if (light) 20 else 30
+        val rimBottom = if (tint != null) 50 else if (pastel && light) 24 else if (pastel) 40 else if (light) 12 else 14
         rim = LinearGradient(0f, top, 0f, top + h,
-            ColorUtils.setAlphaComponent(line, if (tint != null) 90 else if (light) 20 else 30),
-            ColorUtils.setAlphaComponent(line, if (tint != null) 50 else if (light) 12 else 14), Shader.TileMode.CLAMP)
+            ColorUtils.setAlphaComponent(line, rimTop),
+            ColorUtils.setAlphaComponent(line, rimBottom), Shader.TileMode.CLAMP)
     }
 
     override fun draw(canvas: Canvas) {
@@ -74,10 +87,25 @@ class MobileDockGlass(private val corner: Float, private val discY: Float, priva
         shape.lineTo(left + corner, bottom); shape.quadTo(left, bottom, left, bottom - corner)
         shape.close()
         val light = MobilePalette.light
+        val pastel = MobileStyle.pastel
         val high = centreY - radius
-        body = LinearGradient(0f, high, 0f, bottom, if (light) Color.argb(205, 255, 255, 255) else Color.argb(22, 255, 255, 255), if (light) Color.argb(160, 248, 248, 250) else Color.argb(9, 255, 255, 255), Shader.TileMode.CLAMP)
-        val line = if (light) Color.BLACK else Color.WHITE
-        rim = LinearGradient(0f, high, 0f, bottom, ColorUtils.setAlphaComponent(line, if (light) 24 else 44), ColorUtils.setAlphaComponent(line, if (light) 12 else 14), Shader.TileMode.CLAMP)
+        val topColor = when {
+            pastel && light -> Color.argb(235, 255, 255, 255)
+            pastel -> Color.argb(46, 255, 255, 255)
+            light -> Color.argb(205, 255, 255, 255)
+            else -> Color.argb(22, 255, 255, 255)
+        }
+        val bottomColor = when {
+            pastel && light -> Color.argb(220, 248, 246, 255)
+            pastel -> Color.argb(28, 255, 255, 255)
+            light -> Color.argb(160, 248, 248, 250)
+            else -> Color.argb(9, 255, 255, 255)
+        }
+        body = LinearGradient(0f, high, 0f, bottom, topColor, bottomColor, Shader.TileMode.CLAMP)
+        val line = if (pastel) Color.rgb(0x7C, 0x6B, 0xF2) else if (light) Color.BLACK else Color.WHITE
+        val rimTop = if (pastel) if (light) 48 else 72 else if (light) 24 else 44
+        val rimBottom = if (pastel) if (light) 24 else 40 else if (light) 12 else 14
+        rim = LinearGradient(0f, high, 0f, bottom, ColorUtils.setAlphaComponent(line, rimTop), ColorUtils.setAlphaComponent(line, rimBottom), Shader.TileMode.CLAMP)
     }
 
     override fun draw(canvas: Canvas) {

@@ -41,11 +41,20 @@ object Theme {
 
     fun apply(context: Context) {
         context.setTheme(getTheme())
-        applyAmoledOverlay(context)
-        context.theme.applyStyle(if (MobileStyle.new) (if (MobilePalette.light) R.style.MobileSurfaceNewWhite else R.style.MobileSurfaceNewOled)
-            else if (MobilePalette.light) R.style.MobileSurfaceWhite else if (MobilePalette.oled) R.style.MobileSurfaceOled else R.style.MobileSurfaceGray,true)
+        // Pastel's dark plum is not OLED black. The black overlay goes on afterwards, and only for its OLED choice.
+        if (!MobileStyle.pastel) applyAmoledOverlay(context)
+        context.theme.applyStyle(surfaceStyle(), true)
+        if (MobileStyle.pastel && MobilePalette.oled) applyAmoledOverlay(context)
         context.theme.applyStyle(R.style.MobileControls, true)
         applyStyleShapes(context)
+    }
+
+    private fun surfaceStyle(): Int = when {
+        MobileStyle.pastel -> if (MobilePalette.light) R.style.MobileSurfacePastelLight else R.style.MobileSurfacePastelDark
+        MobileStyle.new -> if (MobilePalette.light) R.style.MobileSurfaceNewWhite else R.style.MobileSurfaceNewOled
+        MobilePalette.light -> R.style.MobileSurfaceWhite
+        MobilePalette.oled -> R.style.MobileSurfaceOled
+        else -> R.style.MobileSurfaceGray
     }
 
     private fun applyStyleShapes(context: Context) {
@@ -56,16 +65,22 @@ object Theme {
 
     fun applyDialog(context: Context) {
         context.setTheme(getDialogTheme())
-        applyAmoledOverlay(context)
+        if (!MobileStyle.pastel) applyAmoledOverlay(context)
+        if (MobileStyle.pastel) {
+            context.theme.applyStyle(surfaceStyle(), true)
+            if (MobilePalette.oled) applyAmoledOverlay(context)
+        }
         context.theme.applyStyle(R.style.MobileControls, true)
         applyStyleShapes(context)
         if(context is app.rawline.mobile.ui.SubscriptionEditorActivity)
             context.theme.applyStyle(R.style.MobileSubscriptionEditorWindow, true)
     }
 
-    // Night mode with AMOLED black: the black overlay goes on top of the theme
+    // Night mode with AMOLED black: the black overlay goes on top of the theme.
+    // New treats every night as OLED. Pastel does not: only its OLED choice is black.
     private fun applyAmoledOverlay(context: Context) {
-        if ((DataStore.amoledTheme || MobileStyle.new) && usingNightMode()) {
+        val black = usingNightMode() && (if (MobileStyle.pastel) DataStore.amoledTheme else DataStore.amoledTheme || MobileStyle.new)
+        if (black) {
             context.theme.applyStyle(R.style.Theme_SagerNet_Amoled, true)
             // White falls back to Black at night, whose app bar (colorPrimary) is dark grey; OLED makes it black.
             // Not under Monet, so the Monet colours are not flattened to black
@@ -81,7 +96,9 @@ object Theme {
     }
 
     fun getTheme(): Int {
-        return if (MobileStyle.new) {
+        return if (MobileStyle.pastel) {
+            if (usingNightMode()) R.style.Theme_SagerNet_Pastel_Night else R.style.Theme_SagerNet_Pastel
+        } else if (MobileStyle.new) {
             getTheme(WHITE)
         } else if (usingMonetTheme()) {
             getTheme(MONET)
@@ -91,7 +108,9 @@ object Theme {
     }
 
     fun getDialogTheme(): Int {
-        return if (MobileStyle.new) {
+        return if (MobileStyle.pastel) {
+            if (usingNightMode()) R.style.Theme_SagerNet_Dialog_Pastel_Night else R.style.Theme_SagerNet_Dialog_Pastel
+        } else if (MobileStyle.new) {
             getDialogTheme(WHITE)
         } else if (usingMonetTheme()) {
             getDialogTheme(MONET)
@@ -168,7 +187,7 @@ object Theme {
         if (usingMonetTheme()) {
             return false
         }
-        return (DataStore.appTheme == WHITE || MobileStyle.new) && !usingNightMode()
+        return !MobileStyle.pastel && (DataStore.appTheme == WHITE || MobileStyle.new) && !usingNightMode()
     }
 
     var currentNightMode = -1

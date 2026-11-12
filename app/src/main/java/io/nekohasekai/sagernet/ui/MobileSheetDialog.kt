@@ -67,7 +67,7 @@ class MobileSheetDialog(context: Context) : BottomSheetDialog(context) {
         if (MobileStyle.new) window?.let { window ->
             window.setDimAmount(MobilePalette.windowDim)
             // Under the sheet: the theme's coloured bar would show as a stripe along the bottom.
-            window.navigationBarColor=MobilePalette.background
+            window.navigationBarColor=if (MobileStyle.pastel) MobilePalette.frosted else MobilePalette.background
             if (android.os.Build.VERSION.SDK_INT >= 29) window.isNavigationBarContrastEnforced=false
         }
         if (MobileStyle.new && android.os.Build.VERSION.SDK_INT >= 31) window?.let { window ->

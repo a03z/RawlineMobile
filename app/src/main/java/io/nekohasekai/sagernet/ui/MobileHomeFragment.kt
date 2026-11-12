@@ -83,6 +83,10 @@ class MobileHomeFragment : ToolbarFragment() {
     private val pastelDetails = mutableMapOf<Long, TextView>()
     private val pastelMarks = mutableMapOf<Long, PastelChoice>()
     private val pastelBars = mutableMapOf<Long, PastelBars>()
+    private var pastelUpTotal: TextView? = null
+    private var pastelDownTotal: TextView? = null
+    private var pastelUpWave: PastelSpeedWave? = null
+    private var pastelDownWave: PastelSpeedWave? = null
     private var pastelFolded = false
     private var restartAfterStop = false
     private fun controlAtBottom()=MobileHomeLayout.controlBottom
@@ -138,6 +142,34 @@ class MobileHomeFragment : ToolbarFragment() {
         trackTintMode=android.graphics.PorterDuff.Mode.SRC_IN
         switchMinWidth=dp(52)
         jumpDrawablesToCurrentState()
+    }
+    /** Upload or download, with the moving wave along the bottom of the card. */
+    private fun pastelSpeedCard(arrow: String, label: String, tint: Int, bind: (TextView, TextView, PastelSpeedWave) -> Unit): LinearLayout {
+        val value=text(speedLabel(0L),20f).apply {
+            setTypeface(typeface,Typeface.BOLD); setPadding(0,dp(8),0,0); maxLines=1
+            ellipsize=android.text.TextUtils.TruncateAt.END; includeFontPadding=false
+        }
+        val total=text(getString(R.string.qmobile_traffic_total, TrafficFormat.format(0L)),12f,muted).apply {
+            setPadding(0,dp(2),0,dp(6)); maxLines=1; includeFontPadding=false
+        }
+        val wave=PastelSpeedWave(requireContext(), tint)
+        bind(value, total, wave)
+        return LinearLayout(requireContext()).apply {
+            orientation=LinearLayout.VERTICAL
+            background=pastelPaper(22); clipToOutline=true; pastelLift()
+            addView(LinearLayout(requireContext()).apply {
+                orientation=LinearLayout.VERTICAL
+                setPadding(dp(14),dp(12),dp(14),0)
+                addView(LinearLayout(requireContext()).apply {
+                    gravity=Gravity.CENTER_VERTICAL
+                    addView(text(arrow,15f,tint).apply { setPadding(0,0,dp(6),0) })
+                    addView(text(label,13f,muted).apply { setPadding(0,0,0,0) })
+                })
+                addView(value)
+                addView(total)
+            },LinearLayout.LayoutParams(-1,-2))
+            addView(wave,LinearLayout.LayoutParams(-1,dp(34)))
+        }
     }
     private fun pastelRate(arrow: String, bytes: Long): CharSequence {
         val value=rateText(bytes)
@@ -551,7 +583,22 @@ class MobileHomeFragment : ToolbarFragment() {
     private var sheetSpeed: View? = null
     private var lastDown = 0L
     private var lastUp = 0L
+    private var lastDownTotal = 0L
+    private var lastUpTotal = 0L
     private fun rateText(value: Long) = android.text.format.Formatter.formatShortFileSize(requireContext(),value)+"/s"
+    private fun speedLabel(bytes: Long) = TrafficFormat.format(bytes)+"/s"
+    private fun waveLevel(rate: Long): Float {
+        if(rate<=0L) return 0.18f
+        return (0.28 + kotlin.math.ln(1.0 + rate/1024.0) / 5.5).toFloat().coerceIn(0.18f, 1f)
+    }
+    private fun paintPastelTraffic() {
+        sheetUp?.text=speedLabel(lastUp)
+        sheetDown?.text=speedLabel(lastDown)
+        pastelUpTotal?.text=getString(R.string.qmobile_traffic_total, TrafficFormat.format(lastUpTotal))
+        pastelDownTotal?.text=getString(R.string.qmobile_traffic_total, TrafficFormat.format(lastDownTotal))
+        pastelUpWave?.level=waveLevel(lastUp)
+        pastelDownWave?.level=waveLevel(lastDown)
+    }
     private fun revealGroupTabs(show: Boolean) {
         val tabs=groupTabs ?: return
         android.animation.ValueAnimator.ofInt(tabs.height,if(show) dp(60) else 0).apply {
@@ -678,12 +725,15 @@ class MobileHomeFragment : ToolbarFragment() {
         }
     }
     /** Live speed in the closed sheet, like the classic notification shows it. */
-    fun updateSpeed(down: Long, up: Long) {
+    fun updateSpeed(down: Long, up: Long, downTotal: Long = 0L, upTotal: Long = 0L) {
         if(!isAdded) return
-        lastDown=down;lastUp=up
-        sheetSpeed?.visibility=View.VISIBLE
-        sheetDown?.text=pastelRate("↓", down)
-        sheetUp?.text=pastelRate("↑", up)
+        lastDown=down;lastUp=up; lastDownTotal=downTotal; lastUpTotal=upTotal
+        if(MobileStyle.pastel) paintPastelTraffic()
+        else {
+            sheetSpeed?.visibility=View.VISIBLE
+            sheetDown?.text=pastelRate("↓", down)
+            sheetUp?.text=pastelRate("↑", up)
+        }
     }
     private var risenGroup = Long.MIN_VALUE
     private fun powerCovered(): Boolean {
@@ -805,6 +855,7 @@ class MobileHomeFragment : ToolbarFragment() {
         groupChip = null; groupTabs = null; sheetDown = null; sheetUp = null
         pastelServerLine = null; pastelServerName = null; pastelFlagSlot = null
         pastelStatus = null; pastelDot = null; pastelElapsed = null; pastelModeCaption.clear()
+        pastelUpTotal = null; pastelDownTotal = null; pastelUpWave = null; pastelDownWave = null
         geoBanner = null; updatesTile = null; updateBanner = null; geoStatus = null; geoProgress = null; geoCheck = null
         GroupRepo.removeListener(groupListener)
         observer?.let { SagerDatabase.instance.invalidationTracker.removeObserver(it) }
@@ -917,6 +968,7 @@ class MobileHomeFragment : ToolbarFragment() {
                 updatesTile=null;updateBanner=null;homeTitle=null;modeSwitches=emptyMap();groupChip=null
                 pastelServerLine=null;pastelServerName=null;pastelFlagSlot=null
                 pastelStatus=null;pastelDot=null;pastelElapsed=null;pastelModeCaption.clear()
+                pastelUpTotal=null;pastelDownTotal=null;pastelUpWave=null;pastelDownWave=null
                 val settingsTile=headerIcon(R.drawable.ic_mobile_settings, getString(R.string.qmobile_settings)) { host().displayFragmentWithId(R.id.nav_settings) }
                 val addTile=headerIcon(R.drawable.ic_mobile_add, getString(R.string.qmobile_add)) { addMenu(it) }
                 val quick = if(extended) listOf(
@@ -929,14 +981,19 @@ class MobileHomeFragment : ToolbarFragment() {
                 val quickMenu=if(MobileStyle.new && !extended && !MobileStyle.pastel) headerIcon(R.drawable.ic_mobile_more, getString(R.string.qmobile_quick_menu)) { showQuickMenu(it) }.also { updatesTile=it;updateUpdatesBadge() } else null
                 val tiles = if(quickMenu!=null) listOf(quickMenu, settingsTile) else if(extended) listOf(settingsTile) + quick + (if(MobileStyle.new) emptyList() else listOf(addTile)) else listOf(settingsTile, addTile)
                 if(MobileStyle.pastel && !extended) {
-                    val names=LinearLayout(requireContext()).apply { orientation=LinearLayout.VERTICAL }
-                    names.addView(text(getString(R.string.app_name),22f).apply { setTypeface(typeface,Typeface.BOLD); setPadding(0,0,0,0); maxLines=1 })
-                    names.addView(text(getString(R.string.qmobile_client),13f,muted).apply { setPadding(0,dp(1),0,0); maxLines=1 })
-                    header.addView(PastelMark(requireContext()),LinearLayout.LayoutParams(dp(36),dp(36)))
-                    header.addView(names,LinearLayout.LayoutParams(0,-2,1f).apply { marginStart=dp(10) })
-                    settingsTile.setOnLongClickListener { showQuickMenu(it); true }
-                    updatesTile=settingsTile
+                    val menu=headerIcon(R.drawable.ic_mobile_more, getString(R.string.qmobile_quick_menu)) { showQuickMenu(it) }
+                    val names=LinearLayout(requireContext()).apply { orientation=LinearLayout.VERTICAL; gravity=Gravity.CENTER_HORIZONTAL }
+                    names.addView(text(getString(R.string.app_name),22f).apply { setTypeface(typeface,Typeface.BOLD); setPadding(0,0,0,0); maxLines=1; gravity=Gravity.CENTER })
+                    names.addView(text(getString(R.string.qmobile_client),13f,muted).apply { setPadding(0,dp(1),0,0); maxLines=1; gravity=Gravity.CENTER })
+                    val brand=LinearLayout(requireContext()).apply {
+                        gravity=Gravity.CENTER
+                        addView(PastelMark(requireContext()),LinearLayout.LayoutParams(dp(36),dp(36)))
+                        addView(names,LinearLayout.LayoutParams(-2,-2).apply { marginStart=dp(10) })
+                    }
+                    updatesTile=menu
                     updateUpdatesBadge()
+                    header.addView(menu,LinearLayout.LayoutParams(dp(46),dp(46)))
+                    header.addView(brand,LinearLayout.LayoutParams(0,-2,1f))
                     header.addView(settingsTile,LinearLayout.LayoutParams(dp(46),dp(46)))
                 } else tiles.forEachIndexed { index, button ->
                     header.addView(button, LinearLayout.LayoutParams(0, dp(48), 1f).apply {
@@ -1092,13 +1149,14 @@ class MobileHomeFragment : ToolbarFragment() {
                 if(MobileStyle.new) {
                     centre.addView(power, FrameLayout.LayoutParams(dp(190), dp(190), Gravity.TOP or Gravity.CENTER_HORIZONTAL))
                     if(MobileStyle.pastel) {
-                        power?.let { it.layoutParams=FrameLayout.LayoutParams(-1,dp(168),Gravity.CENTER) }
+                        power?.let { it.layoutParams=FrameLayout.LayoutParams(-1,dp(200),Gravity.CENTER) }
+                        centre.clipChildren=false
                         val hero=LinearLayout(requireContext()).apply {
                             orientation=LinearLayout.VERTICAL; gravity=Gravity.CENTER_HORIZONTAL
                             background=PastelHeroPaper(); clipToOutline=true; pastelLift()
-                            setPadding(dp(16),dp(8),dp(16),dp(16))
+                            setPadding(dp(16),dp(12),dp(16),dp(16))
                         }
-                        hero.addView(centre,LinearLayout.LayoutParams(-1,dp(168)))
+                        hero.addView(centre,LinearLayout.LayoutParams(-1,dp(200)))
                         val dot=View(requireContext()).apply {
                             background=GradientDrawable().apply { shape=GradientDrawable.OVAL; setColor(Color.rgb(0x34,0xC7,0x59)) }
                             visibility=View.GONE
@@ -1125,41 +1183,24 @@ class MobileHomeFragment : ToolbarFragment() {
                             setPadding(0,dp(8),0,0)
                             addView(flagSlot,LinearLayout.LayoutParams(dp(22),dp(16)))
                             addView(name)
-                            addView(ImageView(requireContext()).apply {
-                                setImageResource(R.drawable.ic_mobile_chevron); rotation=90f
-                                imageTintList=android.content.res.ColorStateList.valueOf(muted)
-                            },LinearLayout.LayoutParams(dp(16),dp(16)))
                         }
                         pastelFlagSlot=flagSlot; pastelServerName=name; pastelServerLine=line
                         hero.addView(line,LinearLayout.LayoutParams(-2,-2))
                         pastelHero=hero
                         controlParent.addView(hero,LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(16) })
-                        val pair=LinearLayout(requireContext()).apply { isBaselineAligned=false; if(landscape) orientation=LinearLayout.VERTICAL }
-                        val switches=listOf(
-                            Triple(Key.MODE_VPN, R.drawable.ic_mobile_tun, R.string.qmobile_mode_tun),
-                            Triple(Key.MODE_PROXY, R.drawable.ic_mobile_route, R.string.qmobile_proxy)
-                        ).mapIndexed { index, (mode, icon, label) ->
-                            val caption=text(getString(R.string.qmobile_mode_off),12f,muted).apply { setPadding(0,dp(1),0,0) }
-                            pastelModeCaption[mode]=caption
-                            val card=LinearLayout(requireContext()).apply {
-                                gravity=Gravity.CENTER_VERTICAL
-                                background=pastelPaper(22); clipToOutline=true; pastelLift()
-                                setPadding(dp(12),dp(12),dp(10),dp(12)); isFocusable=true
-                                addView(pastelBubble(icon),LinearLayout.LayoutParams(dp(40),dp(40)))
-                                addView(LinearLayout(requireContext()).apply {
-                                    orientation=LinearLayout.VERTICAL
-                                    addView(text(getString(label),15f).apply { setTypeface(typeface,Typeface.BOLD); setPadding(0,0,0,0) })
-                                    addView(caption)
-                                },LinearLayout.LayoutParams(0,-2,1f).apply { marginStart=dp(10); marginEnd=dp(4) })
-                                addView(pastelSwitch())
-                                setOnClickListener { pickMode(mode) }
-                                MobileFeedback.apply(this)
-                            }
-                            pair.addView(card,LinearLayout.LayoutParams(if(landscape) -1 else 0,-2,if(landscape) 0f else 1f).apply { if(index>0) if(landscape) topMargin=dp(8) else marginStart=dp(10) })
-                            mode to (card.getChildAt(card.childCount-1) as androidx.appcompat.widget.SwitchCompat)
+                        val pair=LinearLayout(requireContext()).apply { isBaselineAligned=false; clipChildren=false; if(landscape) orientation=LinearLayout.VERTICAL }
+                        val upload=pastelSpeedCard("\u2191", getString(R.string.qmobile_upload), Color.rgb(0x7C,0x6B,0xF2)) { value,total,wave ->
+                            sheetUp=value; pastelUpTotal=total; pastelUpWave=wave
                         }
-                        modeSwitches=switches.toMap()
+                        val download=pastelSpeedCard("\u2193", getString(R.string.qmobile_download), Color.rgb(0x4C,0x86,0xF2)) { value,total,wave ->
+                            sheetDown=value; pastelDownTotal=total; pastelDownWave=wave
+                        }
+                        val speedWidth=if(landscape) -1 else 0
+                        val speedWeight=if(landscape) 0f else 1f
+                        pair.addView(upload,LinearLayout.LayoutParams(speedWidth,-2,speedWeight))
+                        pair.addView(download,LinearLayout.LayoutParams(speedWidth,-2,speedWeight).apply { if(landscape) topMargin=dp(10) else marginStart=dp(10) })
                         controlParent.addView(pair,LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(12) })
+                        paintPastelTraffic()
                     } else {
                     if(dockBottom) centre.background=MobileDockGlass(MobilePalette.cardDp*resources.displayMetrics.density,MobileOrbArtwork.centerY(dp(190)),MobileOrbArtwork.radius(dp(190))*1.26f,dp(104).toFloat())
                     controlParent.addView(centre, LinearLayout.LayoutParams(-1, dp(if(dockBottom) 194 else 190)).apply { topMargin=dp(4) })
@@ -1170,20 +1211,9 @@ class MobileHomeFragment : ToolbarFragment() {
                 }
                 }
                 if(MobileStyle.new) {
-                    sheetDown=text("↓ "+rateText(lastDown),12f,muted).apply { setPadding(dp(6),dp(2),dp(6),dp(2));maxLines=1 }
-                    sheetUp=text("↑ "+rateText(lastUp),12f,muted).apply { setPadding(dp(6),dp(2),dp(6),dp(2));maxLines=1 }
-                    // A fixed height: one line or two beside the speed, the list under it stays put.
                     if(pastelHero!=null) {
-                        sheetUp?.apply { text=pastelRate("↑", lastUp); gravity=Gravity.CENTER; setPadding(dp(4),0,dp(4),0); textSize=13f }
-                        sheetDown?.apply { text=pastelRate("↓", lastDown); gravity=Gravity.CENTER; setPadding(dp(4),0,dp(4),0); textSize=13f }
                         val block=LinearLayout(requireContext()).apply { orientation=LinearLayout.VERTICAL; gravity=Gravity.CENTER_HORIZONTAL }
                         block.addView(View(requireContext()).apply { setBackgroundColor(MobilePalette.outline) },LinearLayout.LayoutParams(-1,maxOf(1,dp(1))).apply { topMargin=dp(12); bottomMargin=dp(10) })
-                        val nums=LinearLayout(requireContext()).apply { gravity=Gravity.CENTER }
-                        val rule=View(requireContext()).apply { setBackgroundColor(MobilePalette.outline) }
-                        nums.addView(sheetUp,LinearLayout.LayoutParams(0,-2,1f))
-                        nums.addView(rule,LinearLayout.LayoutParams(maxOf(1,dp(1)),dp(16)).apply { marginStart=dp(8); marginEnd=dp(8) })
-                        nums.addView(sheetDown,LinearLayout.LayoutParams(0,-2,1f))
-                        block.addView(nums,LinearLayout.LayoutParams(-1,-2))
                         currentCheck=text(currentPing ?: getString(R.string.qmobile_check_connection),12f,muted).apply {
                             gravity=Gravity.CENTER; setPadding(dp(4),0,0,0); maxLines=1
                             isFocusable=true; tag=MobileFeedback.NONE
@@ -1191,13 +1221,16 @@ class MobileHomeFragment : ToolbarFragment() {
                         }
                         block.addView(LinearLayout(requireContext()).apply {
                             gravity=Gravity.CENTER
-                            setPadding(0,dp(8),0,0)
                             addView(text("\u26A1",12f,Color.rgb(0x7C,0x6B,0xF2)).apply { setPadding(0,0,0,0) })
                             addView(currentCheck)
                         },LinearLayout.LayoutParams(-2,-2))
                         sheetSpeed=block
                         pastelHero?.addView(block,LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(4) })
-                    } else if(dockBottom && !homeSwitchesOn()) {
+                    } else {
+                    sheetDown=text("↓ "+rateText(lastDown),12f,muted).apply { setPadding(dp(6),dp(2),dp(6),dp(2));maxLines=1 }
+                    sheetUp=text("↑ "+rateText(lastUp),12f,muted).apply { setPadding(dp(6),dp(2),dp(6),dp(2));maxLines=1 }
+                    // A fixed height: one line or two beside the speed, the list under it stays put.
+                    if(dockBottom && !homeSwitchesOn()) {
                         // Either side of the caption in the panel, the same distance from its edges.
                         dockLeft=FrameLayout(requireContext())
                         centre.addView(dockLeft,FrameLayout.LayoutParams(dp(92),-2,Gravity.START or Gravity.BOTTOM).apply { marginStart=dp(14);bottomMargin=dp(14) })
@@ -1217,6 +1250,7 @@ class MobileHomeFragment : ToolbarFragment() {
                     // At the bottom the check and speed stay above the switches, next to the list.
                     if(dockBottom) controlParent.addView(statusRow,0,LinearLayout.LayoutParams(-1,dp(40)))
                     else side.addView(statusRow,LinearLayout.LayoutParams(-1,dp(40)))
+                    }
                     }
                 }
                 updateState()
@@ -1483,6 +1517,18 @@ class MobileHomeFragment : ToolbarFragment() {
                 if(!byGroups) groupDrag.bind(heading,box,group.id,heading)
                 title.addView(heading,LinearLayout.LayoutParams(0,-2,1f))
                 if(MobileStyle.pastel && byGroups) {
+                    title.addView(ImageButton(requireContext()).apply {
+                        setImageResource(R.drawable.ic_mobile_add)
+                        imageTintList=android.content.res.ColorStateList.valueOf(if(MobilePalette.light) Color.rgb(0x6E,0x6A,0x86) else MobilePalette.muted)
+                        background=GradientDrawable().apply {
+                            shape=GradientDrawable.OVAL
+                            setColor(if(MobilePalette.light) Color.rgb(0xF3,0xF0,0xFB) else Color.argb(36,255,255,255))
+                        }
+                        setPadding(dp(8),dp(8),dp(8),dp(8)); minimumWidth=0; minimumHeight=0
+                        contentDescription=getString(R.string.qmobile_add)
+                        setOnClickListener { addMenu(it) }
+                        MobileFeedback.apply(this, circle=true)
+                    },LinearLayout.LayoutParams(dp(36),dp(36)).apply { marginEnd=dp(2) })
                     if(hasServers) title.addView(LinearLayout(requireContext()).apply {
                         gravity=Gravity.CENTER_VERTICAL; isFocusable=true
                         setPadding(dp(8),dp(8),dp(10),dp(8))
@@ -1730,8 +1776,8 @@ class MobileHomeFragment : ToolbarFragment() {
         }
         // The row keeps its height, so the list under it does not jump on connecting.
         sheetSpeed?.visibility=if(state.connected) View.VISIBLE else if(MobileStyle.pastel) View.GONE else View.INVISIBLE
-        if(!state.connected) { lastDown=0L;lastUp=0L }
-        if(MobileStyle.pastel) { sheetUp?.text=pastelRate("↑", lastUp); sheetDown?.text=pastelRate("↓", lastDown) }
+        if(!state.connected) { lastDown=0L;lastUp=0L; lastDownTotal=0L; lastUpTotal=0L }
+        if(MobileStyle.pastel) paintPastelTraffic()
         modeSwitches.forEach { (mode,switch) ->
             val on=(state.canStop || restartAfterStop) && DataStore.serviceMode==mode
             switch.isChecked=on

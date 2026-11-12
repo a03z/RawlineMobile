@@ -13,6 +13,9 @@
     <string name="qmobile_mode_off">Выключено</string>
     <string name="qmobile_collapse">Свернуть</string>
     <string name="qmobile_expand">Развернуть</string>
+    <string name="qmobile_upload">Отдача</string>
+    <string name="qmobile_download">Загрузка</string>
+    <string name="qmobile_traffic_total">Всего %1$s</string>
     <string name="qmobile_edit_layout">Редактировать интерфейс</string>
     <string name="qmobile_layout_hint_move">Зажмите элемент и перетащите его вверх или вниз.</string>
     <string name="qmobile_layout_hint_tiles">Дважды нажмите на плитки, чтобы переключить расширенный и стандартный вид.</string>

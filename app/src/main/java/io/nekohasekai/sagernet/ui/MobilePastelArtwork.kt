@@ -21,8 +21,10 @@ import android.view.View
 import androidx.core.content.res.ResourcesCompat
 import androidx.core.graphics.ColorUtils
 import app.rawline.mobile.R
+import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.exp
+import kotlin.math.sin
 
 /**
  * Pastel's connect control. The disc sits in the middle of its view; the caption under it is a real text row.
@@ -36,6 +38,7 @@ class MobilePastelArtwork(context: Context, @Suppress("unused") private val idle
     private var lit = 0f
     private var spin = 0f
     private var angle = 0f
+    private var breathe = 0f
     private var lastFrame = 0L
     private val green = Color.rgb(0x34, 0xC7, 0x59)
 
@@ -66,7 +69,12 @@ class MobilePastelArtwork(context: Context, @Suppress("unused") private val idle
 
         val cx = bounds.exactCenterX()
         val cy = bounds.exactCenterY()
-        val base = minOf(bounds.width() * .30f, bounds.height() * .34f) * pressScale
+        // The outer halo is the widest mark. It has to stay inside this view, or the card slices it flat.
+        val room = minOf(bounds.width(), bounds.height()) / 2f - 2f * density
+        val pulse = connected && !connecting
+        if (moving() && pulse) breathe = (breathe + dt * 0.0032f) % (PI.toFloat() * 2f)
+        val breatheScale = if (pulse && moving()) 0.90f + 0.10f * ((sin(breathe) + 1f) * 0.5f) else 1f
+        val base = minOf(bounds.width() * .30f, bounds.height() * .28f, room / 1.62f) * pressScale
         val day = MobilePalette.light
         val fill = ColorUtils.blendARGB(Color.WHITE, green, lit)
         val icon = ColorUtils.blendARGB(Color.rgb(0x5C, 0x58, 0x78), Color.WHITE, lit)
@@ -79,9 +87,9 @@ class MobilePastelArtwork(context: Context, @Suppress("unused") private val idle
         }
         if (lit > .01f) {
             paint.color = Color.argb((34f * lit).toInt(), 0x34, 0xC7, 0x59)
-            canvas.drawCircle(cx, cy, base * 1.62f, paint)
+            canvas.drawCircle(cx, cy, base * 1.62f * breatheScale, paint)
             paint.color = Color.argb((70f * lit).toInt(), 0x3D, 0xD6, 0x6A)
-            canvas.drawCircle(cx, cy, base * 1.32f, paint)
+            canvas.drawCircle(cx, cy, base * 1.32f * breatheScale, paint)
         }
         paint.color = fill
         canvas.drawCircle(cx, cy, base, paint)
@@ -123,7 +131,7 @@ class MobilePastelArtwork(context: Context, @Suppress("unused") private val idle
         canvas.drawArc(box, -55f, 290f, false, paint)
         canvas.drawLine(cx, cy - glyph * 1.28f, cx, cy - glyph * .12f, paint)
 
-        val settled = abs(lit - litTo) < .004f && spin < .01f
+        val settled = abs(lit - litTo) < .004f && spin < .01f && !pulse
         if (moving() && !settled) {
             unscheduleSelf(tick)
             val windowFocused = (callback as? android.view.View)?.hasWindowFocus() != false
@@ -240,5 +248,52 @@ class PastelChoice(context: Context) : View(context) {
             paint.color = Color.argb(90, 120, 116, 145)
             canvas.drawCircle(cx, cy, radius - paint.strokeWidth, paint)
         }
+    }
+}
+
+/** A filled wave along the bottom of a speed card. The crest moves, and it stays inside the view. */
+class PastelSpeedWave(context: Context, private val tint: Int) : View(context) {
+    var level = 0.18f
+        set(value) { field = value.coerceIn(0f, 1f) }
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val path = Path()
+    private var phase = 0f
+    private val tick = Runnable {
+        phase += if (level > 0.25f) 0.11f else 0.04f
+        invalidate()
+        postDelayed(tick, if (hasWindowFocus()) 32L else 90L)
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        removeCallbacks(tick)
+        post(tick)
+    }
+
+    override fun onDetachedFromWindow() {
+        removeCallbacks(tick)
+        super.onDetachedFromWindow()
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        if (width == 0 || height == 0) return
+        val amp = height * (0.10f + 0.22f * level)
+        fun crest(shift: Float, alpha: Int) {
+            path.rewind()
+            val mid = height * 0.58f
+            path.moveTo(0f, height.toFloat())
+            var x = 0f
+            while (x <= width) {
+                path.lineTo(x, mid + amp * sin(x / width * 6.2f + phase + shift))
+                x += 3f
+            }
+            path.lineTo(width.toFloat(), height.toFloat())
+            path.close()
+            paint.style = Paint.Style.FILL
+            paint.color = Color.argb(alpha, Color.red(tint), Color.green(tint), Color.blue(tint))
+            canvas.drawPath(path, paint)
+        }
+        crest(0f, if (MobilePalette.light) 56 else 78)
+        crest(1.8f, if (MobilePalette.light) 32 else 46)
     }
 }

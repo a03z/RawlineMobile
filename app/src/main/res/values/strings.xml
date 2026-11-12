@@ -1942,21 +1942,13 @@
     <string name="compact_profile_rows_sum">Show each profile on one short line with only its name and latency</string>
     <string name="compact_group_cards">Compact group cards</string>
     <string name="compact_group_cards_sum">Show a usage bar and the time left instead of the subscription link and details</string>
-    <string name="xdrive_settings">XDRIVE settings</string>
     <string name="xdrive_tuning">XDRIVE tuning</string>
-    <string name="xdrive_service">Service</string>
-    <string name="xdrive_folder">Folder</string>
     <string name="xdrive_folder_hint">google-drive: the folder ID. s3: the key prefix inside the bucket. local: a directory path. template: read as {folder}.</string>
     <string name="xdrive_client_id">Client ID</string>
     <string name="xdrive_client_secret">Client secret</string>
     <string name="xdrive_refresh_token">Refresh token</string>
     <string name="xdrive_refresh_token_hint">The OAuth refresh token for the Google account that owns the folder.</string>
-    <string name="xdrive_secrets">Secrets</string>
-    <string name="xdrive_secrets_hint">Values the template reads as {secret0}, {secret1}, …, one per line.</string>
-    <string name="xdrive_template">Template (JSON)</string>
-    <string name="xdrive_front_address">Front address</string>
     <string name="xdrive_front_address_hint">Optional domain front: the storage API is dialed at this address while TLS still names the API host.</string>
-    <string name="xdrive_front_port">Front port</string>
     <string name="xdrive_segment_bytes">Segment bytes</string>
     <string name="xdrive_segment_bytes_hint">Largest upload per file, in bytes. Xray caps it at 16 MiB.</string>
     <string name="xdrive_flush_interval">Flush interval (ms)</string>
@@ -2006,9 +1998,6 @@
     <string name="xray_mux_no_limit">No limit</string>
     <string name="xray_mux_xudp_concurrency_hint">UDP streams per connection, on connections of their own. 0 carries UDP on the TCP connections, and -1 sends it outside the mux.</string>
     <string name="xray_mux_xudp_proxy_udp443">UDP/443</string>
-    <string name="xray_mux_udp443_reject">Reject</string>
-    <string name="xray_mux_udp443_allow">Allow</string>
-    <string name="xray_mux_udp443_skip">Skip</string>
     <string name="xray_mux_udp443_reject_sum">Reject: UDP to port 443, mostly QUIC, is refused so browsers fall back to TCP (Xray\'s default)</string>
     <string name="xray_mux_udp443_allow_sum">Allow: UDP to port 443 is carried through the mux</string>
     <string name="xray_mux_udp443_skip_sum">Skip: UDP to port 443 is sent outside the mux</string>
@@ -2053,14 +2042,6 @@
     <string name="masterdns_mtu_auto_remove_low">Drop resolvers below the minimum MTU</string>
     <string name="throne_link">Rawline link</string>
     <string name="support_throne">Support Rawline</string>
-    <string name="mux_state_custom">Custom</string>
-    <string name="cag_exit_country">Exit country</string>
-    <string name="exit_country_lookup">Look up exit country</string>
-    <string name="exit_country_lookup_sum">After connecting, ask an IP lookup service (through the proxy) which IP address and country the connection exits from. When off, no such service is contacted automatically.</string>
-    <string name="exit_lookup_provider">Lookup service</string>
-    <string name="exit_lookup_provider_auto">Automatic</string>
-    <string name="xray_use_system_ca">Trust system certificates in Xray</string>
-    <string name="xray_use_system_ca_sum">Xray verifies servers only against its built-in root certificates. Turn this on to also trust Android\'s system root certificates; certificates you installed yourself are not included. A profile or Xray config that sets useSystemCA itself keeps its own value.</string>
     <string name="route_group_keeps_own">The group \"%1$s\" uses its own routing profile, so the running profile keeps it.</string>
     <string name="route_item_from_subscription">Updated by subscription \"%1$s\"</string>
     <string name="route_from_subscription_info">Every update of the subscription \"%1$s\" overwrites its rules. Deleting it stops the import.</string>
@@ -2074,22 +2055,7 @@
     <string name="grp_import_sub_route_tip">Each update saves the routing profile the subscription provides (Happ format) as this group\'s own routing profile. DNS settings from the subscription are never used.</string>
     <string name="subs_running_replaced">%1$s was replaced by the update; connecting to the profile with the same name.</string>
     <string name="subs_running_removed">%1$s was removed by the update and stays stopped: no single profile with the same name replaces it.</string>
-    <string name="resolve_domain_failed">Failed to resolve %1$s: %2$s</string>
-    <string name="resolve_domains_failed">Failed to resolve domains: %1$s</string>
-    <string name="profiles_resolve_domain">Resolve domain</string>
     <string name="profiles_copy_throne_links">Rawline links</string>
-    <string name="autosel_groups_none">No group selected</string>
-    <string name="autosel_plan_counts_groups">%1$d of %2$d profiles in the %3$d groups can be used; %4$d would run.</string>
-    <plurals name="autosel_plan_missing_groups">
-        <item quantity="one">%d tracked group no longer exists and is skipped.</item>
-        <item quantity="other">%d tracked groups no longer exist and are skipped.</item>
-    </plurals>
-    <string name="autosel_error_no_tracked_group">Auto selector tracks no group</string>
-    <string name="warp_mode_amnezia" translatable="false">AmneziaWG</string>
-    <string name="warp_amnezia_generating">Generating the AmneziaWG QUIC signature…</string>
-    <string name="warp_amnezia_missing">AmneziaWG has no QUIC signature yet: tap Generate WARP config.</string>
-    <string name="warp_quic_signature_invalid">The core returned an invalid QUIC signature.</string>
-    <string name="warp_quic_signature_failed">Failed to generate WARP QUIC signature: %1$s</string>
     <string name="webdav_deleting">Deleting from WebDAV…</string>
     <string name="webdav_backup_uploaded">Backup uploaded as %s</string>
     <string name="webdav_index_upload_failed">Backup uploaded, but the backup list could not be updated: %s</string>
@@ -2126,12 +2092,7 @@
     <string name="xray_cipher_suites_hint">cipherSuites: colon-separated TLS 1.2 cipher suite names, including Go\'s insecure ones. Only applied with the \"unsafe\" fingerprint.</string>
     <string name="show_config_security">Show config security</string>
     <string name="show_config_security_sum">Show each config\'s security next to its type in the proxy list, e.g. \"Trojan (WebSocket+TLS)\". Insecure configs are marked with a warning sign.</string>
-    <string name="route_rule_tls_fragment">TLS fragment</string>
-    <string name="route_rule_tls_fragment_sum">Split the TLS handshake into several TCP segments to get past simple SNI filters</string>
-    <string name="route_rule_tls_fragment_fallback_delay">TLS fragment fallback delay</string>
     <string name="route_rule_tls_fragment_fallback_delay_hint">How long to wait between segments when the wait cannot be measured, as a duration such as 500ms (the default)</string>
-    <string name="route_rule_tls_record_fragment">TLS record fragment</string>
-    <string name="route_rule_tls_record_fragment_sum">Split the TLS handshake into several TLS records</string>
     <string name="outbound_domain_strategy_sum">Used to resolve the proxy server addresses and the domains the direct outbound connects to</string>
     <string name="resolve_domain_strategy_sum">Applies to connections made to domain names: with FakeIP, or HTTP/SOCKS (inbound) traffic. Without FakeIP, VPN apps resolve names themselves, so the prefer modes have no effect there. The only modes drop the other family from the DNS answers apps receive, which also overrides per-rule resolve strategies and hosts/predefined entries for that family (IPv6 only also needs Tun IPv6)</string>
     <string name="picker_copy_to_proxied_apps">Copy to Apps VPN mode</string>
@@ -2171,7 +2132,6 @@
     <string name="subs_web_page">The server returned a web page instead of a subscription. If it is a CAPTCHA or a bot check, try another TLS version, HTTP version or user agent in the group\'s Advanced settings.</string>
     <string name="subs_tls_unsupported">The selected TLS version is not supported on this system.</string>
     <string name="subs_server_interval">Subscription server update interval: %1$d hour(s)</string>
-    <string name="subs_routes_rebound">Route rules: %1$d reference(s) moved to the new profile of the same name.</string>
     <string name="log_filter">Filter</string>
     <string name="log_filter_hide">Hide filter</string>
     <string name="log_filter_hint">Filter logs</string>
@@ -2183,15 +2143,6 @@
         <item quantity="other">Jump to latest (%d new)</item>
     </plurals>
     <string name="log_font_size">Font size</string>
-    <string name="dashboard_old_webview_title">Android System WebView is out of date</string>
-    <string name="dashboard_old_webview">The dashboard needs WebView %1$d or newer, and this device has %2$d, so the page may look broken or stay blank. Update Android System WebView (or Chrome, where it provides the WebView) from the app store.</string>
-    <string name="dashboard_update_webview">Update WebView</string>
-    <string name="dashboard_open_anyway">Open anyway</string>
-    <string name="amnezia_quic_signature">Generate QUIC signature…</string>
-    <string name="amnezia_quic_signature_sum">Fills the signature packets with the first QUIC packets Chrome would send to the given domain, so the handshake starts like an HTTP/3 connection to it. Generated locally; nothing is sent. Replaces I1–I5.</string>
-    <string name="amnezia_quic_signature_title">QUIC signature</string>
-    <string name="amnezia_quic_signature_domain">Domain to imitate</string>
-    <string name="amnezia_quic_signature_failed">Failed to generate QUIC signature</string>
     <string name="settings_diagnostics">Diagnostics</string>
     <string name="settings_diagnostics_sum">Performance profile of the core</string>
     <string name="diagnostics_profile">Performance profile</string>
@@ -2201,7 +2152,6 @@
     <string name="diagnostics_trace">Execution trace (larger file)</string>
     <string name="diagnostics_include_logs">Include Rawline logs</string>
     <string name="diagnostics_include_logs_sum">Logs contain visited domains and server addresses.</string>
-    <string name="diagnostics_start">Start</string>
     <string name="diagnostics_save">Save…</string>
     <string name="diagnostics_recording">Recording… %1$s left</string>
     <string name="diagnostics_finishing">Finishing…</string>
@@ -2212,7 +2162,6 @@
     <string name="diagnostics_empty">The core returned an empty profile.</string>
     <string name="diagnostics_save_failed">Could not save %1$s: %2$s</string>
     <string name="diagnostics_exported">Performance profile saved</string>
-    <string name="diagnostics_notification">Recording a performance profile…</string>
     <string name="live_graphs">Live graphs</string>
     <string name="live_graph_traffic">Traffic</string>
     <string name="live_graph_proxy">Proxy</string>
@@ -2860,22 +2809,9 @@
     <string name="validation_dns_local_ip">Use an IP address, for example 223.5.5.5 or tls://1.1.1.1: this server resolves the names of the others.</string>
     <string name="validation_dns_cache_small">The core raises values below 1024 to 1024.</string>
     <string name="validation_form_unplaced">%1$s (not on this screen; fix it in %2$s)</string>
-    <string name="route_rule_enabled">Rule enabled</string>
-    <string name="route_rule_disabled">Disabled: kept in the profile but left out of the generated config.</string>
-    <string name="route_dns_title">DNS</string>
-    <string name="route_dns_global">Use the global DNS settings</string>
-    <string name="route_dns_global_sum">The servers set in Settings › DNS.</string>
-    <string name="route_dns_custom">Use custom DNS settings</string>
-    <string name="route_dns_custom_sum">These servers replace the global ones while this routing profile is in use.</string>
-    <string name="route_dns_object_note">The DNS settings use a custom DNS object, so that object applies instead of the values below.</string>
-    <string name="route_dns_scope_note">Local override, the hosts file, predefined answers and the advanced DNS settings always come from Settings › DNS.</string>
-    <string name="route_dns_own_servers">It uses its own DNS servers: remote %1$s, direct %2$s.</string>
-    <string name="dns_route_override_note">The current routing profile \"%1$s\" uses its own DNS servers, so the servers and behaviour below apply only to other routing profiles.</string>
     <string name="validation_route_dns_remote">Remote DNS \"%1$s\": %2$s</string>
     <string name="validation_route_dns_direct">Direct DNS \"%1$s\": %2$s</string>
     <string name="validation_route_dns_final">The default DNS server must be remote or direct, not \"%1$s\".</string>
     <string name="validation_route_dns_dropped">The profile\'s own DNS settings were dropped, so it uses the global ones: %1$s</string>
-    <string name="route_dns_global_servers">Remote %1$s, direct %2$s</string>
-    <string name="dns_server_suggestions">Recent and suggested servers</string>
     <string name="provider_routing_skipped">Damaged routing was skipped; the saved routing is unchanged. %1$s</string>
 </resources>

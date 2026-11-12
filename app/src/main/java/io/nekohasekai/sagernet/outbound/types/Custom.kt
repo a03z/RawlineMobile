@@ -229,6 +229,26 @@ class Custom : Outbound("custom") {
     /** custom.h:102. */
     override fun isXrayFullConfig(): Boolean = subtype == CUSTOM_XRAY_FULL_CONFIG
 
+    /**
+     * An Xray full config as one route outbound: its "proxy" outbound, else its first proxy one, run as a custom Xray
+     * outbound. Null when there is none, or when it dials through the config's other outbounds.
+     */
+    fun routeOutbound(): Custom? {
+        if (!isXrayFullConfig()) return null
+        val outbounds = configObject().array("outbounds").filterIsInstance<JsonObject>()
+        val chosen = outbounds.firstOrNull { it.string("tag") == "proxy" }
+            ?: outbounds.firstOrNull { it.string("protocol") !in setOf("", "freedom", "blackhole", "dns", "loopback") }
+            ?: return null
+        if (chosen.string("protocol") in setOf("freedom", "blackhole", "dns", "loopback")) return null
+        if (chosen.obj("proxySettings").string("tag").isNotEmpty() ||
+            chosen.obj("streamSettings").obj("sockopt").string("dialerProxy").isNotEmpty()) return null
+        return Custom().also {
+            it.name = name
+            it.subtype = CUSTOM_XRAY_OUTBOUND
+            it.config = chosen.copy().also { outbound -> outbound.remove("tag") }.toCompact()
+        }
+    }
+
     /** custom.h:127-146. */
     override fun build(ctx: BuildContext): BuildResult {
         if (subtype == CUSTOM_XRAY_FULL_CONFIG) {

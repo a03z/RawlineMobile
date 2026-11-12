@@ -185,6 +185,11 @@ class ConfigGenerator @JvmOverloads constructor(
         // (buildOutboundsSection), so a server the group only dials through its front proxy is not left bare here.
         var suffix = 0
         for (id in route.usedOutboundIds()) {
+            if (id < 0 || id == profileId) continue
+            // A rule's Xray full config runs as its proxy outbound (the main profile keeps the whole config).
+            (reads.get(id) as? app.rawline.mobile.outbound.types.Custom)?.routeOutbound()?.let { reads.overrides[id] = it }
+        }
+        for (id in route.usedOutboundIds()) {
             if (id < 0) continue
             val needed = reads.get(id)
             if (needed == null) {
@@ -1493,8 +1498,10 @@ private class ChainBuildMark(private val state: BuildState) {
 /** Records every profile id a build reads (buildProfileSink, generate.cpp:411-418). */
 private class RecordingProfiles(private val inner: ProfileProvider) : ProfileProvider {
     val ids = LinkedHashSet<Long>()
+    /** Profiles built in another form than stored: a route rule's Xray full config becomes its proxy outbound. */
+    val overrides = HashMap<Long, Outbound>()
 
-    override fun get(id: Long): Outbound? = inner.get(id)?.also { ids.add(id) }
+    override fun get(id: Long): Outbound? = (overrides[id] ?: inner.get(id))?.also { ids.add(id) }
 
     override fun groupProxies(profileId: Long): Pair<Long, Long> = inner.groupProxies(profileId)
 }

@@ -692,7 +692,8 @@ class RouteRule {
         /** SingboxOptions::SniffProtocols (Const.hpp), with ntp. */
         val SNIFF_PROTOCOLS = listOf("tls", "http", "quic", "dns", "stun", "bittorrent", "dtls", "ssh", "rdp", "ntp")
 
-        private fun unroutable(o: Outbound): Boolean = o.isExtraCore() || o.isXrayFullConfig() || TypeAccess.isCustomFullConfig(o)
+        private fun unroutable(o: Outbound): Boolean = o.isExtraCore() || TypeAccess.isCustomFullConfig(o) ||
+            (o.isXrayFullConfig() && (o as? app.rawline.mobile.outbound.types.Custom)?.routeOutbound() == null)
 
         /** "host:1234", not an IPv6 address. */
         private fun hasPortSuffix(text: String): Boolean {

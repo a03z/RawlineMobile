@@ -122,8 +122,8 @@ class SagerNet : Application(),
             }
             // The icon pack of the removed custom icon feature; a no-op once it is gone.
             runOnDefaultDispatcher { File(filesDir, "custom_icon").deleteRecursively() }
-            RemoteRouteUpdater.schedule(keepExisting = true)
-            SubscriptionScheduler.schedule(keepExisting = true)
+            RemoteRouteUpdater.schedule()
+            SubscriptionScheduler.schedule()
             Widgets.watchSelection(this)
             app.rawline.mobile.route.ProviderGeoAssets.listen()
         }
@@ -146,9 +146,11 @@ class SagerNet : Application(),
         updateNotificationChannels()
     }
 
+    // Enqueueing (RemoteWorkManagerService) and SystemJobService live in the main process, so the reschedule after a
+    // reboot, force-stop or update (ForceStopRunnable, default process only) must run there too; workers hop to :bg.
     override fun getWorkManagerConfiguration(): WorkConfiguration {
         return WorkConfiguration.Builder()
-            .setDefaultProcessName("${BuildConfig.APPLICATION_ID}:bg")
+            .setDefaultProcessName(BuildConfig.APPLICATION_ID)
             .build()
     }
 
@@ -187,12 +189,19 @@ class SagerNet : Application(),
                 ?.getItemAt(0)?.text?.toString() ?: ""
         }
 
-        fun trySetPrimaryClip(clip: String) = try {
-            clipboard.setPrimaryClip(ClipData.newPlainText(null, clip))
-            true
-        } catch (e: RuntimeException) {
-            Logs.w(e)
-            false
+        /** The clip travels as UTF-16 in one binder transaction, whose buffer (about 1 MB) the process shares. */
+        const val MAX_CLIP_CHARS = 400_000
+
+        /** False when the text is over [MAX_CLIP_CHARS] or the clipboard refused it. */
+        fun trySetPrimaryClip(clip: String): Boolean {
+            if (clip.length > MAX_CLIP_CHARS) return false
+            return try {
+                clipboard.setPrimaryClip(ClipData.newPlainText(null, clip))
+                true
+            } catch (e: RuntimeException) {
+                Logs.w(e)
+                false
+            }
         }
 
         fun updateNotificationChannels() {

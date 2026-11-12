@@ -18,7 +18,6 @@ import androidx.core.content.pm.ShortcutInfoCompat
 import androidx.core.content.pm.ShortcutManagerCompat
 import androidx.core.graphics.drawable.IconCompat
 import androidx.core.view.ViewCompat
-import androidx.core.view.isVisible
 import androidx.preference.EditTextPreference
 import androidx.preference.Preference
 import androidx.preference.PreferenceDataStore
@@ -34,6 +33,7 @@ import app.rawline.mobile.SagerNet
 import app.rawline.mobile.database.DataStore
 import app.rawline.mobile.database.ProfileManager
 import app.rawline.mobile.database.SagerDatabase
+import app.rawline.mobile.database.SettingsMapper
 import app.rawline.mobile.database.preference.OnPreferenceDataStoreChangeListener
 import app.rawline.mobile.ktx.Logs
 import app.rawline.mobile.ktx.onMainDispatcher
@@ -42,8 +42,10 @@ import app.rawline.mobile.ktx.runOnMainDispatcher
 import app.rawline.mobile.outbound.Outbound
 import app.rawline.mobile.outbound.json.JsonInput
 import app.rawline.mobile.ui.ThemedActivity
+import app.rawline.mobile.ui.ValidationForm
 import app.rawline.mobile.ui.json.JsonEditorActivity
 import app.rawline.mobile.ui.json.ProfileJson
+import app.rawline.mobile.validation.Issue
 import app.rawline.mobile.widget.ListListener
 import kotlinx.parcelize.Parcelize
 import kotlin.properties.Delegates
@@ -61,9 +63,7 @@ abstract class ProfileSettingsActivity<T : Outbound>(
         override fun AlertDialog.Builder.prepare(listener: DialogInterface.OnClickListener) {
             setTitle(R.string.unsaved_changes_prompt)
             setPositiveButton(R.string.save) { _, _ ->
-                runOnDefaultDispatcher {
-                    (requireActivity() as ProfileSettingsActivity<*>).saveAndExit()
-                }
+                (requireActivity() as ProfileSettingsActivity<*>).requestSave()
             }
             setNegativeButton(R.string.discard) { _, _ ->
                 requireActivity().finish()
@@ -185,6 +185,69 @@ abstract class ProfileSettingsActivity<T : Outbound>(
             else (proxyEntity?.outbound as? T) ?: createEntity()
         }
         return editingOutbound
+    }
+
+    /** The screen's validation form; null until the preferences are created. */
+    protected var form: ValidationForm? = null
+
+    private val validationContext by lazy { SettingsMapper.buildContext() }
+
+    /** Issue.field (the desktop key) → this screen's preference key, where [ValidationForm.keyFor] cannot tell. */
+    protected open fun issueKey(field: String): String? = null
+
+    /**
+     * The editor's own checks (the desktop's bindValidation): text the model no longer sees once parsed, and the
+     * editor-only rules. [validationOutbound]'s Validate already covers everything the model checks.
+     */
+    protected open fun ValidationForm.bindValidation() {}
+
+    /** A copy of the outbound with the screen's pending edits, for Validate; never saved. */
+    protected open fun validationOutbound(): T {
+        val copy = createEntity()
+        copy.parseFromJson(ensureEditingOutbound().exportToJson())
+        copy.serialize()
+        return copy
+    }
+
+    /**
+     * Everything on the screen that [validationOutbound]'s Validate reads, for a screen whose check is costly: its
+     * issues are kept while this stays equal. Null (the default) validates on every check.
+     */
+    protected open fun validationInputs(): Any? = null
+
+    private var modelCache: Pair<Any, List<Issue>>? = null
+
+    private fun modelIssues(): List<Issue> {
+        val inputs = validationInputs()
+        modelCache?.let { (cachedInputs, cached) -> if (inputs != null && cachedInputs == inputs) return cached }
+        val issues = ArrayList<Issue>()
+        try {
+            validationOutbound().validate(issues, validationContext)
+        } catch (e: Exception) {
+            Logs.w(e)
+        }
+        modelCache = inputs?.let { it to issues }
+        return issues
+    }
+
+    private fun attachValidation(fragment: PreferenceFragmentCompat) {
+        modelCache = null
+        val validation = ValidationForm(fragment)
+        // As on the desktop, an error on a field without a row still blocks saving; the JSON editor reaches it.
+        if (supportsRawJson) validation.unplacedFix = getString(R.string.edit_as_json)
+        validation.addModelIssues(::modelIssues, ::issueKey)
+        validation.bindProfileBlocks(ensureEditingOutbound())
+        validation.bindValidation()
+        validation.start()
+        // dialog_edit_profile.cpp: a loaded profile shows its problems at once, a new one only as fields are edited.
+        if (DataStore.editingId != 0L || dirtyAfterRebuild) validation.markAll()
+        form = validation
+    }
+
+    /** The save gate (Validation::Form::validateAll); errors keep the editor open, warnings never do. */
+    fun requestSave() {
+        if (form?.validateAll() == false) return
+        runOnDefaultDispatcher { saveAndExit() }
     }
 
     open suspend fun saveAndExit() {
@@ -329,6 +392,7 @@ abstract class ProfileSettingsActivity<T : Outbound>(
             try {
                 activity = (requireActivity() as ProfileSettingsActivity<*>).apply {
                     createPreferences(savedInstanceState, rootKey)
+                    attachValidation(this@MyPreferenceFragmentCompat)
                 }
             } catch (e: Exception) {
                 Toast.makeText(
@@ -371,9 +435,7 @@ abstract class ProfileSettingsActivity<T : Outbound>(
             }
 
             R.id.action_apply -> {
-                runOnDefaultDispatcher {
-                    activity?.saveAndExit()
-                }
+                activity?.requestSave()
                 true
             }
 
@@ -404,16 +466,18 @@ abstract class ProfileSettingsActivity<T : Outbound>(
             R.id.action_move -> {
                 val activity = requireActivity() as ProfileSettingsActivity<*>
                 val ent = activity.proxyEntity!!
-                val groups = SagerDatabase.groupDao.allGroups().filter { !it.isSubscription && it.id != ent.groupId }
-                // A tap on the group moves the profile (the group card's own button stayed hidden, so nothing happened).
+                val targets = SagerDatabase.groupDao.allGroups()
+                    .filter { !it.isSubscription && it.id != ent.groupId }
                 MobileAlertDialogBuilder(activity)
                     .setTitle(R.string.profiles_move_to_group)
-                    .setItems(groups.map { it.displayName() }.toTypedArray()) { _, index ->
-                        val newGroupId = groups[index].id
+                    .setItems(targets.map { it.displayName() }.toTypedArray()) { _, which ->
+                        val newGroupId = targets[which].id
                         runOnDefaultDispatcher {
                             ProfileManager.moveToGroup(listOf(ent.id), newGroupId)
                             DataStore.editingGroup = newGroupId // post switch animation
-                            runOnMainDispatcher { activity.finish() }
+                            runOnMainDispatcher {
+                                activity.finish()
+                            }
                         }
                     }
                     .setNegativeButton(android.R.string.cancel, null)

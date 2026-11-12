@@ -8,6 +8,10 @@ import app.rawline.mobile.outbound.common.Tls
 import app.rawline.mobile.outbound.json.JsonObject
 import app.rawline.mobile.outbound.link.LinkBuilder
 import app.rawline.mobile.outbound.link.LinkParser
+import app.rawline.mobile.validation.Issue
+import app.rawline.mobile.validation.Severity
+import app.rawline.mobile.validation.Validation
+import app.rawline.mobile.validation.addIssue
 
 /** juicity (include/configs/outbounds/juicity.h, src/configs/outbounds/juicity.cpp). */
 class Juicity : Outbound("juicity") {
@@ -23,6 +27,12 @@ class Juicity : Outbound("juicity") {
     override fun hasTls(): Boolean = true
     override fun mustTls(): Boolean = true
     override fun getTls(): Tls = tls
+
+    /** juicity::Validate (juicity.cpp). */
+    override fun validate(issues: MutableList<Issue>, ctx: BuildContext) {
+        super.validate(issues, ctx)
+        issues.addIssue(Severity.Error, "uuid", Validation.uuid(uuid))
+    }
 
     /** juicity.cpp:9-25. */
     override fun parseFromLink(link: String): Boolean {

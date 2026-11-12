@@ -29,6 +29,7 @@ import moe.matsuri.nb4a.ui.SimpleMenuPreference
 class WarpSettingsFragment : SettingsScreenFragment(R.xml.settings_warp) {
 
     private var amneziaPending = false
+    private var amneziaError = ""
 
     override fun bind() {
         val enable = pref<SwitchPreference>(SettingsRegistry.ENABLE_WARP.key)
@@ -60,6 +61,14 @@ class WarpSettingsFragment : SettingsScreenFragment(R.xml.settings_warp) {
             showMode(newValue as String)
             reloadIfEnabled()
             true
+        }
+        validation.addRule(listOf(enable.key, mode.key), label = mode.title?.toString()) {
+            when {
+                !enable.isChecked || mode.value != WarpClient.MODE_AMNEZIA -> ""
+                DataStore.warpAmneziaPackets.isNotEmpty() -> ""
+                amneziaPending -> getString(R.string.warp_amnezia_generating)
+                else -> amneziaError.ifEmpty { getString(R.string.warp_amnezia_missing) }
+            }
         }
 
         for (setting in listOf(
@@ -136,6 +145,7 @@ class WarpSettingsFragment : SettingsScreenFragment(R.xml.settings_warp) {
     private fun generateAmneziaPackets() {
         if (amneziaPending) return
         amneziaPending = true
+        validation.refresh()
         lifecycleScope.launch {
             val result = WarpClient.generateCamouflage()
             amneziaPending = false
@@ -147,7 +157,8 @@ class WarpSettingsFragment : SettingsScreenFragment(R.xml.settings_warp) {
     /** New packets are saved at once; a failure keeps the old ones and is shown on the mode row. */
     private fun packetsGenerated(result: Result<List<String>>) {
         result.onSuccess { DataStore.warpAmneziaPackets = it }
-        result.onFailure { android.widget.Toast.makeText(requireContext(), it.readableMessage, android.widget.Toast.LENGTH_LONG).show() }
+        amneziaError = result.exceptionOrNull()?.readableMessage.orEmpty()
+        validation.refresh()
     }
 
     private fun setText(setting: SettingsRegistry.Setting<*>, value: String) {

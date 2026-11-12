@@ -16,6 +16,7 @@ import android.view.View
 import android.view.ViewGroup
 import androidx.activity.addCallback
 import androidx.annotation.IdRes
+import androidx.appcompat.widget.PopupMenu
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.updatePaddingRelative
@@ -33,6 +34,7 @@ import app.rawline.mobile.aidl.SpeedDisplayData
 import app.rawline.mobile.aidl.TrafficDataBatch
 import app.rawline.mobile.bg.BaseService
 import app.rawline.mobile.bg.SagerConnection
+import app.rawline.mobile.bg.test.TestSpec
 import app.rawline.mobile.database.DataStore
 import app.rawline.mobile.database.SettingsRegistry
 import app.rawline.mobile.database.ProfileManager
@@ -43,10 +45,12 @@ import app.rawline.mobile.ktx.alert
 import app.rawline.mobile.ktx.isPreview
 import app.rawline.mobile.ktx.launchCustomTab
 import app.rawline.mobile.ktx.onMainDispatcher
-import app.rawline.mobile.ui.profile.ProfileTextImport
+import app.rawline.mobile.database.SettingsMapper
+import app.rawline.mobile.outbound.`import`.ProfileImport
 import app.rawline.mobile.ui.route.RouteImports
 import app.rawline.mobile.ui.settings.DnsSettingsFragment
 import app.rawline.mobile.ui.settings.XrayGeoSettingsFragment
+import app.rawline.mobile.ui.test.TestSessionClient
 import app.rawline.mobile.ktx.readableMessage
 import app.rawline.mobile.ktx.runOnDefaultDispatcher
 import app.rawline.mobile.ui.MessageStore
@@ -161,6 +165,10 @@ class MainActivity : ThemedActivity(),
 
         binding.fab.setOnClickListener { toggleService() }
         binding.stats.setOnClickListener { if (DataStore.serviceState.connected) binding.stats.testConnection() }
+        binding.stats.setOnLongClickListener {
+            showStatsMenu()
+            true
+        }
 
         setContentView(binding.root)
         currentMainFragment =
@@ -324,11 +332,24 @@ class MainActivity : ThemedActivity(),
     /** A profile link opened from outside: confirmed, then imported into the current group. */
     suspend fun importProfile(uri: Uri) {
         val link = uri.toString()
-        val profile = try {
-            ProfileTextImport.parse(link).firstOrNull() ?: error(getString(R.string.no_proxies_found))
+        val result = try {
+            ProfileImport.parse(link, SettingsMapper.xrayVlessPreference(), SettingsMapper.buildContext())
         } catch (e: Exception) {
             onMainDispatcher {
                 alert(e.readableMessage).show()
+            }
+            return
+        }
+        for (message in result.messages) Logs.w(message)
+        val profile = result.outbounds.firstOrNull()
+        if (profile == null) {
+            val report = result.report()
+            onMainDispatcher {
+                if (report.hasProblems()) {
+                    SubscriptionReportDialog.show(this@MainActivity, getString(R.string.validation_import_title), report.text())
+                } else {
+                    alert(getString(R.string.no_proxies_found)).show()
+                }
             }
             return
         }
@@ -432,6 +453,7 @@ class MainActivity : ThemedActivity(),
             R.id.nav_traffic -> displayFragment(DashboardFragment())
             R.id.nav_tools -> displayFragment(ToolsFragment())
             R.id.nav_logcat -> displayFragment(LogcatFragment())
+            R.id.nav_live_graphs -> displayFragment(LiveGraphsFragment())
             R.id.nav_faq -> {
                 launchCustomTab("https://throneproj.github.io")
                 return false
@@ -522,6 +544,30 @@ class MainActivity : ThemedActivity(),
             .show()
     }
 
+    /** Shows group [id] when the profiles screen is open; otherwise it opens there next, being the current group. */
+    fun showGroup(id: Long) {
+        (supportFragmentManager.findFragmentById(R.id.fragment_holder) as? ConfigurationFragment)?.showGroup(id)
+    }
+
+    /** The stats bar's long-press menu: the live graphs, and a speed test of the running connection. */
+    private fun showStatsMenu() {
+        val popup = PopupMenu(this, binding.stats)
+        popup.menuInflater.inflate(R.menu.stats_bar_menu, popup.menu)
+        popup.menu.findItem(R.id.action_test_speed_current).isEnabled = DataStore.serviceState.connected
+        popup.setOnMenuItemClickListener { item ->
+            when (item.itemId) {
+                R.id.action_live_graphs -> displayFragmentWithId(R.id.nav_live_graphs)
+                R.id.action_test_speed_current -> {
+                    if (!TestSessionClient.startCurrent(TestSpec.KIND_SPEED)) {
+                        snackbar(R.string.profiles_test_busy).show()
+                    }
+                }
+            }
+            true
+        }
+        popup.show()
+    }
+
     override fun snackbarInternal(text: CharSequence): Snackbar {
         return Snackbar.make(binding.coordinator, text, Snackbar.LENGTH_LONG).apply {
             if (binding.fab.visibility == View.VISIBLE) anchorAboveFab()
@@ -568,7 +614,7 @@ class MainActivity : ThemedActivity(),
         }
     }
 
-    /** Wi-Fi rules of the current route profile ask for location access once before a start from here. */
+    /** Wi-Fi rules of the routing profile the selected profile starts with ask for location access once before a start from here. */
     private fun startFromUi() {
         if (DataStore.wifiPermissionAsked || WifiStateAccess.status(this) == WifiStateAccess.Status.OK) {
             return launchConnect()
@@ -576,7 +622,8 @@ class MainActivity : ThemedActivity(),
         lifecycleScope.launch {
             val usesWifi = withContext(Dispatchers.IO) {
                 runCatching {
-                    RouteManager.current().rules.any { rule ->
+                    val groupId = ProfileManager.getProfile(DataStore.selectedProxy)?.groupId ?: -1L
+                    RouteManager.routeFor(groupId).rules.any { rule ->
                         !rule.disabled && (rule.wifi_ssid.any { it.isNotBlank() } || rule.wifi_bssid.any { it.isNotBlank() })
                     }
                 }.getOrDefault(false)

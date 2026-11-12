@@ -37,8 +37,8 @@ import kotlinx.parcelize.Parcelize
             onDelete = ForeignKey.CASCADE,
         )
     ],
-    // gid alone for the foreign key; gid + order serves the member list without a sort of the whole group
-    indices = [Index("gid"), Index("gid", "user_order", "id")],
+    // list order: a group's members are read in (user_order, id) order without a sort
+    indices = [Index("gid", "user_order", "id")],
 )
 @Parcelize
 data class ProxyEntity(
@@ -78,20 +78,24 @@ data class ProxyEntity(
     @Ignore
     private var cachedJson: String? = null
 
+    @IgnoredOnParcel
+    @Ignore
+    private var cachedJson: String? = null
+
     /**
      * The parsed profile: an [InvalidOutbound] when the type is unknown or [outboundJson] is not a JSON object. The
      * cache is checked against the stored strings themselves, so a large list does not build a key on every read.
      */
     @get:Ignore
     val outbound: Outbound
-        get() {
-            cachedOutbound?.let { if (cachedType == type && (cachedJson === outboundJson || cachedJson == outboundJson)) return it }
-            val parsed = parseOutbound(type, outboundJson)
-            cachedOutbound = parsed
+        get() = cachedOrNull() ?: parseOutbound(type, outboundJson).also {
+            cachedOutbound = it
             cachedType = type
             cachedJson = outboundJson
-            return parsed
         }
+
+    // String.equals checks identity first, so the usual unchanged case costs no comparison of the JSON.
+    private fun cachedOrNull(): Outbound? = cachedOutbound?.takeIf { cachedType == type && cachedJson == outboundJson }
 
     /** Stores [o] as the profile's data (type + compact ExportToJson + name) and keeps it as the parsed instance. */
     fun putOutbound(o: Outbound): ProxyEntity {
@@ -102,6 +106,16 @@ data class ProxyEntity(
         cachedType = type
         cachedJson = outboundJson
         return this
+    }
+
+    /**
+     * The lowercase display name, type and address on separate lines, what the profile search matches. An outbound
+     * that is not parsed yet is parsed for this without being kept.
+     */
+    fun searchText(): String {
+        val o = cachedOrNull() ?: parseOutbound(type, outboundJson)
+        val displayType = o.displayType().ifEmpty { type }
+        return (o.displayName().ifEmpty { displayType } + "\n" + displayType + "\n" + o.displayAddress()).lowercase()
     }
 
     fun displayName(): String = outbound.displayName().ifEmpty { displayType() }
@@ -143,6 +157,9 @@ data class ProxyEntity(
         latency = ms
         latencyAt = if (ms == 0) 0L else System.currentTimeMillis() / 1000
     }
+
+    fun hasTestResults(): Boolean = latency != 0 || testCountry != null || ipOut != null || dlSpeed != null ||
+        ulSpeed != null || testError != null
 
     /** Profile::ClearTestResults, plus the Android-only error text. */
     fun clearTestResults() {
@@ -290,6 +307,68 @@ data class ProxyEntity(
         @Query("SELECT `id` FROM `profiles` WHERE `gid` = :groupId ORDER BY `user_order`, `id`")
         fun getIdsByGroup(groupId: Long): List<Long>
 
+        /** The group's members in list order without their data. */
+        @Query("SELECT `id`, `gid`, `type`, `name` FROM `profiles` WHERE `gid` = :groupId ORDER BY `user_order`, `id`")
+        fun getNamesByGroup(groupId: Long): List<ProfileName>
+
+        /** The lowest id whose stored name is [name]. */
+        @Query("SELECT `id` FROM `profiles` WHERE `name` = :name ORDER BY `id` LIMIT 1")
+        fun idByName(name: String): Long?
+
+        /** The profiles without a stored name, by id; their display name comes from the outbound. */
+        @Query("SELECT * FROM `profiles` WHERE `name` IS NULL OR `name` = '' ORDER BY `id`")
+        fun getUnnamed(): List<ProxyEntity>
+
+        /** The groups of [proxyIds] (at most 999 ids per call on old SQLite). */
+        @Query("SELECT DISTINCT `gid` FROM `profiles` WHERE `id` IN (:proxyIds)")
+        fun groupsOf(proxyIds: List<Long>): List<Long>
+
+        /** Which of [proxyIds] exist (at most 999 ids per call on old SQLite). */
+        @Query("SELECT `id` FROM `profiles` WHERE `id` IN (:proxyIds)")
+        fun existingIds(proxyIds: List<Long>): List<Long>
+
+        /** Which of [proxyIds] exist outside group [groupId] (at most 998 ids per call on old SQLite). */
+        @Query("SELECT `id` FROM `profiles` WHERE `id` IN (:proxyIds) AND `gid` != :groupId")
+        fun idsOutsideGroup(proxyIds: List<Long>, groupId: Long): List<Long>
+
+        /** The group's members with their stored positions, in list order. */
+        @Query("SELECT `id`, `user_order` FROM `profiles` WHERE `gid` = :groupId ORDER BY `user_order`, `id`")
+        fun getPositionsByGroup(groupId: Long): List<ProfilePosition>
+
+        /** The position of [proxyId] when it is a member of group [groupId]. */
+        @Query("SELECT `user_order` FROM `profiles` WHERE `id` = :proxyId AND `gid` = :groupId")
+        fun orderInGroup(proxyId: Long, groupId: Long): Long?
+
+        /** Whether the group's positions are exactly 0..n-1. */
+        @Query(
+            "SELECT COUNT(*) = COUNT(DISTINCT `user_order`) AND COALESCE(MIN(`user_order`), 0) = 0 " +
+                "AND COALESCE(MAX(`user_order`), -1) = COUNT(*) - 1 FROM `profiles` WHERE `gid` = :groupId"
+        )
+        fun isDense(groupId: Long): Boolean
+
+        /** Closes the gap the row at [order] left in group [groupId]. */
+        @Query("UPDATE `profiles` SET `user_order` = `user_order` - 1 WHERE `gid` = :groupId AND `user_order` > :order")
+        fun closeGap(groupId: Long, order: Long)
+
+        /**
+         * The group's members without their data: `type` and `outbound_json` are empty, `name`, `test_country` and
+         * `test_error` null, so only the keys that read plain columns (test results, traffic) can be taken from them.
+         */
+        @Query(
+            "SELECT `id`, '' AS `type`, NULL AS `name`, `gid`, `user_order`, `latency`, `latency_at`, `dl_speed`, " +
+                "`ul_speed`, NULL AS `test_country`, `ip_out`, '' AS `outbound_json`, `traffic_dl`, `traffic_up`, " +
+                "NULL AS `test_error` FROM `profiles` WHERE `gid` = :groupId"
+        )
+        fun getWithoutDataByGroup(groupId: Long): List<ProxyEntity>
+
+        /** [getWithoutDataByGroup] for [proxyIds] (at most 999 ids per call on old SQLite). */
+        @Query(
+            "SELECT `id`, '' AS `type`, NULL AS `name`, `gid`, `user_order`, `latency`, `latency_at`, `dl_speed`, " +
+                "`ul_speed`, NULL AS `test_country`, `ip_out`, '' AS `outbound_json`, `traffic_dl`, `traffic_up`, " +
+                "NULL AS `test_error` FROM `profiles` WHERE `id` IN (:proxyIds)"
+        )
+        fun getWithoutData(proxyIds: List<Long>): List<ProxyEntity>
+
         /** The group's members in list order. */
         @Query("SELECT * FROM `profiles` WHERE `gid` = :groupId ORDER BY `user_order`, `id`")
         fun getByGroup(groupId: Long): List<ProxyEntity>
@@ -318,7 +397,8 @@ data class ProxyEntity(
         @Update
         fun updateProxy(proxies: List<ProxyEntity>): Int
 
-        @Query("UPDATE `profiles` SET `user_order` = :order WHERE `id` = :proxyId")
+        /** Writes only a row whose order differs, so reordering a long group touches only the moved rows. */
+        @Query("UPDATE `profiles` SET `user_order` = :order WHERE `id` = :proxyId AND `user_order` != :order")
         fun setUserOrder(proxyId: Long, order: Long)
 
         @Query("UPDATE `profiles` SET `gid` = :groupId, `user_order` = :order WHERE `id` = :proxyId")
@@ -382,3 +462,17 @@ data class ProxyEntity(
         fun reset()
     }
 }
+
+/** A profile row without its data: list order, names and types. */
+data class ProfileName(
+    @ColumnInfo(name = "id") val id: Long,
+    @ColumnInfo(name = "gid") val groupId: Long,
+    @ColumnInfo(name = "type") val type: String,
+    @ColumnInfo(name = "name") val name: String?,
+)
+
+/** A profile's stored position in its group. */
+data class ProfilePosition(
+    @ColumnInfo(name = "id") val id: Long,
+    @ColumnInfo(name = "user_order") val userOrder: Long,
+)

@@ -4,6 +4,7 @@ import app.rawline.mobile.Key
 import app.rawline.mobile.SagerNet
 import app.rawline.mobile.outbound.BuildContext
 import app.rawline.mobile.outbound.Outbound
+import app.rawline.mobile.outbound.OutboundChecks
 import app.rawline.mobile.outbound.OutboundFactory
 import app.rawline.mobile.outbound.config.GeneratorSettings
 import app.rawline.mobile.outbound.config.MemberCheck
@@ -16,6 +17,7 @@ import app.rawline.mobile.outbound.json.jsonObjectOf
 import app.rawline.mobile.outbound.types.AutoSelector
 import app.rawline.mobile.outbound.types.Custom
 import app.rawline.mobile.route.RouteDns
+import app.rawline.mobile.route.RouteProfile
 import app.rawline.core.mobile.Mobile
 import java.util.concurrent.Callable
 import java.util.concurrent.Executors
@@ -30,10 +32,10 @@ import java.util.concurrent.Executors
 object SettingsMapper {
 
     /**
-     * The route profile of current_route_id (the first profile when it is gone), the rule-set list, the tracked
-     * groups of auto-selectors and, in :bg, the core's member check.
+     * [profile] (by default that of current_route_id, the first profile when it is gone), the rule-set list, the
+     * tracked groups of auto-selectors and, in :bg, the core's member check.
      */
-    fun routingInput(profile: app.rawline.mobile.route.RouteProfile = RouteManager.current()): RoutingInput = RoutingInput(
+    fun routingInput(profile: RouteProfile = RouteManager.current()): RoutingInput = RoutingInput(
         profile,
         RouteManager.catalog(),
         selectorStore(),
@@ -50,6 +52,7 @@ object SettingsMapper {
 
     /** The DNS fields come from [dns], the routing profile's own DNS (RouteDns::Current), when given. */
     fun generatorSettings(dns: RouteDns? = null): GeneratorSettings {
+        val mixedEnabled = !DataStore.mixedInboundDisabled
         val clashApi = DataStore.coreBoxClashApi
         val routeDns = dns ?: RouteDnsSettings.global()
         return GeneratorSettings(
@@ -134,6 +137,7 @@ object SettingsMapper {
             warpPublicKey = DataStore.warpPublicKey,
             warpIfcAddrs = DataStore.warpIfcAddrs,
             warpReserved = DataStore.warpReserved,
+            warpAmneziaPackets = DataStore.warpAmneziaPackets,
             warpMasqueEp = DataStore.warpMasqueEp,
             warpMasquePrivateKey = DataStore.warpMasquePrivateKey,
             warpMasquePeerPublicKey = DataStore.warpMasquePeerPublicKey,
@@ -152,7 +156,10 @@ object SettingsMapper {
         utlsFingerprint = DataStore.utlsFingerprint,
         muxDefaultOn = DataStore.muxDefaultOn,
         muxProtocol = DataStore.muxProtocol,
+        muxMode = DataStore.muxMode,
         muxConcurrency = DataStore.muxConcurrency,
+        muxMaxConnections = DataStore.muxMaxConnections,
+        muxMinStreams = DataStore.muxMinStreams,
         muxPadding = DataStore.muxPadding,
         muxMode = DataStore.muxMode,
         muxMaxConnections = DataStore.muxMaxConnections,
@@ -173,7 +180,11 @@ object SettingsMapper {
         quicInitialPacketSize = DataStore.quicInitialPacketSize,
         quicDisablePathMtuDiscovery = DataStore.quicDisablePathMtuDiscovery,
         xrayMuxConcurrency = DataStore.xrayMuxConcurrency,
+        xrayMuxMaxConnections = DataStore.xrayMuxMaxConnections,
+        xrayMuxXudpConcurrency = DataStore.xrayMuxXudpConcurrency,
+        xrayMuxXudpProxyUDP443 = DataStore.xrayMuxXudpProxyUdp443,
         xrayMuxDefaultOn = DataStore.xrayMuxDefaultOn,
+        xrayUseSystemCA = DataStore.xrayUseSystemCa,
         defaultDomainStrategy = DataStore.outboundDomainStrategy,
         directDnsDisableIpv6 = dns?.directDnsDisableIpv6 ?: DataStore.directDnsDisableIpv6,
         useDnsObject = DataStore.useDnsObject,
@@ -249,10 +260,18 @@ object SettingsMapper {
                 }
 
                 else -> {
-                    val key = if (outbound.isEndpoint()) "endpoints" else "outbounds"
-                    val config = jsonObjectOf(key to JsonArray.of(outbound.build(ctx).json), "log" to jsonObjectOf("level" to logLevel))
-                    Mobile.checkConfig(config.toCompact())
-                    null
+                    val built = outbound.buildChecked(ctx)
+                    when {
+                        // A bad global fragment setting fails every fragmenting member alike: not the member's fault.
+                        !built.ok && built.error == OutboundChecks.fragmentSettingsError(ctx) -> null
+                        !built.ok -> built.error
+                        else -> {
+                            val key = if (outbound.isEndpoint()) "endpoints" else "outbounds"
+                            val config = jsonObjectOf(key to JsonArray.of(built.json), "log" to jsonObjectOf("level" to logLevel))
+                            Mobile.checkConfig(config.toCompact())
+                            null
+                        }
+                    }
                 }
             }
         } catch (e: Exception) {

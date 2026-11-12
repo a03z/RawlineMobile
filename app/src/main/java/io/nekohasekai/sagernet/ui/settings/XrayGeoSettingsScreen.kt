@@ -13,6 +13,8 @@ import app.rawline.mobile.database.SettingsRegistry
 import app.rawline.mobile.databinding.DialogGeoDownloadBinding
 import app.rawline.mobile.ktx.needReload
 import app.rawline.mobile.ktx.readableMessage
+import app.rawline.mobile.validation.Empty
+import app.rawline.mobile.validation.Validation
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -86,6 +88,7 @@ class XrayGeoSettingsFragment : SettingsScreenFragment(R.xml.settings_xray_geo) 
             }
             false
         }
+        validation.bind(preference.key, Validation.Rules.url(SettingChecks.HTTP, Empty.Required)).gate()
     }
 
     /** Stores [url] as the source of [file] and drops the installed copy; false when it is the stored one already. */

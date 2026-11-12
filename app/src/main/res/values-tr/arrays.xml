@@ -125,18 +125,11 @@
         <item>9000</item>
     </string-array>
 
-    <string-array name="mux_protocol_entry">
-        <item>@string/mux_protocol_default</item>
-        <item>h2mux</item>
-        <item>smux</item>
-        <item>yamux</item>
-    </string-array>
-
     <string-array name="night_mode">
         <item>@string/follow_system</item>
         <item>@string/enable</item>
         <item>@string/disable</item>
-        <item>@string/auto</item>
+        <item>@string/follow_battery_saver</item>
     </string-array>
 
     <string-array name="notification_action_entries">
@@ -188,18 +181,6 @@
         <item>icmp</item>
     </string-array>
 
-    <string-array name="route_rule_protocol_entries">
-        <item>@string/route_rule_any</item>
-        <item>http</item>
-        <item>tls</item>
-        <item>quic</item>
-        <item>stun</item>
-        <item>dns</item>
-        <item>bittorrent</item>
-        <item>dtls</item>
-        <item>ssh</item>
-        <item>rdp</item>
-    </string-array>
 
     <string-array name="route_rule_reject_method_entries">
         <item>@string/route_rule_unset</item>
@@ -295,33 +276,7 @@
         <item>quic</item>
     </string-array>
 
-    <string-array name="utls_fingerprint_entry">
-        <item></item>
-        <item>chrome</item>
-        <item>firefox</item>
-        <item>edge</item>
-        <item>safari</item>
-        <item>360</item>
-        <item>qq</item>
-        <item>ios</item>
-        <item>android</item>
-        <item>random</item>
-        <item>randomized</item>
-    </string-array>
 
-    <string-array name="utls_fingerprint_preset_entries">
-        <item>@string/setting_default</item>
-        <item>chrome</item>
-        <item>firefox</item>
-        <item>edge</item>
-        <item>safari</item>
-        <item>360</item>
-        <item>qq</item>
-        <item>ios</item>
-        <item>android</item>
-        <item>random</item>
-        <item>randomized</item>
-    </string-array>
 
     <string-array name="warp_masque_http_mode_entries">
         <item>@string/warp_http3_fallback</item>

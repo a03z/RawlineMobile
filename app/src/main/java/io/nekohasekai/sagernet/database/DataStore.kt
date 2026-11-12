@@ -1,6 +1,8 @@
 package app.rawline.mobile.database
 
 import android.os.Binder
+import android.os.Build
+import android.provider.Settings
 import androidx.preference.PreferenceDataStore
 import app.rawline.mobile.Key
 import app.rawline.mobile.bg.BaseService
@@ -8,6 +10,7 @@ import app.rawline.mobile.bg.VpnService
 import app.rawline.mobile.database.preference.OnPreferenceDataStoreChangeListener
 import app.rawline.mobile.database.preference.RoomPreferenceDataStore
 import app.rawline.mobile.database.preference.SettingsStore
+import app.rawline.mobile.ktx.app
 import app.rawline.mobile.ktx.boolean
 import app.rawline.mobile.ktx.int
 import app.rawline.mobile.ktx.long
@@ -30,6 +33,9 @@ object DataStore : OnPreferenceDataStoreChangeListener {
 
     /** The involvedProfileIds of the config [currentProfile] last started with, for ProfileManager.runningUses. */
     var runningProfiles by configurationStore.stringList(Key.RUNNING_PROFILES)
+
+    /** The routing profile the config [currentProfile] last started with was built with, 0 for a custom full config; read it through RouteManager.runningRouteId. */
+    var runningRouteId by configurationStore.long(Key.RUNNING_ROUTE)
 
     var selectedProxy by configurationStore.long(Key.PROFILE_ID)
 
@@ -89,6 +95,8 @@ object DataStore : OnPreferenceDataStoreChangeListener {
     var showGroupInNotification by configurationStore.boolean(Key.SHOW_GROUP_IN_NOTIFICATION)
     var showDirectSpeed by configurationStore.boolean(Key.SHOW_DIRECT_SPEED) { true }
     var alwaysShowAddress by configurationStore.boolean(Key.ALWAYS_SHOW_ADDRESS)
+    var compactProfileRows by configurationStore.boolean(Key.COMPACT_PROFILE_ROWS)
+    var compactGroupCards by configurationStore.boolean(Key.COMPACT_GROUP_CARDS)
 
     var logBufSize by configurationStore.int(Key.LOG_BUF_SIZE) { 0 }
     var hideFromRecentApps by configurationStore.boolean(Key.HIDE_FROM_RECENT_APPS)
@@ -97,6 +105,7 @@ object DataStore : OnPreferenceDataStoreChangeListener {
 
     var allowAppsBypassVpn by configurationStore.boolean("allowAppsBypassVpn")
     var meteredNetwork by configurationStore.boolean(Key.METERED_NETWORK)
+    var allowBypass by configurationStore.boolean(Key.ALLOW_BYPASS)
     var proxyApps by configurationStore.boolean(Key.PROXY_APPS)
     var bypass by configurationStore.boolean(Key.BYPASS_MODE) { true }
     var individual by configurationStore.string(Key.INDIVIDUAL)
@@ -119,6 +128,25 @@ object DataStore : OnPreferenceDataStoreChangeListener {
     var webdavPath: String?
         get() = configurationStore.getString(Key.WEBDAV_PATH) ?: "Rawline"
         set(value) = configurationStore.putString(Key.WEBDAV_PATH, value)
+
+    /** This device in the WebDAV backup list: a random UUID made on first use, never backed up or restored. */
+    val deviceId: String
+        @Synchronized get() = configurationStore.getString(Key.DEVICE_ID)?.takeIf { it.isNotBlank() }
+            ?: UUID.randomUUID().toString().also { configurationStore.putString(Key.DEVICE_ID, it) }
+
+    /** The name the user gave this device for WebDAV backups; empty = [defaultDeviceName]. */
+    var deviceName by configurationStore.string(Key.DEVICE_NAME) { "" }
+
+    fun effectiveDeviceName(): String = deviceName.trim().ifEmpty { defaultDeviceName() }
+
+    /** The system's device name (Settings › About phone), else manufacturer and model. */
+    fun defaultDeviceName(): String {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N_MR1) {
+            runCatching { Settings.Global.getString(app.contentResolver, Settings.Global.DEVICE_NAME) }
+                .getOrNull()?.trim()?.takeIf { it.isNotEmpty() }?.let { return it }
+        }
+        return "${Build.MANUFACTURER} ${Build.MODEL}".trim()
+    }
 
     // ------------------------------------------------------------------------------------------------ desktop keys
     // SettingsRegistry: property = lowerCamelCase of the desktop key.
@@ -229,8 +257,14 @@ object DataStore : OnPreferenceDataStoreChangeListener {
 
     // presets
     var muxProtocol by SettingsRegistry.MUX_PROTOCOL
+    var muxMode by SettingsRegistry.MUX_MODE
     var muxConcurrency by SettingsRegistry.MUX_CONCURRENCY
+    var muxMaxConnections by SettingsRegistry.MUX_MAX_CONNECTIONS
+    var muxMinStreams by SettingsRegistry.MUX_MIN_STREAMS
     var muxPadding by SettingsRegistry.MUX_PADDING
+    var muxBrutal by SettingsRegistry.MUX_BRUTAL
+    var muxBrutalUpMbps by SettingsRegistry.MUX_BRUTAL_UP_MBPS
+    var muxBrutalDownMbps by SettingsRegistry.MUX_BRUTAL_DOWN_MBPS
     var muxDefaultOn by SettingsRegistry.MUX_DEFAULT_ON
     var muxMode by SettingsRegistry.MUX_MODE
     var muxMaxConnections by SettingsRegistry.MUX_MAX_CONNECTIONS
@@ -239,6 +273,9 @@ object DataStore : OnPreferenceDataStoreChangeListener {
     var muxBrutalUpMbps by SettingsRegistry.MUX_BRUTAL_UP_MBPS
     var muxBrutalDownMbps by SettingsRegistry.MUX_BRUTAL_DOWN_MBPS
     var xrayMuxConcurrency by SettingsRegistry.XRAY_MUX_CONCURRENCY
+    var xrayMuxMaxConnections by SettingsRegistry.XRAY_MUX_MAX_CONNECTIONS
+    var xrayMuxXudpConcurrency by SettingsRegistry.XRAY_MUX_XUDP_CONCURRENCY
+    var xrayMuxXudpProxyUdp443 by SettingsRegistry.XRAY_MUX_XUDP_PROXY_UDP443
     var xrayMuxDefaultOn by SettingsRegistry.XRAY_MUX_DEFAULT_ON
     var fragmentDefaultOn by SettingsRegistry.FRAGMENT_DEFAULT_ON
     var fragmentImplementation by SettingsRegistry.FRAGMENT_IMPLEMENTATION
@@ -285,6 +322,9 @@ object DataStore : OnPreferenceDataStoreChangeListener {
     var subNotifyUpdate by SettingsRegistry.SUB_NOTIFY_UPDATE
     var subCustomHwidParams by SettingsRegistry.SUB_CUSTOM_HWID_PARAMS
     var allowStoppingActiveProfile by SettingsRegistry.ALLOW_STOPPING_ACTIVE_PROFILE
+    var subTlsVersion by SettingsRegistry.SUB_TLS_VERSION
+    var subHttpVersion by SettingsRegistry.SUB_HTTP_VERSION
+    var subRespectServerInterval by SettingsRegistry.SUB_RESPECT_SERVER_INTERVAL
 
     // warp
     var enableWarp by SettingsRegistry.ENABLE_WARP
@@ -295,6 +335,7 @@ object DataStore : OnPreferenceDataStoreChangeListener {
     var warpPublicKey by SettingsRegistry.WARP_PUBLIC_KEY
     var warpIfcAddrs by SettingsRegistry.WARP_IFC_ADDRS
     var warpReserved by SettingsRegistry.WARP_RESERVED
+    var warpAmneziaPackets by SettingsRegistry.WARP_AMNEZIA_PACKETS
     var warpTosAccepted by SettingsRegistry.WARP_TOS_ACCEPTED
     var warpMasqueEp by SettingsRegistry.WARP_MASQUE_EP
     var warpMasquePrivateKey by SettingsRegistry.WARP_MASQUE_PRIVATE_KEY

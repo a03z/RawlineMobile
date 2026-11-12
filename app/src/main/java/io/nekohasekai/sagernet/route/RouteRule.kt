@@ -1,11 +1,56 @@
 package app.rawline.mobile.route
 
+import app.rawline.mobile.R
+import app.rawline.mobile.database.ProfileManager
+import app.rawline.mobile.database.RouteManager
+import app.rawline.mobile.outbound.Outbound
 import app.rawline.mobile.outbound.QtStrings
+import app.rawline.mobile.outbound.config.ProfileProvider
+import app.rawline.mobile.outbound.config.TypeAccess
 import app.rawline.mobile.outbound.json.JsonArray
 import app.rawline.mobile.outbound.json.JsonObject
 import app.rawline.mobile.outbound.json.JsonValues
 import app.rawline.mobile.outbound.json.jsonObjectOf
+import app.rawline.mobile.validation.Family
+import app.rawline.mobile.validation.Severity
+import app.rawline.mobile.validation.Validation
+import app.rawline.mobile.validation.vtr
 import kotlin.reflect.KMutableProperty1
+
+/**
+ * RuleIssue (RouteRule.h). [attr] and [related] (the other attribute of a cross-field problem) are member names, which
+ * are also the rule editor's preference keys: the desktop's outbound, method and override_destination are
+ * outbound_id, reject_method and sniff_override_dest. [value] is the offending list item, empty when the message is
+ * about the attribute as a whole.
+ */
+data class RuleIssue(
+    @JvmField val severity: Severity,
+    @JvmField val attr: String,
+    @JvmField val message: String,
+    @JvmField val value: String = "",
+    @JvmField val related: String = "",
+)
+
+/**
+ * What [RouteRule.validate] reads besides the rule: srslist.h's ruleSetList ([catalog]; null or empty leaves rule-set
+ * names unjudged, URLs are still checked) and ProfilesRepo ([profiles]; null leaves server outbounds unchecked).
+ */
+class RuleEnv(@JvmField val catalog: RuleSetCatalog? = null, @JvmField val profiles: ProfileProvider? = null) {
+    companion object {
+        /** The stored profiles, each read once; the profile database allows main-thread reads. */
+        @JvmStatic
+        fun storedProfiles(): ProfileProvider {
+            val cache = HashMap<Long, Outbound?>()
+            return ProfileProvider { id ->
+                if (cache.containsKey(id)) cache[id] else ProfileManager.getProfile(id)?.outbound.also { cache[id] = it }
+            }
+        }
+
+        /** The stored profiles and the rule-set list; the list may be read from a file, so call it off the main thread. */
+        @JvmStatic
+        fun stored(): RuleEnv = RuleEnv(RouteManager.catalog(), storedProfiles())
+    }
+}
 
 /**
  * RouteRule (include/database/entities/RouteRule.h, src/database/entities/RouteRule.cpp). Members carry the desktop
@@ -77,7 +122,7 @@ class RouteRule {
         return c
     }
 
-    /** The action get_rule_json emits: a route to -3 is a reject and a route to -4 a DNS hijack (RouteRule.cpp:127-131). */
+    /** RouteRule::effective_action: the action get_rule_json emits, a route to -3 is a reject and a route to -4 a DNS hijack. */
     fun effectiveAction(): String {
         if (action != "route") return action
         return when (outbound_id) {
@@ -88,7 +133,7 @@ class RouteRule {
     }
 
     /**
-     * get_rule_json (RouteRule.cpp:81-185) without its side effect on [action]. The view form names the outbound
+     * get_rule_json (RouteRule.cpp) without its side effect on [action]. The view form names the outbound
      * (proxy, direct, block, warp-bypass or the server's display name from [profileName]) and is empty when that
      * server is missing; the config form uses [outboundTag], else the bare id like the desktop.
      */
@@ -140,7 +185,7 @@ class RouteRule {
         val act = effectiveAction()
         obj["action"] = act
         if (act == "reject") {
-            // the core reads `method`, fails on an unknown one and on no_drop alongside drop
+            // the core fails on an unknown method and on no_drop alongside drop
             val method = reject_method.trim().lowercase()
             if (method in REJECT_METHODS) obj["method"] = method
             if (no_drop && method != "drop") obj["no_drop"] = true
@@ -153,7 +198,8 @@ class RouteRule {
                 obj["tls_fragment"] = true
                 // the core reads the delay only alongside tls_fragment
                 if (tls_fragment_fallback_delay.isNotBlank()) obj["tls_fragment_fallback_delay"] = tls_fragment_fallback_delay.trim()
-            } else if (tls_record_fragment) obj["tls_record_fragment"] = true
+            }
+            if (tls_record_fragment) obj["tls_record_fragment"] = true
             if (tls_spoof.isNotBlank()) {
                 obj["tls_spoof"] = tls_spoof.trim()
                 if (tls_spoof_method.isNotBlank()) obj["tls_spoof_method"] = tls_spoof_method.trim()
@@ -242,8 +288,8 @@ class RouteRule {
     }
 
     /**
-     * The member names of the attributes that are not at their default (the desktop's is_attribute_at_default,
-     * RouteRule.cpp:213-237), in the desktop attribute order; `action` and the outbound are not included.
+     * The member names of the attributes that are not at their default (the desktop's is_attribute_at_default), in
+     * the desktop attribute order; `action` and the outbound are not included.
      */
     fun nonDefaultAttributes(): List<String> {
         val out = ArrayList<String>()
@@ -286,7 +332,8 @@ class RouteRule {
         l("rule_set", rule_set)
         b("invert", invert)
         s("override_address", override_address)
-        if (QtStrings.toInt(override_port) > 0) out.add("override_port")
+        // 0 is the core's "unset"; any other text counts, or a bad value would be hidden with it.
+        if (override_port.isNotBlank() && override_port.trim() != "0") out.add("override_port")
         b("tls_fragment", tls_fragment)
         s("tls_fragment_fallback_delay", tls_fragment_fallback_delay)
         b("tls_record_fragment", tls_record_fragment)
@@ -311,6 +358,100 @@ class RouteRule {
         if (!targetFits) return false
         val editable = if (t.isSimpleAddress) ADDRESS_ATTRIBUTES else PROCESS_ATTRIBUTES
         return nonDefaultAttributes().all { it in editable }
+    }
+
+    /** get_current_value_string by member name: a scalar as one item, the outbound as its id, a list as it is. */
+    fun currentValues(attr: String): List<String> {
+        if (attr == "action") return listOf(action)
+        if (attr == "outbound_id") return listOf(outbound_id.toString())
+        STRINGS_BY_NAME[attr]?.let { return listOf(it.get(this)) }
+        return LISTS_BY_NAME[attr]?.get(this) ?: emptyList()
+    }
+
+    /** set_field_value for a list member: trimmed, empty items dropped. */
+    fun setValues(attr: String, values: List<String>) {
+        LISTS_BY_NAME[attr]?.set(this, values.map { it.trim() }.filterTo(ArrayList()) { it.isNotEmpty() })
+    }
+
+    /** clear_attribute_value: the member back to its default; `action` is left alone. */
+    fun clearAttribute(attr: String) {
+        when (attr) {
+            "action" -> {}
+            "outbound_id" -> outbound_id = OutboundIds.DIRECT
+            else -> {
+                STRINGS_BY_NAME[attr]?.set(this, "")
+                LISTS_BY_NAME[attr]?.set(this, mutableListOf())
+                BOOLS_BY_NAME[attr]?.set(this, false)
+            }
+        }
+    }
+
+    /** RouteRule::has_match_conditions: whether anything narrows which connections the rule applies to. */
+    fun hasMatchConditions(): Boolean {
+        if (source_ip_is_private || ip_is_private || network_is_expensive) return true
+        for (attr in ATTRIBUTES) {
+            if (!isMatchAttribute(attr) || attr in BOOLS_BY_NAME) continue
+            if (currentValues(attr).any { it.isNotBlank() }) return true
+        }
+        return false
+    }
+
+    /**
+     * RouteRule::validate: every problem the core would refuse at start, or that leaves the rule not doing what it
+     * says. TLS spoof is never emitted on Android (D8), so its values and its pairing with an action go unreported.
+     */
+    @JvmOverloads
+    fun validate(env: RuleEnv = RuleEnv()): List<RuleIssue> {
+        val out = ArrayList<RuleIssue>()
+        if (type == RuleType.ENDPOINT_PREFERRED_BY.id) return out
+        val act = effectiveAction()
+        fun applies(attr: String) = ACTION_SCOPES[attr]?.contains(act) ?: true
+        fun add(severity: Severity, attr: String, message: String, related: String = "") {
+            out.add(RuleIssue(severity, attr, message, "", related))
+        }
+
+        for (attr in ATTRIBUTES) {
+            if (attr == "outbound_id" || attr in BOOLS_BY_NAME || attr in SPOOF_ATTRIBUTES || !applies(attr)) continue
+            // The editor hides the delay without tls_fragment and nothing emits it then.
+            if (attr == "tls_fragment_fallback_delay" && !tls_fragment) continue
+            for (item in currentValues(attr)) checkValue(attr, item, env.catalog)?.let { out.add(it) }
+        }
+
+        if (act == "route" || act == "bypass") {
+            val message = outboundProblem(outbound_id, env.profiles)
+            if (message.isNotEmpty()) add(Severity.Error, "outbound_id", message)
+        }
+        // The core's RouteOptionsActionOptions.UnmarshalJSON checks; route and bypass rules accept both fragment kinds.
+        if (act == "route-options") {
+            if (tls_fragment && tls_record_fragment) {
+                add(Severity.Error, "tls_record_fragment", vtr(R.string.validation_route_fragment_exclusive), "tls_fragment")
+            }
+            val anyOption = override_address.isNotBlank() || QtStrings.toInt(override_port) > 0 || tls_fragment ||
+                tls_record_fragment || tls_spoof.isNotBlank()
+            // Without conditions either, the rule is empty and dropped at save.
+            if (!anyOption && hasMatchConditions()) add(Severity.Error, "action", vtr(R.string.validation_route_options_empty))
+        }
+        if (applies("tls_fragment") && tls_fragment_fallback_delay.isNotBlank() && !tls_fragment) {
+            add(Severity.Warning, "tls_fragment_fallback_delay", vtr(R.string.validation_route_fallback_delay_unused), "tls_fragment")
+        }
+        if (act == "reject" && no_drop && reject_method.trim().lowercase() == "drop") {
+            add(Severity.Warning, "no_drop", vtr(R.string.validation_route_no_drop_unused), "reject_method")
+        }
+
+        val nonDefault = nonDefaultAttributes()
+        for (attr in ATTRIBUTES) {
+            val scope = ACTION_SCOPES[attr] ?: continue
+            val atDefault = if (attr == "outbound_id") outbound_id == OutboundIds.DIRECT else attr !in nonDefault
+            if (act in scope || attr in SPOOF_ATTRIBUTES || atDefault) continue
+            // The block or dns_out outbound is what makes a route rule a reject or hijack-dns one.
+            if (attr == "outbound_id" && action == "route") continue
+            add(Severity.Warning, attr, vtr(R.string.validation_route_ignored_by_action, act, scope.joinToString(", ")), "action")
+        }
+
+        if (type == RuleType.CUSTOM.id && (act == "route" || act == "bypass" || act == "reject") && !hasMatchConditions()) {
+            add(Severity.Warning, "action", vtr(R.string.validation_route_matches_all))
+        }
+        return out
     }
 
     private fun putStrings(obj: JsonObject, key: String, list: List<String>) {
@@ -367,12 +508,239 @@ class RouteRule {
             "override_destination", "strategy",
         )
 
-        /** The reject methods the core accepts. */
-        private val REJECT_METHODS = listOf("default", "drop", "reply")
-
         private val ADDRESS_ATTRIBUTES = setOf("domain", "domain_suffix", "domain_keyword", "domain_regex", "rule_set", "ip_cidr")
         private val PROCESS_ATTRIBUTES = setOf("process_path", "process_name")
 
+        /** SingboxOptions::rejectMethods (Const.hpp). */
+        private val REJECT_METHODS = listOf("default", "drop", "reply")
+
+        /** get_attributes by member name, plus Android's package_name_regex, network_type and network_is_expensive. */
+        private val ATTRIBUTES = listOf(
+            "ip_version", "network", "protocol", "inbound", "domain", "domain_suffix", "domain_keyword", "domain_regex",
+            "source_ip_cidr", "source_ip_is_private", "ip_cidr", "ip_is_private", "source_port", "source_port_range",
+            "port", "port_range", "process_name", "process_path", "process_path_regex", "package_name",
+            "package_name_regex", "network_type", "network_is_expensive", "wifi_ssid", "wifi_bssid", "rule_set",
+            "invert", "action", "outbound_id", "override_address", "override_port", "tls_fragment",
+            "tls_fragment_fallback_delay", "tls_record_fragment", "tls_spoof", "tls_spoof_method", "reject_method",
+            "no_drop", "sniff_override_dest", "strategy",
+        )
+
+        private val MATCH_ATTRIBUTES = setOf(
+            "ip_version", "network", "protocol", "inbound", "domain", "domain_suffix", "domain_keyword", "domain_regex",
+            "source_ip_cidr", "source_ip_is_private", "ip_cidr", "ip_is_private", "source_port", "source_port_range",
+            "port", "port_range", "process_name", "process_path", "process_path_regex", "package_name",
+            "package_name_regex", "network_type", "network_is_expensive", "wifi_ssid", "wifi_bssid", "rule_set",
+            "invert",
+        )
+
+        private val STRINGS_BY_NAME = STRING_FIELDS.associateBy { it.name }
+        private val LISTS_BY_NAME = LIST_FIELDS.associateBy { it.name }
+        private val BOOLS_BY_NAME = BOOL_FIELDS.associateBy { it.name }
+
+        /** Android never emits rule-level TLS spoof (D8). */
+        private val SPOOF_ATTRIBUTES = setOf("tls_spoof", "tls_spoof_method")
+
+        private val ROUTE_LIKE = listOf("route", "route-options", "bypass")
+
+        /** routeRuleActionScopes: the actions get_rule_json emits each action-specific attribute for. */
+        private val ACTION_SCOPES: Map<String, List<String>> = mapOf(
+            "outbound_id" to listOf("route", "bypass"),
+            "override_address" to ROUTE_LIKE,
+            "override_port" to ROUTE_LIKE,
+            "tls_fragment" to ROUTE_LIKE,
+            "tls_fragment_fallback_delay" to ROUTE_LIKE,
+            "tls_record_fragment" to ROUTE_LIKE,
+            "tls_spoof" to ROUTE_LIKE,
+            "tls_spoof_method" to ROUTE_LIKE,
+            "reject_method" to listOf("reject"),
+            "no_drop" to listOf("reject"),
+            "sniff_override_dest" to listOf("sniff"),
+            "strategy" to listOf("resolve"),
+        )
+
+        private val PORT_RANGE_STYLE = Validation.PortRangeStyle(
+            Validation.RangeSep.Colon, allowSingle = false, allowOpenEnds = true, checkOrder = false,
+        )
+
         private fun blank(list: List<String>): Boolean = list.none { it.isNotBlank() }
+
+        @JvmStatic
+        fun isListAttribute(attr: String): Boolean = attr in LISTS_BY_NAME
+
+        @JvmStatic
+        fun isMatchAttribute(attr: String): Boolean = attr in MATCH_ATTRIBUTES
+
+        /**
+         * RouteRule::check_value: one list item or scalar value of [attr] on its own, null when acceptable; the outbound
+         * and the cross-field rules are [validate]'s. Rule-set names are judged only against a non-empty [catalog].
+         */
+        @JvmStatic
+        @JvmOverloads
+        fun checkValue(attr: String, raw: String, catalog: RuleSetCatalog? = null): RuleIssue? {
+            val value = raw.trim()
+            if (value.isEmpty()) return null
+            var severity = Severity.Error
+            val message = when (attr) {
+                "domain", "domain_suffix", "domain_keyword" -> {
+                    severity = Severity.Warning
+                    domainProblem(value)
+                }
+
+                "domain_regex", "process_path_regex", "package_name_regex" -> {
+                    severity = Severity.Warning
+                    Validation.goRegex(value)
+                }
+
+                "ip_cidr", "source_ip_cidr" -> Validation.cidr(value, Family.Any, allowBareIp = true)
+                "port", "source_port" -> when {
+                    value.contains(':') || value.contains('-') -> vtr(
+                        if (attr == "port") R.string.validation_route_port_range_field else R.string.validation_route_source_port_range_field
+                    )
+                    // Listable[uint16] in the core, so 0 is accepted.
+                    value != "0" -> Validation.port(value)
+                    else -> ""
+                }
+
+                "port_range", "source_port_range" -> Validation.portRange(value, PORT_RANGE_STYLE).ifEmpty {
+                    severity = Severity.Warning
+                    Validation.portRangeOrder(value, PORT_RANGE_STYLE)
+                }
+
+                "process_name" -> {
+                    severity = Severity.Warning
+                    if (value.contains('/') || value.contains('\\')) vtr(R.string.validation_route_process_name_path) else ""
+                }
+
+                "process_path" -> {
+                    severity = Severity.Warning
+                    if (absolutePath(value)) "" else vtr(R.string.validation_route_process_path_absolute)
+                }
+
+                "rule_set" -> ruleSetProblem(value, catalog)
+                "override_address" -> overrideAddressProblem(value)
+                "override_port" -> if (value != "0") Validation.port(value) else ""
+                "tls_fragment_fallback_delay" -> Validation.duration(value)
+                "tls_spoof" -> {
+                    val bare = if (value.startsWith('[') && value.endsWith(']')) value.substring(1, value.length - 1) else value
+                    when {
+                        Validation.ip(bare).isEmpty() -> {
+                            severity = Severity.Warning
+                            vtr(R.string.validation_route_spoof_ip)
+                        }
+
+                        !value.contains("://") && hasPortSuffix(value) -> vtr(R.string.validation_route_spoof_port)
+                        else -> Validation.host(value)
+                    }
+                }
+
+                "ip_version" -> Validation.oneOf(value, listOf("4", "6"))
+                "network" -> Validation.oneOf(value, listOf("tcp", "udp", "icmp"))
+                "protocol" -> Validation.oneOf(value, SNIFF_PROTOCOLS)
+                "action" -> Validation.oneOf(
+                    value, listOf("route", "route-options", "direct", "bypass", "reject", "hijack-dns", "sniff", "resolve")
+                )
+                // get_rule_json lowercases it.
+                "reject_method" -> Validation.oneOf(value.lowercase(), REJECT_METHODS)
+                "strategy" -> Validation.oneOf(value, listOf("as_is", "prefer_ipv4", "prefer_ipv6", "ipv4_only", "ipv6_only"))
+                "tls_spoof_method" -> Validation.oneOf(
+                    value, listOf("wrong-sequence", "wrong-checksum", "wrong-ack", "wrong-md5", "wrong-timestamp")
+                )
+                // The core's InterfaceType refuses any other name.
+                "network_type" -> Validation.oneOf(value, NETWORK_TYPES)
+                else -> ""
+            }
+            if (message.isEmpty()) return null
+            return RuleIssue(severity, attr, message, if (isListAttribute(attr)) value else "")
+        }
+
+        /** RouteRule::cross_checks: the (attr, related, severity) shapes [validate] reports cross-field problems in. */
+        @JvmStatic
+        fun crossChecks(): List<RuleIssue> {
+            val out = mutableListOf(
+                RuleIssue(Severity.Error, "tls_record_fragment", "", "", "tls_fragment"),
+                RuleIssue(Severity.Warning, "tls_fragment_fallback_delay", "", "", "tls_fragment"),
+                RuleIssue(Severity.Warning, "no_drop", "", "", "reject_method"),
+            )
+            for (attr in ATTRIBUTES) {
+                if (attr in ACTION_SCOPES && attr !in SPOOF_ATTRIBUTES) out.add(RuleIssue(Severity.Warning, attr, "", "", "action"))
+            }
+            return out
+        }
+
+        /**
+         * routeRuleOutboundProblem: calculatePrerequisites' checks of a route outbound, which otherwise fail the start
+         * without naming the rule. Server ids are checked only with [profiles].
+         */
+        @JvmStatic
+        fun outboundProblem(id: Long, profiles: ProfileProvider?): String {
+            if (id == OutboundIds.PROXY || id == OutboundIds.DIRECT || id == OutboundIds.WARP_BYPASS) return ""
+            if (id < 0) return vtr(R.string.validation_route_outbound_invalid)
+            if (profiles == null) return ""
+            val ent = profiles.get(id) ?: return vtr(R.string.validation_route_outbound_missing)
+            val name = ent.displayName()
+            if (unroutable(ent)) return vtr(R.string.validation_route_outbound_unroutable, name)
+            if (ent.type != "chain") return ""
+            val hops = TypeAccess.chainHops(ent)
+            if (hops.isEmpty()) return vtr(R.string.validation_route_outbound_chain_empty, name)
+            for (hopId in hops) {
+                val hop = profiles.get(hopId)
+                if (hop == null || hop.type == "chain" || unroutable(hop)) return vtr(R.string.validation_route_outbound_chain_hop, name)
+            }
+            return ""
+        }
+
+        /** SingboxOptions::SniffProtocols (Const.hpp), with ntp. */
+        val SNIFF_PROTOCOLS = listOf("tls", "http", "quic", "dns", "stun", "bittorrent", "dtls", "ssh", "rdp", "ntp")
+
+        private fun unroutable(o: Outbound): Boolean = o.isExtraCore() || o.isXrayFullConfig() || TypeAccess.isCustomFullConfig(o)
+
+        /** "host:1234", not an IPv6 address. */
+        private fun hasPortSuffix(text: String): Boolean {
+            val colon = text.lastIndexOf(':')
+            if (colon <= 0 || text.indexOf(':') != colon) return false
+            val port = text.substring(colon + 1)
+            return port.isNotEmpty() && port.all { it in '0'..'9' }
+        }
+
+        /** Shared profiles travel between systems, so both path styles count. */
+        private fun absolutePath(text: String): Boolean {
+            if (text.startsWith('/') || text.startsWith('\\')) return true
+            return text.length >= 3 && text[0].isLetter() && text[1] == ':' && (text[2] == '\\' || text[2] == '/')
+        }
+
+        /** The core accepts any non-empty item; these just never match. */
+        private fun domainProblem(value: String): String = when {
+            value.contains("://") -> vtr(R.string.validation_route_domain_scheme)
+            value.any { it.isWhitespace() } -> vtr(R.string.validation_route_domain_spaces)
+            value.contains('/') -> vtr(R.string.validation_route_domain_path)
+            value.contains(':') -> vtr(R.string.validation_route_domain_port)
+            value != value.lowercase() -> vtr(R.string.validation_route_domain_lowercase)
+            else -> ""
+        }
+
+        /** ParseSocksaddrHostPort unwraps one pair of brackets around the whole value. */
+        private fun overrideAddressProblem(value: String): String {
+            if (value.startsWith('[')) {
+                if (value.length > 2 && value.endsWith(']')) return Validation.ip(value.substring(1, value.length - 1))
+                return vtr(R.string.validation_route_override_address_brackets)
+            }
+            if (Validation.ip(value).isEmpty()) return ""
+            if (hasPortSuffix(value)) return vtr(R.string.validation_route_override_address_port)
+            return Validation.host(value)
+        }
+
+        /**
+         * A srslist name (or the adblock set, which the build also knows), or an http(s) URL naming an .srs file, the
+         * only kind of download that can succeed. Without a catalog only what looks like a URL is judged.
+         */
+        private fun ruleSetProblem(value: String, catalog: RuleSetCatalog?): String {
+            if (RuleSets.isUrl(value) && UrlText.parse(value)?.host?.isNotEmpty() == true) return ""
+            if (catalog != null && catalog.size > 0) {
+                if (value == RuleSets.ADBLOCK_TAG || catalog.urlOf(value) != null) return ""
+            } else if (!value.contains("://")) {
+                return ""
+            }
+            return vtr(R.string.validation_route_rule_set_unknown)
+        }
     }
 }

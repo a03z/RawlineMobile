@@ -3,6 +3,8 @@ package app.rawline.mobile.database
 import app.rawline.mobile.Key
 import app.rawline.mobile.SpeedTestSettings
 import app.rawline.mobile.database.preference.SettingsStore
+import app.rawline.mobile.outbound.common.XRAY_MUX_MAX_COUNT
+import app.rawline.mobile.outbound.common.xrayXudpProxyUDP443Modes
 import app.rawline.mobile.outbound.link.Hosts
 import kotlin.properties.ReadWriteProperty
 import kotlin.reflect.KProperty
@@ -104,6 +106,10 @@ object SettingsRegistry {
 
     @JvmField
     val MUX_PROTOCOLS = listOf("h2mux", "smux", "yamux")
+
+    /** SettingsRepo.h:84-85 mux_mode. */
+    @JvmField
+    val MUX_MODES = listOf("max_streams", "max_connections")
 
     @JvmField
     val FRAGMENT_IMPLEMENTATIONS = listOf("built-in", "custom")
@@ -233,17 +239,20 @@ object SettingsRegistry {
     // ------------------------------------------------------------------------------------------------ presets
 
     @JvmField val MUX_PROTOCOL = oneOf("mux_protocol", "smux", MUX_PROTOCOLS)
+    @JvmField val MUX_MODE = oneOf("mux_mode", "max_streams", MUX_MODES)
     @JvmField val MUX_CONCURRENCY = int("mux_concurrency", 8) { it >= 0 }
-    @JvmField val MUX_PADDING = bool("mux_padding", false)
-    @JvmField val MUX_DEFAULT_ON = bool("mux_default_on", false)
-    /** The preset pool: "max_streams" per connection, or "max_connections" with min_streams. */
-    @JvmField val MUX_MODE = oneOf("mux_mode", "max_streams", listOf("max_streams", "max_connections"))
     @JvmField val MUX_MAX_CONNECTIONS = int("mux_max_connections", 4) { it >= 0 }
     @JvmField val MUX_MIN_STREAMS = int("mux_min_streams", 4) { it >= 0 }
+    @JvmField val MUX_PADDING = bool("mux_padding", false)
     @JvmField val MUX_BRUTAL = bool("mux_brutal", false)
     @JvmField val MUX_BRUTAL_UP_MBPS = int("mux_brutal_up_mbps", 0) { it >= 0 }
     @JvmField val MUX_BRUTAL_DOWN_MBPS = int("mux_brutal_down_mbps", 0) { it >= 0 }
-    @JvmField val XRAY_MUX_CONCURRENCY = int("xray_mux_concurrency", 8) { it >= 0 }
+    @JvmField val MUX_DEFAULT_ON = bool("mux_default_on", false)
+    @JvmField val XRAY_MUX_CONCURRENCY = int("xray_mux_concurrency", 8) { it in -1..XRAY_MUX_MAX_COUNT }
+    /** 0 = no limit. */
+    @JvmField val XRAY_MUX_MAX_CONNECTIONS = int("xray_mux_max_connections", 0) { it in 0..XRAY_MUX_MAX_COUNT }
+    @JvmField val XRAY_MUX_XUDP_CONCURRENCY = int("xray_mux_xudp_concurrency", 16) { it in -1..XRAY_MUX_MAX_COUNT }
+    @JvmField val XRAY_MUX_XUDP_PROXY_UDP443 = oneOf("xray_mux_xudp_proxy_udp443", "reject", xrayXudpProxyUDP443Modes)
     @JvmField val XRAY_MUX_DEFAULT_ON = bool("xray_mux_default_on", false)
     @JvmField val FRAGMENT_DEFAULT_ON = bool("fragment_default_on", false)
     @JvmField val FRAGMENT_IMPLEMENTATION = oneOf("fragment_implementation", "built-in", FRAGMENT_IMPLEMENTATIONS)
@@ -271,7 +280,7 @@ object SettingsRegistry {
     @JvmField val DIRECT_TEST_URL = string("direct_test_url", "")
     /** The exit country of the running connection (widget/ExitIp.kt); off never asks a lookup service on its own. */
     @JvmField val EXIT_COUNTRY_LOOKUP = bool("exit_country_lookup", true)
-    /** "auto" or one service id of ExitIp; an unknown id runs as "auto". */
+    /** "auto" or one service id of ExitIp; an id this build does not know (a newer desktop's) runs as "auto". */
     @JvmField val EXIT_LOOKUP_PROVIDER = string("exit_lookup_provider", "auto")
     /** 0 download + upload, 1 download, 2 upload, 3 simple download, 4 country (Const.hpp:39-49). */
     @JvmField val SPEED_TEST_MODE = int("speed_test_mode", 0) { it in 0..4 }
@@ -304,6 +313,11 @@ object SettingsRegistry {
     /** `key=value` pairs separated by commas. */
     @JvmField val SUB_CUSTOM_HWID_PARAMS = string("sub_custom_hwid_params", "")
     @JvmField val ALLOW_STOPPING_ACTIVE_PROFILE = bool("allow_stopping_active_profile", false)
+    /** [SubTlsVersion] / [SubHttpVersion] values (SettingsRepo.h sub_tls_version, sub_http_version). */
+    @JvmField val SUB_TLS_VERSION = int("sub_tls_version", 0) { it in 0..2 }
+    @JvmField val SUB_HTTP_VERSION = int("sub_http_version", 0) { it in 0..1 }
+    /** Follow a server's profile-update-interval instead of sub_auto_update's minutes. */
+    @JvmField val SUB_RESPECT_SERVER_INTERVAL = bool("sub_respect_server_interval", false)
 
     // ------------------------------------------------------------------------------------------------ warp
 
@@ -315,6 +329,8 @@ object SettingsRegistry {
     @JvmField val WARP_IFC_ADDRS = stringList("warp_ifc_addrs", emptyList())
     @JvmField val WARP_AMNEZIA_PACKETS = stringList("warp_amnezia_packets", emptyList())
     @JvmField val WARP_RESERVED = stringList("warp_reserved", emptyList())
+    /** AmneziaWG I1-I5 of warp_mode "amnezia", generated with the identity so config builds need no core call. */
+    @JvmField val WARP_AMNEZIA_PACKETS = stringList("warp_amnezia_packets", emptyList())
     @JvmField val WARP_TOS_ACCEPTED = bool("warp_tos_accepted", false)
     @JvmField val WARP_MASQUE_EP = string("warp_masque_ep", "")
     @JvmField val WARP_MASQUE_PRIVATE_KEY = string("warp_masque_private_key", "")
@@ -333,6 +349,15 @@ object SettingsRegistry {
     @JvmField val XRAY_LOG_LEVEL = oneOf("xray_log_level", "debug", XRAY_LOG_LEVELS)
     @JvmField val ENABLE_STATS = bool("enable_stats", true)
     @JvmField val DISABLE_TRAFFIC_STATS = bool("disable_traffic_stats", false)
+    /**
+     * The live traffic graph (SettingsRepo.h traffic_graph_*): hidden line keys ("proxy", "direct", the desktop's
+     * "route:<id>" and "aux:<id>"), hidden directions (bit 0 download, bit 1 upload), the 1m/2m/5m/10m window.
+     */
+    @JvmField val TRAFFIC_GRAPH_HIDDEN = stringList("traffic_graph_hidden", emptyList())
+    @JvmField val TRAFFIC_GRAPH_HIDDEN_DIRS = int("traffic_graph_hidden_dirs", 0) { it in 0..3 }
+    @JvmField val TRAFFIC_GRAPH_RANGE = int("traffic_graph_range", 1) { it in 0..3 }
+    @JvmField val TRAFFIC_GRAPH_SMOOTH = bool("traffic_graph_smooth", true)
+    @JvmField val TRAFFIC_GRAPH_MARKERS = bool("traffic_graph_markers", true)
     /** Sign-encoded port: at most 0 is off. */
     @JvmField val CORE_BOX_CLASH_API = int("core_box_clash_api", -9090) { it in -65535..65535 }
     @JvmField val CORE_BOX_CLASH_LISTEN_ADDR = string("core_box_clash_listen_addr", LOOPBACK_ADDRESS) { it.isNotBlank() }
@@ -365,13 +390,13 @@ object SettingsRegistry {
     val ANDROID_KEYS: Set<String> = setOf(
         LAN_SHARING_ENABLED.key, INBOUND_HTTP_PORT.key, "openconnect_private_networks", // Legacy beta 1 key; no longer used by the generator.
         Key.SERVICE_MODE, Key.PROXY_APPS, Key.BYPASS_MODE, Key.INDIVIDUAL, Key.APPEND_HTTP_PROXY, Key.HTTP_PROXY_BYPASS,
-        "allowAppsBypassVpn", Key.METERED_NETWORK, Key.WAKE_RESET_CONNECTIONS, Key.NETWORK_CHANGE_RESET_CONNECTIONS,
+        Key.METERED_NETWORK, Key.ALLOW_BYPASS, Key.WAKE_RESET_CONNECTIONS, Key.NETWORK_CHANGE_RESET_CONNECTIONS,
         Key.SHOW_DIRECT_SPEED, Key.SHOW_GROUP_IN_NOTIFICATION, Key.NOTIFICATION_ACTIONS,
         Key.USE_SYSTEM_THEME, Key.APP_THEME, Key.NIGHT_THEME, Key.AMOLED_THEME, Key.APP_LANGUAGE,
-        Key.ALWAYS_SHOW_ADDRESS, Key.GROUP_LAYOUT_MODE,
-        Key.HIDE_FROM_RECENT_APPS, Key.LOG_BUF_SIZE, Key.APP_TLS_VERSION,
-        Key.WEBDAV_SERVER, Key.WEBDAV_USERNAME, Key.WEBDAV_PASSWORD, Key.WEBDAV_PATH,
-        Key.PROFILE_CURRENT, Key.RUNNING_PROFILES, Key.PROFILE_ID, Key.PREVIEW_HINT_DISMISSED_VERSION,
+        Key.ALWAYS_SHOW_ADDRESS, Key.GROUP_LAYOUT_MODE, Key.COMPACT_PROFILE_ROWS, Key.COMPACT_GROUP_CARDS,
+        Key.HIDE_FROM_RECENT_APPS, Key.LOG_BUF_SIZE, Key.LOG_FONT_SIZE, Key.APP_TLS_VERSION,
+        Key.WEBDAV_SERVER, Key.WEBDAV_USERNAME, Key.WEBDAV_PASSWORD, Key.WEBDAV_PATH, Key.DEVICE_ID, Key.DEVICE_NAME,
+        Key.PROFILE_CURRENT, Key.RUNNING_PROFILES, Key.RUNNING_ROUTE, Key.PROFILE_ID, Key.PREVIEW_HINT_DISMISSED_VERSION,
         Key.UPDATE_CHECK_AUTO, Key.UPDATE_SKIPPED_VERSION_CODE, Key.RESUME_AFTER_UPDATE, Key.BATTERY_PROMPT_SHOWN,
         Key.LOG_EXPORT_REDACT, Key.HWID_FALLBACK, Key.WIFI_PERMISSION_ASKED, Key.SERVICE_ERROR,
         Key.SERVICE_ERROR_DNS, Key.SERVICE_ERROR_GEO, Key.SERVICE_ERROR_RULE_SETS, Key.START_WITHOUT_RULE_SETS,
@@ -385,10 +410,11 @@ object SettingsRegistry {
     @JvmField
     val DEVICE_LOCAL_KEYS: Set<String> = setOf(
         LAN_SHARING_ENABLED.key,
-        Key.WEBDAV_SERVER, Key.WEBDAV_USERNAME, Key.WEBDAV_PASSWORD, Key.WEBDAV_PATH,
+        Key.WEBDAV_SERVER, Key.WEBDAV_USERNAME, Key.WEBDAV_PASSWORD, Key.WEBDAV_PATH, Key.DEVICE_ID, Key.DEVICE_NAME,
         Key.BATTERY_PROMPT_SHOWN, Key.HWID_FALLBACK, Key.RESUME_AFTER_UPDATE, Key.UPDATE_SKIPPED_VERSION_CODE,
         Key.WIFI_PERMISSION_ASKED, Key.SERVICE_ERROR, Key.SERVICE_ERROR_DNS, Key.SERVICE_ERROR_GEO,
-        Key.SERVICE_ERROR_RULE_SETS, Key.START_WITHOUT_RULE_SETS, Key.RUNNING_PROFILES, CORE_BOX_API_PORT.key,
+        Key.SERVICE_ERROR_RULE_SETS, Key.START_WITHOUT_RULE_SETS, Key.RUNNING_PROFILES, Key.RUNNING_ROUTE,
+        CORE_BOX_API_PORT.key,
         Key.APP_LISTENER_PASS, Key.SERVER_LIST_RAISED, Key.PROVIDER_GEO_RESTORED,
     )
 

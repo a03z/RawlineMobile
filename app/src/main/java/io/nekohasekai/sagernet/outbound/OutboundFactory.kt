@@ -1,9 +1,15 @@
 package app.rawline.mobile.outbound
 
+import app.rawline.mobile.R
+import app.rawline.mobile.outbound.common.DnsTunnels
+import app.rawline.mobile.outbound.common.XrayChecks
+import app.rawline.mobile.outbound.common.normalizeXrayNetwork
+import app.rawline.mobile.outbound.common.xrayNetworks
 import app.rawline.mobile.outbound.json.JsonInput
 import app.rawline.mobile.outbound.json.JsonObject
 import app.rawline.mobile.outbound.link.Base64Strict
 import app.rawline.mobile.outbound.link.LinkParser
+import app.rawline.mobile.outbound.link.LinkQuery
 import app.rawline.mobile.outbound.types.DnsTunnel
 import app.rawline.mobile.outbound.types.Http
 import app.rawline.mobile.outbound.types.OpenFluxKey
@@ -15,6 +21,7 @@ import app.rawline.mobile.outbound.types.WdttPlus
 import app.rawline.mobile.outbound.types.Shadowsocks
 import app.rawline.mobile.outbound.types.ShadowsocksR
 import app.rawline.mobile.outbound.types.Socks
+import app.rawline.mobile.validation.vtr
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -104,6 +111,15 @@ object OutboundFactory {
         return InvalidOutbound(canonical)
     }
 
+    /** RefusedForeignType (OutboundFactory.cpp): the reason for types that must never come from links, subscriptions or shared route profiles. */
+    @JvmStatic
+    fun refusedForeignType(type: String): String = when (type) {
+        "extracore" -> vtr(R.string.validation_refused_extracore)
+        "chain" -> vtr(R.string.validation_refused_chain)
+        "autoselector" -> vtr(R.string.validation_refused_autoselector)
+        else -> ""
+    }
+
     private fun instantiateByName(className: String): Outbound? = try {
         Class.forName(TYPES_PACKAGE + className).getDeclaredConstructor().newInstance() as? Outbound
     } catch (e: Throwable) {
@@ -158,6 +174,9 @@ object OutboundFactory {
         Protocol("masque", listOf("masque://"), listOf("masque"), listOf("masque")),
         Protocol("ssh", listOf("ssh://"), listOf("ssh"), listOf("ssh")),
         Protocol("naive", listOf("naive+https://", "naive+quic://"), listOf("naive"), emptyList()),
+        // dnst:// links of the masterdns transport go to masterdns, see parseLink.
+        Protocol("dnstt", listOf("dnst://", "slipnet://", "slipnet-enc://", "slipnet-bundle-enc://"), listOf("dnstt"), emptyList()),
+        Protocol("masterdns", listOf("masterdns://", "stormdns://"), listOf("masterdns"), emptyList()),
     )
 
     /** typeForScheme (SubscriptionParser.cpp:69-76): case-sensitive prefix match. */
@@ -183,33 +202,54 @@ object OutboundFactory {
         return null
     }
 
-    /** useXrayVless (utils.cpp:50-72): whether a vless:// link needs the Xray core. */
+    /** linkEnablesTls (utils.cpp): the Tls.parseFromLink rule, a known security value, else an sni/peer unless security is explicitly off. */
+    private fun linkEnablesTls(query: LinkQuery): Boolean {
+        val security = query.value("security").trim().lowercase()
+        if (security == "tls" || security == "true" || security == "1" || security == "reality") return true
+        if (security == "none" || security == "false" || security == "0") return false
+        // parseFromLink reads sni first and lets peer overwrite it.
+        val serverName = if (query.has("peer")) query.value("peer") else query.value("sni")
+        return serverName.isNotEmpty()
+    }
+
+    /** useXrayVless (utils.cpp): whether a vless:// link needs the Xray core. */
     @JvmStatic
     @JvmOverloads
     fun useXrayVless(link: String, preference: XrayVlessPreference = DEFAULT_XRAY_VLESS_PREFERENCE): Boolean {
         val url = LinkParser.parse(link)
         if (!url.isValid) return false
         val query = url.query
-        val transport = query.value("type")
-        val security = query.value("security")
-        // sing-box's http transport speaks the raw HTTP header only in plaintext; TLS (which a bare sni also enables) turns it into h2
-        val rawHttpOverTls = (transport.isEmpty() || transport == "tcp" || transport == "raw") &&
-            query.value("headerType") == "http" &&
-            ((security.isNotEmpty() && security != "none") ||
-                query.value("sni").isNotEmpty() ||
-                query.value("peer").isNotEmpty())
+        val transport = normalizeXrayNetwork(query.value("type"))
         val encryption = query.value("encryption")
-        return preference == XrayVlessPreference.AllVLESS ||
-            rawHttpOverTls ||
-            // splithttp: XHTTP's former name (Android only, XrayStreamSetting reads it as xhttp)
-            transport == "xhttp" || transport == "splithttp" ||
-            query.has("fm") ||
+        val security = query.value("security").trim().lowercase()
+        val xrayOnly = query.has("fm") ||
             query.has("finalmask") ||
             // sing-box has no counterpart to verifyPeerCertByName
             query.has("vcn") ||
-            (security == "reality" && preference == XrayVlessPreference.XhttpAndReality) ||
-            (encryption != "none" && encryption.isNotEmpty()) ||
-            query.value("extra").isNotEmpty()
+            // sing-box rejects the CBC suites `cs` is used for; Xray accepts them with fp=unsafe
+            query.has("cs") ||
+            // sing-box VLESS takes only "" and xtls-rprx-vision
+            query.value("flow").trim().lowercase() == "xtls-rprx-vision-udp443" ||
+            (encryption.isNotEmpty() && encryption != "none") ||
+            query.value("extra").isNotEmpty() ||
+            // sing-box REALITY cannot verify the ML-DSA-65 signature
+            (security == "reality" && query.value("pqv").isNotBlank())
+        // Throne's Xray stream refuses any other network, which sing-box VLESS may still carry (http, quic), but it would drop the Xray-only values.
+        if (transport.isNotEmpty() && transport !in xrayNetworks) return xrayOnly
+        // sing-box has no mKCP, so even a link Xray refuses goes there to get Xray's reason.
+        if (transport == "kcp") return true
+        // Xray refuses REALITY over ws and httpupgrade, which sing-box carries.
+        if (!xrayOnly && XrayChecks.xrayRealityNetwork(security, transport).isNotEmpty()) return false
+        // sing-box's http transport speaks the raw HTTP header only in plaintext; TLS (which a bare sni also enables) turns it into h2
+        val rawHttpOverTls = (transport.isEmpty() || transport == "raw") &&
+            query.value("headerType") == "http" &&
+            linkEnablesTls(query)
+        return xrayOnly ||
+            preference == XrayVlessPreference.AllVLESS ||
+            rawHttpOverTls ||
+            transport == "xhttp" ||
+            transport == "xdrive" ||
+            (security == "reality" && preference == XrayVlessPreference.XhttpAndReality)
     }
 
     /**
@@ -256,6 +296,7 @@ object OutboundFactory {
         if (line.startsWith("vpn://", ignoreCase = true)) return null
         val profileType = typeForScheme(line) ?: return null
         val outbound = if (line.startsWith("vless://") && useXrayVless(line, preference)) newByType("xrayvless")
+        else if (line.startsWith("dnst://") && DnsTunnels.linkTransport(line) == "masterdns") newByType("masterdns")
         else newByType(profileType)
         // QWDTT:// or Csqtt:// reach the model with the scheme it parses.
         val scheme = PROTOCOLS.first { it.type == profileType }.schemes.firstOrNull { line.startsWith(it, ignoreCase = true) }

@@ -1,6 +1,9 @@
 package app.rawline.mobile.widget
 
+import android.net.Network
+import android.net.NetworkCapabilities
 import android.os.SystemClock
+import app.rawline.mobile.SagerNet
 import app.rawline.mobile.bg.BaseService
 import app.rawline.mobile.bg.proto.exitsThroughVpn
 import app.rawline.mobile.database.DataStore
@@ -18,6 +21,8 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import java.net.InetAddress
+import java.net.Proxy
 import java.util.Locale
 import java.util.concurrent.TimeUnit
 
@@ -190,6 +195,30 @@ object ExitIp {
         val name = country.trim().ifEmpty { if (countryCode.isEmpty()) "" else TestFormat.countryName(countryCode) }
         if (countryCode.isEmpty() && name.isEmpty()) return null
         return Info(ip.trim(), countryCode, name, city.trim())
+    }
+
+    /** Two ASCII letters, else empty; XX (unknown) and T1 (Tor) are Cloudflare's markers. */
+    private fun countryCode(raw: String): String {
+        val code = raw.trim().uppercase(Locale.ROOT)
+        return code.takeIf { it.length == 2 && it.all { c -> c in 'A'..'Z' } && it != "XX" && it != "T1" }.orEmpty()
+    }
+
+    /**
+     * The desktop asks through the mixed inbound (HttpGet useProxy, HTTPRequestHelper.cpp:36), which the core routes in
+     * either service mode.
+     * A VPN without that inbound carries the app's own traffic only while its per-app lists leave this app inside: the
+     * request is then bound to the VPN network, and is skipped otherwise rather than sent around the tunnel.
+     */
+    private fun client(): OkHttpClient? {
+        if (!DataStore.mixedInboundDisabled) return appHttpClient(viaProxy = true, timeoutSeconds = TIMEOUT_SECONDS)
+        val network = tunnelNetwork() ?: return null
+        return appHttpClient(viaProxy = false, timeoutSeconds = TIMEOUT_SECONDS).newBuilder()
+            .proxy(Proxy.NO_PROXY)
+            .socketFactory(network.socketFactory)
+            .dns(object : Dns {
+                override fun lookup(hostname: String): List<InetAddress> = network.getAllByName(hostname).toList()
+            })
+            .build()
     }
 
     /** Two ASCII letters, else empty; XX (unknown) and T1 (Tor) are Cloudflare's markers. */

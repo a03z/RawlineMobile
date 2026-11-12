@@ -9,9 +9,10 @@ import org.json.JSONObject
 object ProfileConfigExport {
 
     /**
-     * The config text and a file name for it: sing-box, then the Xray config and every Xray full config instance.
-     * All come from one build, because the sing-box <-> Xray bridge ports and credentials are generated per build.
-     * Reads the database: call it off the main thread.
+     * The config text and a file name for it: sing-box, then the Xray config and every Xray full config instance
+     * (on_menu_export_config_triggered, mainwindow_profiles.cpp:182-229). All come from one build, because the
+     * sing-box <-> Xray bridge ports and credentials are generated per build. Reads the database: call it off the
+     * main thread.
      */
     fun export(entity: ProxyEntity): Pair<String, String> {
         val result = CoreConfigs.buildMain(entity)

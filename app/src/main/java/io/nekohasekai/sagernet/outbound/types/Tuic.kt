@@ -1,5 +1,6 @@
 package app.rawline.mobile.outbound.types
 
+import app.rawline.mobile.R
 import app.rawline.mobile.outbound.BuildContext
 import app.rawline.mobile.outbound.import.ClashProxy
 import app.rawline.mobile.outbound.BuildResult
@@ -10,6 +11,48 @@ import app.rawline.mobile.outbound.common.Tls
 import app.rawline.mobile.outbound.json.JsonObject
 import app.rawline.mobile.outbound.link.LinkBuilder
 import app.rawline.mobile.outbound.link.LinkParser
+import app.rawline.mobile.validation.Issue
+import app.rawline.mobile.validation.ParseDiag
+import app.rawline.mobile.validation.Rule
+import app.rawline.mobile.validation.Severity
+import app.rawline.mobile.validation.Validation
+import app.rawline.mobile.validation.acceptOptional
+import app.rawline.mobile.validation.addIssue
+import app.rawline.mobile.validation.vtr
+
+/** tuic.h */
+val ccAlgorithms = listOf("cubic", "new_reno", "bbr")
+
+/** Older builds saved translated combo text ("BBR", "New Reno", "нативный"); the core matches exact identifiers. */
+private fun canonicalTuicCongestion(value: String): String = value.trim().lowercase().replace(' ', '_')
+
+private fun canonicalTuicRelayMode(value: String): String {
+    val mode = value.trim().lowercase()
+    return if (mode == "native" || mode == "quic") mode else ""
+}
+
+/** tuicKeep: without a diagnostics scope (DB loads, clones) a parse keeps every value as it always did. */
+private fun tuicKeep(field: String, value: String, rule: Rule): Boolean =
+    !ParseDiag.active() || acceptOptional(field, rule(value), value)
+
+private fun tuicImportCongestion(raw: String): String {
+    val value = canonicalTuicCongestion(raw)
+    return if (value.isEmpty() || tuicKeep("congestion_control", value, Validation.Rules.oneOf(ccAlgorithms))) value else ""
+}
+
+/** The core treats an unknown mode as native, so it is dropped with a note. */
+private fun tuicImportRelayMode(raw: String): String {
+    val mode = canonicalTuicRelayMode(raw)
+    if (mode.isEmpty() && raw.isNotBlank() && ParseDiag.active()) {
+        acceptOptional("udp_relay_mode", Validation.oneOf(raw.trim(), listOf("native", "quic")), raw)
+    }
+    return mode
+}
+
+private fun tuicImportHeartbeat(raw: String): String {
+    val value = raw.trim()
+    return if (tuicKeep("heartbeat", value, Validation.Rules.duration())) value else ""
+}
 
 /** tuic (include/configs/outbounds/tuic.h, src/configs/outbounds/tuic.cpp). */
 class Tuic : Outbound("tuic") {
@@ -34,7 +77,18 @@ class Tuic : Outbound("tuic") {
     override fun getTls(): Tls = tls
     override fun getQuic(): QuicFields = quic
 
-    /** tuic.cpp:9-32. */
+    /** tuic::Validate (tuic.cpp). */
+    override fun validate(issues: MutableList<Issue>, ctx: BuildContext) {
+        super.validate(issues, ctx)
+        issues.addIssue(Severity.Error, "uuid", Validation.uuid(uuid))
+        issues.addIssue(Severity.Error, "heartbeat", Validation.duration(heartbeat))
+        issues.addIssue(
+            Severity.Error, "congestion_control", Validation.oneOf(canonicalTuicCongestion(congestion_control), ccAlgorithms),
+            congestion_control,
+        )
+    }
+
+    /** tuic::ParseFromLink (tuic.cpp). */
     override fun parseFromLink(link: String): Boolean {
         val url = LinkParser.parse(link)
         if (!url.isValid) return false
@@ -43,11 +97,11 @@ class Tuic : Outbound("tuic") {
         val (linkUuid, linkPassword) = url.userInfoPair()
         uuid = linkUuid
         password = linkPassword
-        if (q.has("congestion_control")) congestion_control = q.value("congestion_control")
-        if (q.has("udp_relay_mode")) udp_relay_mode = q.value("udp_relay_mode")
+        if (q.has("congestion_control")) congestion_control = tuicImportCongestion(q.value("congestion_control"))
+        if (q.has("udp_relay_mode")) udp_relay_mode = tuicImportRelayMode(q.value("udp_relay_mode"))
         if (q.has("udp_over_stream")) udp_over_stream = q.value("udp_over_stream") == "true"
         if (q.has("zero_rtt_handshake")) zero_rtt_handshake = q.value("zero_rtt_handshake") == "true"
-        if (q.has("heartbeat")) heartbeat = q.value("heartbeat")
+        if (q.has("heartbeat")) heartbeat = tuicImportHeartbeat(q.value("heartbeat"))
         tls.parseFromLink(url)
         tls.enabled = true
         quic.parseFromLink(url)
@@ -55,17 +109,21 @@ class Tuic : Outbound("tuic") {
         return !(uuid.isEmpty() || server.isEmpty())
     }
 
-    /** tuic.cpp:50-65: `ip` overrides the server, `heartbeat-interval` is milliseconds. */
+    /** tuic::ParseFromClash (tuic.cpp): `ip` overrides the server, `heartbeat-interval` is milliseconds; TUIC v4 is refused. */
     override fun parseFromClash(node: JsonObject): Boolean {
         val proxy = ClashProxy(node)
         if (proxy.type != "tuic") return false
         baseParseFromClash(proxy)
         uuid = proxy.string("uuid")
+        if (uuid.isBlank()) {
+            ParseDiag.error("uuid", vtr(R.string.validation_tuic_v4))
+            return false
+        }
         password = proxy.string("password")
         val congestion = proxy.string("congestion-controller")
-        if (congestion.isNotEmpty()) congestion_control = congestion
+        if (congestion.isNotEmpty()) congestion_control = tuicImportCongestion(congestion)
         val relayMode = proxy.string("udp-relay-mode")
-        if (relayMode.isNotEmpty()) udp_relay_mode = relayMode
+        if (relayMode.isNotEmpty()) udp_relay_mode = tuicImportRelayMode(relayMode)
         zero_rtt_handshake = proxy.bool("reduce-rtt")
         val heartbeatInterval = proxy.int("heartbeat-interval")
         if (heartbeatInterval > 0) heartbeat = "${heartbeatInterval}ms"
@@ -76,17 +134,17 @@ class Tuic : Outbound("tuic") {
         return true
     }
 
-    /** tuic.cpp:34-48: the QUIC keys are flat. */
+    /** tuic::ParseFromJson (tuic.cpp): the QUIC keys are flat. */
     override fun parseFromJson(obj: JsonObject): Boolean {
         if (obj.isEmpty() || obj.string("type") != "tuic") return false
         super.parseFromJson(obj)
         if (obj.contains("uuid")) uuid = obj.string("uuid")
         if (obj.contains("password")) password = obj.string("password")
-        if (obj.contains("congestion_control")) congestion_control = obj.string("congestion_control")
-        if (obj.contains("udp_relay_mode")) udp_relay_mode = obj.string("udp_relay_mode")
+        if (obj.contains("congestion_control")) congestion_control = tuicImportCongestion(obj.string("congestion_control"))
+        if (obj.contains("udp_relay_mode")) udp_relay_mode = tuicImportRelayMode(obj.string("udp_relay_mode"))
         if (obj.contains("udp_over_stream")) udp_over_stream = obj.bool("udp_over_stream")
         if (obj.contains("zero_rtt_handshake")) zero_rtt_handshake = obj.bool("zero_rtt_handshake")
-        if (obj.contains("heartbeat")) heartbeat = obj.string("heartbeat")
+        if (obj.contains("heartbeat")) heartbeat = tuicImportHeartbeat(obj.string("heartbeat"))
         if (obj.contains("tls")) tls.parseFromJson(obj.obj("tls"))
         quic.parseFromJson(obj)
         return true
@@ -129,15 +187,17 @@ class Tuic : Outbound("tuic") {
         return obj
     }
 
-    /** tuic.cpp:109-124. */
+    /** tuic::Build (tuic.cpp): congestion control and relay mode in the core's identifiers. */
     override fun build(ctx: BuildContext): BuildResult {
         val obj = JsonObject()
         obj["type"] = "tuic"
         obj.merge(baseBuild(ctx))
         if (uuid.isNotEmpty()) obj["uuid"] = uuid
         if (password.isNotEmpty()) obj["password"] = password
-        if (congestion_control.isNotEmpty()) obj["congestion_control"] = congestion_control
-        if (udp_relay_mode.isNotEmpty() && !udp_over_stream) obj["udp_relay_mode"] = udp_relay_mode
+        val congestion = canonicalTuicCongestion(congestion_control)
+        if (congestion.isNotEmpty()) obj["congestion_control"] = congestion
+        val relayMode = canonicalTuicRelayMode(udp_relay_mode)
+        if (!udp_over_stream && relayMode.isNotEmpty()) obj["udp_relay_mode"] = relayMode
         if (udp_over_stream) obj["udp_over_stream"] = udp_over_stream
         if (zero_rtt_handshake) obj["zero_rtt_handshake"] = zero_rtt_handshake
         if (heartbeat.isNotEmpty()) obj["heartbeat"] = heartbeat

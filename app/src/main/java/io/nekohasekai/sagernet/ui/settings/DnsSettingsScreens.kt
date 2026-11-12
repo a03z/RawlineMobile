@@ -7,11 +7,17 @@ import androidx.preference.PreferenceCategory
 import androidx.preference.SwitchPreference
 import app.rawline.mobile.R
 import app.rawline.mobile.database.DataStore
+import app.rawline.mobile.database.DnsServerHistory
 import app.rawline.mobile.database.RouteManager
 import app.rawline.mobile.database.SagerDatabase
 import app.rawline.mobile.database.SettingValidators
 import app.rawline.mobile.database.SettingsRegistry
 import app.rawline.mobile.ktx.needReload
+import app.rawline.mobile.outbound.config.DnsServers
+import app.rawline.mobile.validation.Empty
+import app.rawline.mobile.validation.Rule
+import app.rawline.mobile.validation.Validation
+import app.rawline.mobile.validation.vtr
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -21,9 +27,15 @@ import moe.matsuri.nb4a.ui.EditConfigPreference
 class DnsSettingsFragment : SettingsScreenFragment(R.xml.settings_dns) {
 
     override fun bind() {
-        checkText(SettingsRegistry.REMOTE_DNS.key, R.string.invalid_dns_address) { it.isNotEmpty() }
-        checkText(SettingsRegistry.DIRECT_DNS.key, R.string.invalid_dns_address) { it.isNotEmpty() }
-        checkText(SettingsRegistry.CORE_BOX_UNDERLYING_DNS.key, R.string.invalid_dns_address) { true }
+        // dialog_manage_routes.cpp's server rules.
+        val server: Rule = { DnsServers.parseDnsAddress(it).why }
+        gateText(SettingsRegistry.REMOTE_DNS.key, server, invalid = R.string.invalid_dns_address) { it.isNotEmpty() }
+        gateText(SettingsRegistry.DIRECT_DNS.key, server, invalid = R.string.invalid_dns_address) { it.isNotEmpty() }
+        pref<DnsServerPreference>(SettingsRegistry.REMOTE_DNS.key).suggestions = DnsServerHistory::remoteSuggestions
+        pref<DnsServerPreference>(SettingsRegistry.DIRECT_DNS.key).suggestions = DnsServerHistory::directSuggestions
+        rememberAccepted(SettingsRegistry.REMOTE_DNS.key, DnsServerHistory::rememberRemote)
+        rememberAccepted(SettingsRegistry.DIRECT_DNS.key, DnsServerHistory::rememberDirect)
+        gateText(SettingsRegistry.CORE_BOX_UNDERLYING_DNS.key, ::localDnsProblem, invalid = R.string.invalid_dns_address)
         reloadOn(
             SettingsRegistry.REMOTE_DNS_DISABLE_IPV6.key, SettingsRegistry.DIRECT_DNS_DISABLE_IPV6.key,
             SettingsRegistry.DNS_FINAL_OUT.key, SettingsRegistry.ENABLE_DNS_ROUTING.key,
@@ -82,22 +94,45 @@ class DnsSettingsFragment : SettingsScreenFragment(R.xml.settings_dns) {
         }
     }
 
+    /** DnsServerHistory::Remember for a server the screen took in place of another (dialog_manage_routes.cpp:635-640). */
+    private fun rememberAccepted(key: String, remember: (String) -> Unit) {
+        val preference = pref<EditTextPreference>(key)
+        val check = preference.onPreferenceChangeListener
+        preference.setOnPreferenceChangeListener { p, newValue ->
+            val before = preference.text.orEmpty()
+            val accepted = check?.onPreferenceChange(p, newValue) ?: true
+            // A refused value leaves the text as it was; a trimmed one is stored by the check itself.
+            val now = if (accepted) newValue?.toString().orEmpty() else preference.text.orEmpty()
+            if (now != before) remember(now)
+            accepted
+        }
+    }
+
     override fun onResume() {
         super.onResume()
         showRouteOverride()
     }
 
-    /** The current routing profile's own DNS replaces the servers and behaviour here. */
+    /** The own DNS of the routing profile in effect replaces the servers and behaviour here (RouteDns::Current). */
     private fun showRouteOverride() {
         val note = findPreference<Preference>(KEY_ROUTE_OVERRIDE) ?: return
         lifecycleScope.launch {
             val name = withContext(Dispatchers.IO) {
-                val id = DataStore.currentRouteId
+                val id = RouteManager.activeRouteId()
                 if (RouteManager.customDns(id) == null) null else SagerDatabase.routeDao.getProfile(id)?.name
             }
             note.summary = name?.let { getString(R.string.dns_route_override_note, it) }
             note.isVisible = name != null
         }
+    }
+
+    /** dns-local resolves the other servers' names, so it cannot depend on one itself. */
+    private fun localDnsProblem(text: String): String {
+        if (text.isEmpty()) return ""
+        val parsed = DnsServers.parseDnsAddress(text)
+        val address = parsed.address ?: return parsed.why
+        if (address.type == "local" || address.type == "dhcp" || Validation.ip(address.server).isEmpty()) return ""
+        return vtr(R.string.validation_dns_local_ip)
     }
 
     private companion object {
@@ -112,9 +147,15 @@ class DnsSettingsFragment : SettingsScreenFragment(R.xml.settings_dns) {
 class DnsAdvancedSettingsFragment : SettingsScreenFragment(R.xml.settings_dns_advanced) {
 
     override fun bind() {
-        checkInt(SettingsRegistry.DNS_CACHE_CAPACITY.key, R.string.invalid_number) { it >= 0 }
-        checkText(SettingsRegistry.DNS_QUERY_TIMEOUT.key, R.string.invalid_duration, valid = SettingValidators::isDurationOrEmpty)
-        checkText(SettingsRegistry.DNS_OPTIMISTIC_TIMEOUT.key, R.string.invalid_duration, valid = SettingValidators::isDurationOrEmpty)
+        val capacity = SettingsRegistry.DNS_CACHE_CAPACITY.key
+        gateInt(capacity, Validation.Rules.int(0, Int.MAX_VALUE.toLong(), Empty.Required))
+        validation.bind(capacity) {
+            val value = Validation.toInt(it)
+            if (value != null && value in 1L..1023L) vtr(R.string.validation_dns_cache_small) else ""
+        }.warning()
+        for (key in listOf(SettingsRegistry.DNS_QUERY_TIMEOUT.key, SettingsRegistry.DNS_OPTIMISTIC_TIMEOUT.key)) {
+            gateText(key, Validation.Rules.duration(), invalid = R.string.invalid_duration, valid = SettingValidators::isDurationOrEmpty)
+        }
         pref<EditTextPreference>(SettingsRegistry.DNS_QUERY_TIMEOUT.key).summaryProvider = DefaultSummaryProvider("10s")
         pref<EditTextPreference>(SettingsRegistry.DNS_OPTIMISTIC_TIMEOUT.key).summaryProvider = DefaultSummaryProvider("3d")
         reloadOn(SettingsRegistry.DNS_PERSIST_CACHE.key, SettingsRegistry.DNS_REVERSE_MAPPING.key)

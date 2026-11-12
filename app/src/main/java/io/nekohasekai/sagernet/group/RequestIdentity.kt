@@ -3,9 +3,11 @@ package app.rawline.mobile.group
 import app.rawline.mobile.database.DataStore
 import app.rawline.mobile.database.ProxyGroup
 import app.rawline.mobile.database.SendHwid
+import app.rawline.mobile.database.SubHttpVersion
+import app.rawline.mobile.database.SubTlsVersion
 import app.rawline.mobile.ktx.appUserAgent
 
-/** RequestIdentity (GroupUpdater.hpp:19-26): the user agent and HWID headers of a subscription request. */
+/** RequestIdentity (GroupUpdater.hpp): the user agent, HWID headers and TLS / HTTP versions of a subscription request. */
 class RequestIdentity(
     @JvmField val userAgent: String,
     @JvmField val sendHwid: Boolean,
@@ -13,6 +15,8 @@ class RequestIdentity(
     @JvmField val timeoutSeconds: Int = 10,
     @JvmField val sendHwidInCookie: Boolean = false,
     @JvmField val allowInsecureRequests: Boolean = false,
+    @JvmField val tlsVersion: SubTlsVersion = SubTlsVersion.AUTO,
+    @JvmField val httpVersion: SubHttpVersion = SubHttpVersion.AUTO,
 ) {
 
     /** identityHeaders (GroupUpdater.cpp:59-70). */
@@ -75,10 +79,15 @@ class RequestIdentity(
             var userAgent = if (DataStore.userAgent2.isBlank()) "Happ/3.0 " + app.rawline.mobile.ktx.USER_AGENT else appUserAgent()
             var sendHwid = DataStore.subSendHwid
             var device = applyCustomHwidParams(DeviceDetails.get(), DataStore.subCustomHwidParams)
-            if (group == null) return RequestIdentity(userAgent, sendHwid, device, DataStore.subRequestTimeoutSeconds)
+            var tlsVersion = SubTlsVersion.of(DataStore.subTlsVersion) ?: SubTlsVersion.AUTO
+            var httpVersion = SubHttpVersion.of(DataStore.subHttpVersion) ?: SubHttpVersion.AUTO
+            if (group == null) return RequestIdentity(userAgent, sendHwid, device, DataStore.subRequestTimeoutSeconds,
+                tlsVersion = tlsVersion, httpVersion = httpVersion)
 
             val options = group.subOptions
             if (usableHeaderValue(options.userAgent)) userAgent = options.userAgent
+            options.tlsVersion?.let { tlsVersion = it }
+            options.httpVersion?.let { httpVersion = it }
             if (options.sendHwid != SendHwid.KEEP_DEFAULT) sendHwid = options.sendHwid == SendHwid.ON
             if (usableHeaderValue(options.hwid)) device = device.copy(hwid = options.hwid)
             if (usableHeaderValue(options.hwidOs)) device = device.copy(os = options.hwidOs)
@@ -86,7 +95,7 @@ class RequestIdentity(
             if (usableHeaderValue(options.hwidModel)) device = device.copy(model = options.hwidModel)
             return RequestIdentity(userAgent, sendHwid, device,
                 options.requestTimeoutSeconds.takeIf { it in 5..300 } ?: DataStore.subRequestTimeoutSeconds,
-                options.sendHwidInCookie, options.allowInsecureRequests)
+                options.sendHwidInCookie, options.allowInsecureRequests, tlsVersion, httpVersion)
         }
     }
 }

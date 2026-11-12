@@ -10,16 +10,18 @@ import app.rawline.mobile.outbound.Outbound
 import app.rawline.mobile.outbound.config.ConfigGenerator
 import app.rawline.mobile.outbound.config.GeneratedConfig
 import app.rawline.mobile.outbound.config.GeneratorSettings
+import app.rawline.mobile.outbound.config.PortLease
 import app.rawline.mobile.outbound.config.ProfileProvider
 import app.rawline.mobile.outbound.config.RoutingInput
 import app.rawline.mobile.outbound.config.TestCandidate
 import app.rawline.mobile.route.RouteDns
+import app.rawline.mobile.route.RouteProfile
 
 /**
  * The config generator wired to the app: profiles come from the profile table, the settings and the build-time
- * globals from DataStore through [SettingsMapper], the current route profile and the rule-set list from
- * RouteManager (main configs only; test configs read only the profile's own DNS), the landing / front proxy from the
- * profile's group.
+ * globals from DataStore through [SettingsMapper], the route profile of the profile's group and the rule-set list from
+ * RouteManager (main configs only; test configs read only the current profile's own DNS), the landing / front proxy
+ * from the profile's group.
  */
 object CoreConfigs {
 
@@ -32,7 +34,7 @@ object CoreConfigs {
         }
         override fun groupProxies(profileId: Long): Pair<Long, Long> = groupCache.getOrPut(profileId) {
             val groupId = SagerDatabase.proxyDao.getById(profileId)?.groupId ?: -1L
-            if (groupId > 0) groupProxyIds(groupId) else -1L to -1L
+            if (groupId > 0) groupProxies(groupId).let { it.first to it.second } else -1L to -1L
         }
     }
 
@@ -59,21 +61,27 @@ object CoreConfigs {
 
     /**
      * The main config of [profile]; throws with the generator's message when it cannot be built. [deferRuleSets]
-     * is GeneratorSettings.deferRuleSets, for a start the user let go without its rule-sets.
+     * is GeneratorSettings.deferRuleSets, for a start the user let go without its rule-sets. A config that will run
+     * leases its bridge ports to [ports] (ConfigGenerator.build). [route] is the routing profile of the profile's group.
      */
-    fun buildMain(profile: ProxyEntity, deferRuleSets: Boolean = false): GeneratedConfig {
+    fun buildMain(
+        profile: ProxyEntity,
+        deferRuleSets: Boolean = false,
+        ports: PortLease? = null,
+        route: RouteProfile = RouteManager.routeFor(profile.groupId),
+    ): GeneratedConfig {
         val group = SagerDatabase.groupDao.getById(profile.groupId)
         val options = group?.subOptions
-        if (options != null && options.routingProvider.isNotBlank() && options.providerRoutingEnabled && options.routeProfileId <= 0) {
+        if (options != null && options.routingProvider.isNotBlank() && options.providerRoutingEnabled && route.id == RouteManager.current().id) {
             try {
-                return buildMainWith(profile, deferRuleSets)
+                return buildMainWith(profile, deferRuleSets, ports, route)
             } catch (e: Exception) {
                 // A provider profile that cannot be used must not cost the connection: the subscription's own
                 // routing goes off and the client's takes over, as when it was never enabled. Kept on when the
                 // profile fails anyway, as the provider's routing was not the cause then.
                 group.subOptions = options.copy(providerRoutingEnabled = false)
                 SagerDatabase.groupDao.update(group)
-                val fallback = runCatching { buildMainWith(profile, deferRuleSets) }
+                val fallback = runCatching { buildMainWith(profile, deferRuleSets, ports, route) }
                 if (fallback.isFailure) {
                     group.subOptions = options
                     SagerDatabase.groupDao.update(group)
@@ -83,13 +91,14 @@ object CoreConfigs {
                 return fallback.getOrThrow()
             }
         }
-        return buildMainWith(profile, deferRuleSets)
+        return buildMainWith(profile, deferRuleSets, ports, route)
     }
 
-    private fun buildMainWith(profile: ProxyEntity, deferRuleSets: Boolean): GeneratedConfig {
-        val (landing, front) = groupProxyIds(profile.groupId)
+    private fun buildMainWith(profile: ProxyEntity, deferRuleSets: Boolean, ports: PortLease?, groupRoute: RouteProfile): GeneratedConfig {
+        val (landing, front, groupName) = groupProxies(profile.groupId)
         val options = SagerDatabase.groupDao.getById(profile.groupId)?.subOptions
-        val chosenRoute = options?.routeProfileId?.takeIf { it > 0 }?.let(RouteManager::get)?.takeIf { !it.is_raw }
+        // The group's own routing profile wins over the provider's routing; the global one gives way to it.
+        val chosenRoute = groupRoute.takeIf { it.id != RouteManager.current().id && !it.is_raw }
         val bound = options?.takeIf { it.routingProvider.isNotBlank() && it.providerRoutingEnabled }
         val route = when {
             chosenRoute != null -> chosenRoute.copy()
@@ -124,30 +133,30 @@ object CoreConfigs {
             moe.matsuri.nb4a.utils.CoreLog.write("[Info] ${profile.outbound.displayType()} uses IPv4-only tunnel and DNS; saved IPv6 preference is unchanged")
         }
         moe.matsuri.nb4a.utils.CoreLog.write("[Info] "+DnsDiagnostics.summary(settings,providerRouting!=null))
-        val generated = ConfigGenerator(profiles, settings, context, routing).build(profile.id, landing, front)
+        val generated = ConfigGenerator(profiles, settings, context, routing).build(profile.id, landing, front, ports, groupName)
         if (!generated.ok) error(generated.error ?: "config generation failed")
         return generated
     }
 
     /** One test config for every candidate at once, each under its own group's landing / front proxy. */
-    fun buildTest(profileIds: List<Long>): GeneratedConfig {
-        val groups = HashMap<Long, Pair<Long, Long>>()
+    fun buildTest(profileIds: List<Long>, ports: PortLease? = null): GeneratedConfig {
+        val groups = HashMap<Long, Triple<Long, Long, String>>()
         val candidates = profileIds.map { id ->
             val groupId = SagerDatabase.proxyDao.getById(id)?.groupId ?: -1L
-            val (landing, front) = groups.getOrPut(groupId) { groupProxyIds(groupId) }
-            TestCandidate(id, landing, front)
+            val (landing, front, groupName) = groups.getOrPut(groupId) { groupProxies(groupId) }
+            TestCandidate(id, landing, front, groupName)
         }
         val dns = RouteManager.customDns(DataStore.currentRouteId)
         val fallback = app.rawline.mobile.route.ProviderRouting.stored(RouteManager.current())?.second
             ?: app.rawline.mobile.outbound.json.JsonObject()
-        return ConfigGenerator(DatabaseProfiles(fallback), SettingsMapper.generatorSettings(dns), SettingsMapper.buildContext(dns)).buildTest(candidates)
+        return ConfigGenerator(DatabaseProfiles(fallback), SettingsMapper.generatorSettings(dns), SettingsMapper.buildContext(dns)).buildTest(candidates, ports)
     }
 
-    /** (landing_proxy_id, front_proxy_id) of a group, -1 when unset (any id <= 0 is "none"). */
-    private fun groupProxyIds(groupId: Long): Pair<Long, Long> {
-        val group: ProxyGroup = (if (groupId > 0) SagerDatabase.groupDao.getById(groupId) else null) ?: return -1L to -1L
+    /** (landing_proxy_id, front_proxy_id, name) of a group, -1 when unset (any id <= 0 is "none"). */
+    private fun groupProxies(groupId: Long): Triple<Long, Long, String> {
+        val group: ProxyGroup = (if (groupId > 0) SagerDatabase.groupDao.getById(groupId) else null) ?: return Triple(-1L, -1L, "")
         val landing = group.landingProxyId.takeIf { it > 0 } ?: -1L
         val front = group.frontProxyId.takeIf { it > 0 } ?: -1L
-        return landing to front
+        return Triple(landing, front, group.displayName())
     }
 }

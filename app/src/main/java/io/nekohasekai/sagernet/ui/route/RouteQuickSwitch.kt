@@ -32,10 +32,12 @@ object RouteQuickSwitch {
                 .setSingleChoiceItems(names, profiles.indexOfFirst { it.id == currentId }) { dialog, which ->
                     dialog.dismiss()
                     val picked = profiles[which]
-                    if (picked.id == DataStore.currentRouteId) return@setSingleChoiceItems
-                    switchTo(picked.id)
-                    switched(fragment, names[which])
-                    onSwitched?.invoke(picked)
+                    if (picked.id == currentId) return@setSingleChoiceItems
+                    fragment.lifecycleScope.launch {
+                        val kept = switchTo(picked.id)
+                        fragment.snackbar(switchedMessage(fragment, names[which], kept)).show()
+                        onSwitched?.invoke(picked)
+                    }
                 }
                 .setNeutralButton(if (warp) R.string.warp_disable else R.string.warp_enable) { _, _ ->
                     setWarpEnabled(fragment, !warp)
@@ -45,19 +47,23 @@ object RouteQuickSwitch {
         }
     }
 
-    /** current_route_id is global; a running service picks it up when the user applies the reload, like other settings. */
-    fun switchTo(id: Long) {
+    /**
+     * D15: current_route_id is global; a running service reloads at once, as the desktop restarts the profile, unless
+     * the running profile's group keeps its own routing profile (ConnectionModes.cpp:220-226). Returns that group's
+     * name, null when it does not apply.
+     */
+    suspend fun switchTo(id: Long): String? = withContext(Dispatchers.IO) {
         DataStore.currentRouteId = id
+        if (!DataStore.serviceState.started) return@withContext null
+        RouteManager.groupKeepingRunningRoute()?.let { return@withContext it.displayName() }
+        SagerNet.reloadService()
+        null
     }
 
-    /** "Routing profile X" when nothing runs, else the usual reload prompt with Apply. */
-    fun switched(fragment: Fragment, name: CharSequence) {
-        if (DataStore.serviceState.started) {
-            fragment.snackbar(fragment.getString(R.string.route_switched, name) + ". " + fragment.getString(R.string.need_reload))
-                .setAction(R.string.apply) { SagerNet.reloadService() }.show()
-        } else {
-            fragment.snackbar(fragment.getString(R.string.route_switched, name)).show()
-        }
+    /** route_switched, followed by why the running profile did not follow when a group [kept] its own. */
+    fun switchedMessage(fragment: Fragment, name: CharSequence, kept: String?): String {
+        val switched = fragment.getString(R.string.route_switched, name)
+        return if (kept == null) switched else switched + "\n" + fragment.getString(R.string.route_group_keeps_own, kept)
     }
 
     /** "Enable Warp" (mainwindow_setup.cpp:893-903): saves enable_warp and reloads a running service. */

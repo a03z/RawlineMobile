@@ -1,8 +1,23 @@
 package app.rawline.mobile.group
 
+import android.os.SystemClock
 import app.rawline.mobile.bg.carrier.NativeHashPolicy
 import app.rawline.mobile.R
+import app.rawline.mobile.SagerNet
+import app.rawline.mobile.bg.BaseService
+import app.rawline.mobile.bg.XrayGeoAssets
+import app.rawline.mobile.bg.carrier.NativeHashPolicy
 import app.rawline.mobile.database.DataStore
+import app.rawline.mobile.database.GroupSortAction
+import app.rawline.mobile.database.GroupSortMethod
+import app.rawline.mobile.database.ServerSortRule
+import app.rawline.mobile.ktx.readableMessage
+import app.rawline.mobile.outbound.types.Custom
+import app.rawline.mobile.outbound.types.OlcRtc
+import app.rawline.mobile.outbound.types.Qwdtt
+import app.rawline.mobile.route.ProviderGeoAssets
+import app.rawline.mobile.route.ProviderRouteProfiles
+import app.rawline.mobile.route.ProviderRouting
 import app.rawline.mobile.database.GroupRepo
 import app.rawline.mobile.database.GroupSort
 import app.rawline.mobile.database.GroupSortAction
@@ -10,20 +25,28 @@ import app.rawline.mobile.database.GroupSortMethod
 import app.rawline.mobile.database.ServerSortRule
 import app.rawline.mobile.database.ProfileManager
 import app.rawline.mobile.database.ProxyEntity
+import app.rawline.mobile.database.ProxyGroup
 import app.rawline.mobile.database.SagerDatabase
 import app.rawline.mobile.database.SettingsMapper
+import app.rawline.mobile.database.SubUserInfo
+import app.rawline.mobile.database.SubscriptionOptions
 import app.rawline.mobile.ktx.Logs
 import app.rawline.mobile.ktx.app
 import app.rawline.mobile.ktx.readableMessage
+import app.rawline.mobile.ktx.runOnDefaultDispatcher
 import app.rawline.mobile.outbound.Outbound
+import app.rawline.mobile.outbound.`import`.ImportReport
 import app.rawline.mobile.outbound.`import`.ProfileImport
-import app.rawline.mobile.route.ProviderRouting
 import app.rawline.mobile.bg.XrayGeoAssets
+import app.rawline.mobile.outbound.json.JsonInput
+import app.rawline.mobile.outbound.json.JsonObject
 import app.rawline.mobile.outbound.types.Custom
 import app.rawline.mobile.route.ProviderGeoAssets
 import app.rawline.mobile.route.ProviderRouteProfiles
-import app.rawline.mobile.outbound.json.JsonInput
-import app.rawline.mobile.outbound.json.JsonObject
+import app.rawline.mobile.route.ProviderRouting
+import app.rawline.mobile.validation.vplural
+import app.rawline.mobile.validation.vtr
+import kotlinx.coroutines.delay
 
 /** GroupUpdater::refresh, importDocuments and afterUrlTest (GroupUpdater.cpp:465-683) over the Room data layer. */
 internal object SubscriptionRefresh {
@@ -33,7 +56,19 @@ internal object SubscriptionRefresh {
     /** kInsertChunk (GroupUpdater.cpp:23). */
     private const val INSERT_CHUNK = 500
 
-    class ImportResult(@JvmField val gid: Long, @JvmField val count: Int)
+    /** How long a replaced running profile waits for the service to finish stopping. */
+    private const val RECONNECT_WAIT_MS = 15_000L
+
+    private val BOM = Char(0xFEFF)
+
+    /** [reported]: the import box went out, so the caller's own count line is skipped (MwArg::Quiet). */
+    class ImportResult(@JvmField val gid: Long, @JvmField val count: Int, @JvmField val reported: Boolean = false)
+
+    /**
+     * GroupUpdater::Surface: where an update's problems go: the log only (automatic), the diff popup (manual
+     * refresh), or a report box (a new subscription's first update).
+     */
+    enum class Surface { Log, Diff, Report }
 
     private fun str(id: Int, vararg args: Any): String = app.getString(id, *args)
 
@@ -45,131 +80,85 @@ internal object SubscriptionRefresh {
         return sb.toString()
     }
 
-    /** refresh (GroupUpdater.cpp:479-656); [notifyErrors]: fetch failures also go to the callbacks. */
-    suspend fun refresh(gid: Long, showDiff: Boolean, notifyErrors: Boolean) {
+    /** reportTitle (GroupUpdater.cpp). */
+    private fun reportTitle(surface: Surface, groupName: String): String =
+        if (surface == Surface.Report) vtr(R.string.validation_import_title_new, groupName) else vtr(R.string.validation_import_title_update, groupName)
+
+    /** logImportReport (GroupUpdater.cpp). */
+    private fun logImportReport(report: ImportReport) = Logs.w(report.text())
+
+    /**
+     * refresh and applyRefresh (GroupUpdater.cpp); [notifyErrors]: fetch failures also go to the callbacks. The parse
+     * report goes to the log, and with [Surface.Diff] / [Surface.Report] to a popup.
+     */
+    suspend fun refresh(gid: Long, surface: Surface, notifyErrors: Boolean) {
         val group = GroupRepo.get(gid) ?: return
         if (group.archive) return
         val options = group.subOptions
+        val url = group.url.trim()
 
-        val fetched = SubscriptionFetch.fetch(group.url.trim(), group.name, RequestIdentity.resolve(group))
-        if (fetched.error != null) {
-            if (notifyErrors) SubscriptionQueue.error(gid, fetched.error)
-            return
-        }
-        // A body without a single profile is far likelier a broken or blocked response than an emptied subscription:
-        // abort before the first write (no deletion, no update time). Parsing writes nothing, so it runs first.
-        val payload = ProviderRouting.subscription(fetched.body, fetched.routing, options.routingProvider.ifBlank { "Happ" }, options.providerIgnoreImport)
-        if(payload.warnings.isNotEmpty()) {
-            val warning="Повреждённая маршрутизация пропущена; сохранённая маршрутизация не изменена. "+payload.warnings.distinct().joinToString("\n")
-            Logs.w("${group.name}: $warning")
-            if(notifyErrors) SubscriptionQueue.report(gid,"",warning,false)
-        }
-        val parsed = parse(payload.body)
-        if (parsed.isEmpty()) {
-            // GroupUpdater.cpp:746-752: panels answer a device or quota limit with an empty list and an announcement
-            // saying why.
-            val info = fetched.subInfo
-            if (info.valid) {
-                if (info.announce.isNotEmpty()) Logs.w(str(R.string.subs_announcement_from, group.name, info.announce))
-                SagerDatabase.groupDao.setSubscriptionMetadata(gid, info.toJsonString())
-                GroupRepo.postUpdate(gid)
-            }
-            val message = str(R.string.subs_empty_aborted)
-            Logs.w("${group.name}: $message")
-            if (notifyErrors) SubscriptionQueue.error(gid, message)
-            return
-        }
+        val (info, result, routing, commands) = fetchAndParse(group, url, surface, notifyErrors) ?: return
+        val parsed = result.outbounds
         // Android-only (#53): filtered servers never enter the sink, so the diff deletes the ones already stored.
         val servers = if (options.ignoreNameFilters) parsed else SubscriptionNameFilter.apply(parsed, options, group.name)
         if (servers.isEmpty()) {
-            if (fetched.subInfo.valid) {
-                SagerDatabase.groupDao.setSubscriptionMetadata(gid, fetched.subInfo.toJsonString())
-                GroupRepo.postUpdate(gid)
-            }
+            if (info.valid) saveMetadata(group, info)
             val message = str(R.string.subs_filtered_all_aborted, parsed.size)
             Logs.w("${group.name}: $message")
             if (notifyErrors) SubscriptionQueue.error(gid, message)
             return
         }
 
-        ProviderRouteStore.apply(gid, payload.commands,servers.all { it.isXrayFullConfig() })
-        val fullConfigs = servers.filterIsInstance<Custom>()
-            .filter { it.isXrayFullConfig() }.map { it.config }
+        val metadata = saveMetadata(group, info)
+        // Happ / Incy: the routing the subscription ships, kept for the group until the provider changes it.
+        ProviderRouteStore.apply(gid, commands, servers.all { it.isXrayFullConfig() })
+        val fullConfigs = servers.filterIsInstance<Custom>().filter { it.isXrayFullConfig() }.map { it.config }
         if (fullConfigs.isNotEmpty()) {
-            val needed = XrayGeoAssets.needed(fullConfigs)
             val provider = GroupRepo.get(gid)?.subOptions
             if (provider != null && provider.routingProvider.isNotBlank()) {
-                val document = ProviderRouteProfiles.sourceDocument(provider.providerRouting,provider.providerRoutingProfiles)
-                runCatching { ProviderGeoAssets.prepare(gid,document) }.onFailure { SubscriptionQueue.error(gid,it.readableMessage) }
+                val document = ProviderRouteProfiles.sourceDocument(provider.providerRouting, provider.providerRoutingProfiles)
+                runCatching { ProviderGeoAssets.prepare(gid, document) }.onFailure { SubscriptionQueue.error(gid, it.readableMessage) }
             } else {
-            val failures = XrayGeoAssets.ensure(needed)
-            if (failures.isNotEmpty()) SubscriptionQueue.error(gid,failures.values.joinToString("\n"))
+                val failures = XrayGeoAssets.ensure(XrayGeoAssets.needed(fullConfigs))
+                if (failures.isNotEmpty()) SubscriptionQueue.error(gid, failures.values.joinToString("\n"))
             }
         }
-        SagerDatabase.groupDao.setSubscriptionInfo(gid, System.currentTimeMillis() / 1000, fetched.subInfo.toJsonString())
         // An unnamed subscription takes the provider's title, or the link's host; a name the user typed stays.
         GroupRepo.get(gid)?.takeIf { latest ->
             val host = runCatching { java.net.URI(latest.url.trim()).host }.getOrNull().orEmpty()
-            latest.name.isBlank() || (fetched.subInfo.title.isNotBlank() && (latest.name == host || latest.name == latest.url.trim()))
+            latest.name.isBlank() || (info.title.isNotBlank() && (latest.name == host || latest.name == latest.url.trim()))
         }?.let { latest ->
-            latest.name = fetched.subInfo.title.ifBlank { runCatching { java.net.URI(latest.url.trim()).host }.getOrNull().orEmpty() }
+            latest.name = info.title.ifBlank { runCatching { java.net.URI(latest.url.trim()).host }.getOrNull().orEmpty() }
             if (latest.name.isNotBlank()) SagerDatabase.groupDao.update(latest)
         }
-        // a new server period may change when the update worker has to wake
-        if (DataStore.subServerInterval && fetched.subInfo.serverInterval != group.subInfo.serverInterval) SubscriptionScheduler.schedule()
-        GroupRepo.postUpdate(gid)
+        // Taken before anything is deleted: qWDTT nodes keep their hashes, qWDTT and olcRTC their device across the update.
+        val previousOutbounds = ProfileManager.members(gid).associate { it.id to it.outbound }
+        val previousNative = previousOutbounds.values.filterIsInstance<Qwdtt>()
 
-        // Auto selectors are local state, not servers the remote sent: keep them out of the diff.
-        val sticky = ProfileManager.members(gid).withIndex()
-            .filter { it.value.type == AUTOSELECTOR }
-            .map { it.index to it.value.id }
-        val stickyIds = sticky.mapTo(HashSet()) { it.second }
-        fun members(): List<ProxyEntity> = ProfileManager.members(gid).filter { it.id !in stickyIds }
-        val previousNative = members().map { it.outbound }.filterIsInstance<app.rawline.mobile.outbound.types.Qwdtt>()
-        // Taken before anything is deleted, so route rules can follow a replaced node by its name.
-        val routeNames = SubscriptionRouteRebind.referencedNames(members())
+        // Deleted for good, for the route rules that named them.
         val removed = ArrayList<Long>()
-
         // Ids a running auto selector can no longer trust: deleted, or same id with new settings.
         val disturbed = ArrayList<Long>()
-        var cleared = false
-        if (DataStore.subClear) {
-            Logs.i(str(R.string.subs_clearing))
-            var doomed = members()
-            if (options.keepWorking) doomed = doomed.filter { !it.isWorking() }
-            val outcome = ProfileManager.batchDeleteProfiles(doomed.map { it.id })
-            if (!outcome.ok) {
-                val message = str(R.string.subs_db_error_retry)
-                Logs.e(message)
-                SubscriptionQueue.error(gid, message)
-                return
-            }
-            disturbed.addAll(outcome.deleted)
-            removed.addAll(outcome.deleted)
-            // A survivor still belongs to the subscription: fall through to the diff.
-            cleared = members().isEmpty()
-        }
-
-        val old = ArrayList<OldEntry>()
-        val working = HashSet<Long>()
-        if (!cleared) {
-            for (profile in members()) {
-                old.add(OldEntry(profile.id, contentKey(profile), identityKey(profile), profile.outbound.displayTypeAndName()))
-                if (options.keepWorking && profile.isWorking()) working.add(profile.id)
-            }
-        }
+        val snapshot = loadSnapshot(gid, options, disturbed, removed) ?: return
+        val sticky = snapshot.sticky
+        val stickyIds = snapshot.stickyIds
+        val old = snapshot.old
+        val working = snapshot.working
+        val cleared = snapshot.cleared
+        var stoppedRunning = snapshot.stopped
+        var dbFailed = false
         val index = ContentIndex(old)
         val sink = ImportSink(gid, if (cleared) null else index)
 
         Logs.i(">>>>>>>> " + str(R.string.subs_processing))
         for (outbound in servers) {
-            if(outbound is app.rawline.mobile.outbound.types.Qwdtt) {
-                NativeHashPolicy.preserve(outbound,previousNative)
-            }
+            if (outbound is Qwdtt) NativeHashPolicy.preserve(outbound, previousNative)
             sink.add(outbound)
         }
-        sink.flush()
+        sink.finish(old)
         Logs.i(">>>>>>>> " + str(R.string.subs_process_complete))
+        val report = result.report()
+        report.setImported(sink.stored())
 
         var changeText: String
         if (cleared) {
@@ -180,22 +169,21 @@ internal object SubscriptionRefresh {
             }
         } else {
             val plan = SubscriptionReconcile.reconcile(old, sink.entries, index)
-            for ((oldId, newId) in plan.updates) {
-                val newEnt = ProfileManager.getProfile(newId)
-                if (newEnt != null && ProfileManager.getProfile(oldId) != null) {
-                    // The old row keeps its id, test results and traffic.
-                    val incoming=newEnt.outbound
-                    val previous=ProfileManager.getProfile(oldId)?.outbound
-                    if(incoming is app.rawline.mobile.outbound.types.Qwdtt && previous is app.rawline.mobile.outbound.types.Qwdtt) {
-                        incoming.deviceId=previous.deviceId
-                        incoming.hashSource=previous.hashSource
-                        SagerDatabase.proxyDao.updateOutbound(oldId,newEnt.type,newEnt.name,incoming.exportToJson().toCompact())
-                    } else if(incoming is app.rawline.mobile.outbound.types.OlcRtc && previous is app.rawline.mobile.outbound.types.OlcRtc) {
-                        incoming.deviceId=previous.deviceId
-                        SagerDatabase.proxyDao.updateOutbound(oldId,newEnt.type,newEnt.name,incoming.exportToJson().toCompact())
-                    } else SagerDatabase.proxyDao.updateOutbound(oldId, newEnt.type, newEnt.name, newEnt.outboundJson)
+            disturbed.addAll(plan.updates)
+            // An updated row keeps the device its transport registered with.
+            for (id in plan.updates) {
+                val previous = previousOutbounds[id] ?: continue
+                val entity = ProfileManager.getProfile(id) ?: continue
+                val incoming = entity.outbound
+                when {
+                    incoming is Qwdtt && previous is Qwdtt -> {
+                        incoming.deviceId = previous.deviceId
+                        incoming.hashSource = previous.hashSource
+                    }
+                    incoming is OlcRtc && previous is OlcRtc -> incoming.deviceId = previous.deviceId
+                    else -> continue
                 }
-                disturbed.add(oldId)
+                SagerDatabase.proxyDao.updateOutbound(id, entity.type, entity.name, incoming.exportToJson().toCompact())
             }
 
             val stale = ArrayList<Long>()
@@ -207,29 +195,31 @@ internal object SubscriptionRefresh {
             for ((position, id) in sticky) order.add(minOf(position, order.size), id)
 
             val outcome = ProfileManager.batchDeleteProfiles(stale)
-            if (!outcome.ok) dbError(gid)
+            if (!outcome.ok) {
+                dbError(gid)
+                dbFailed = true
+            }
             disturbed.addAll(outcome.deleted)
             removed.addAll(outcome.deleted)
+            outcome.stopped?.let { stoppedRunning = it }
 
             // Survivors of the deletion (the running profile, working ones) return to their previous position.
+            val ordered = order.toHashSet()
+            val previousPosition = HashMap<Long, Int>(previousOrder.size * 2)
+            previousOrder.forEachIndexed { position, id -> previousPosition.putIfAbsent(id, position) }
             fun restore(id: Long): Boolean {
-                if (id in order) return false
-                val position = previousOrder.indexOf(id)
-                order.add(if (position < 0) order.size else minOf(position, order.size), id)
+                if (!ordered.add(id)) return false
+                order.add(minOf(previousPosition[id] ?: order.size, order.size), id)
                 return true
             }
+            val keptIds = outcome.kept.filter(::restore)
+            val workingIds = keptWorking.filter(::restore)
+            val survivors = ProfileManager.getProfiles(keptIds + workingIds).associateBy { it.id }
             val noticeKept = StringBuilder()
-            for (id in outcome.kept) {
-                if (!restore(id)) continue
-                ProfileManager.getProfile(id)?.let {
-                    noticeKept.append("[=] ").append(it.outbound.displayTypeAndName()).append('\n')
-                }
+            for (id in keptIds) {
+                survivors[id]?.let { noticeKept.append("[=] ").append(it.outbound.displayTypeAndName()).append('\n') }
             }
-            val workingNames = ArrayList<String>()
-            for (id in keptWorking) {
-                if (!restore(id)) continue
-                ProfileManager.getProfile(id)?.let { workingNames.add(it.outbound.displayTypeAndName()) }
-            }
+            val workingNames = workingIds.mapNotNull { survivors[it]?.outbound?.displayTypeAndName() }
             ProfileManager.setOrder(gid, order)
 
             var deletedNames: List<String> = plan.deleted
@@ -255,47 +245,253 @@ internal object SubscriptionRefresh {
 
         val filteredOut = parsed.size - servers.size
         if (filteredOut > 0) changeText += "\n" + str(R.string.subs_filtered_out, filteredOut) + "\n"
-        val filtered = SubscriptionFilters.removeFlagged(gid, members(), options)
+        val filtered = SubscriptionFilters.removeFlagged(gid, options) {
+            ProfileManager.members(gid).filter { it.id !in stickyIds }
+        }
         changeText += filtered.report
         disturbed.addAll(filtered.deleted)
         removed.addAll(filtered.deleted)
-        SubscriptionRouteRebind.rebind(gid, removed, routeNames)
+        filtered.stopped?.let { stoppedRunning = it }
+        if (!filtered.ok) dbFailed = true
+
+        SubscriptionRouteRebind.rebind(gid, removed, snapshot.routeNames)
+        // The subscription's own order replaced the group's above.
+        if (disturbed.isNotEmpty() || ProfileManager.memberIds(gid) != snapshot.membersBefore) GroupSort.resortLater(gid)
+        if (options.effectiveSortRule == ServerSortRule.NAME) GroupSort.sortProfiles(gid, GroupSortAction(GroupSortMethod.BY_NAME))
+        // Stamped only once the update went through, so an interrupted one is retried instead of counting as fresh.
+        if (!urlChanged(gid, url)) {
+            SagerDatabase.groupDao.setSubscriptionInfo(gid, System.currentTimeMillis() / 1000, metadata)
+            GroupRepo.postUpdate(gid)
+        }
 
         SagerDatabase.proxyDao.clearGroupTestResults(group.id)
         Logs.i("<<<<<<<< " + str(R.string.subs_change_of_log, group.name) + "\n" + changeText)
-        SubscriptionQueue.report(
-            gid,
-            str(R.string.subs_change_of, group.name),
-            changeText.trim().ifEmpty { str(R.string.subs_nothing) },
-            showDiff && DataStore.subShowChangePopup,
-        )
-        SubscriptionQueue.groupChanged(gid, disturbed)
-
-        if (options.effectiveSortRule == ServerSortRule.NAME) {
-            GroupSort.sortProfiles(gid,
-                GroupSortAction(GroupSortMethod.BY_NAME))
+        if (report.hasProblems()) logImportReport(report)
+        val diffPopup = surface == Surface.Diff && DataStore.subShowChangePopup
+        var diffBody = changeText.trim().ifEmpty { str(R.string.subs_nothing) }
+        if (diffPopup && report.hasProblems()) diffBody += "\n\n" + vtr(R.string.validation_import_problems) + "\n" + report.text()
+        SubscriptionQueue.report(gid, str(R.string.subs_change_of, group.name), diffBody, diffPopup)
+        if (!diffPopup && surface != Surface.Log && report.hasProblems()) {
+            SubscriptionQueue.report(gid, reportTitle(surface, group.name), report.text(), true)
         }
+        stoppedRunning?.let { reconnectSuccessor(gid, it) }
+        SubscriptionQueue.groupChanged(gid, disturbed)
+        // GroupUpdater.cpp:996: only after an update that went through.
+        if (routing.isNotEmpty() && !dbFailed) SubscriptionRoute.importRoute(gid, routing)
+
         if (!notifyErrors && DataStore.subNotifyUpdate && changeText.trim() != str(R.string.subs_nothing)) {
             SubscriptionNotifications.updated(group)
         }
-        if (options.urlTest) SubscriptionQueue.requestUrlTest(gid, members().map { it.id })
+        if (options.urlTest) SubscriptionQueue.requestUrlTest(gid, ProfileManager.memberIds(gid).filter { it !in stickyIds })
     }
 
-    /** importDocuments (GroupUpdater.cpp:465-477): a plain import into [gid] (<= 0: the current group). */
-    suspend fun importDocuments(gid: Long, documents: List<String>): ImportResult {
+    /**
+     * The answer's subscription info, parse result and routing profile value ([SubscriptionRoute.valueOf], "" unless
+     * the group imports it), null when the update stops here (already reported). The body dies with this frame
+     * instead of living through the whole refresh.
+     */
+    private data class Fetched(
+        val info: SubUserInfo,
+        val result: ProfileImport.Result,
+        val routing: String,
+        val commands: List<ProviderRouting.Command>,
+    )
+
+    private suspend fun fetchAndParse(
+        group: ProxyGroup,
+        url: String,
+        surface: Surface,
+        notifyErrors: Boolean,
+    ): Fetched? {
+        val gid = group.id
+        val fetched = SubscriptionFetch.fetch(url, group.name, RequestIdentity.resolve(group))
+        if (fetched.error != null) {
+            if (surface == Surface.Report) {
+                // The group is stored before the download: a failed one is fixed through its own TLS, HTTP and User Agent settings.
+                val report = ImportReport()
+                report.addFatal(vtr(R.string.validation_import_fetch_failed, fetched.error))
+                report.addFatal(vtr(R.string.validation_import_first_download_failed, group.name))
+                SubscriptionQueue.report(gid, reportTitle(surface, group.name), report.summary(), true)
+            } else if (notifyErrors) {
+                SubscriptionQueue.error(gid, fetched.error)
+            }
+            return null
+        }
+        val current = GroupRepo.get(gid) ?: return null
+        if (current.url.trim() != url) {
+            Logs.w(str(R.string.subs_url_changed, group.name))
+            return null
+        }
+        // A body without a single profile is far likelier a broken or blocked response than an emptied subscription:
+        // abort before the first write (no deletion, no update time). Parsing writes nothing, so it runs first.
+        val info = fetched.subInfo
+        val payload = ProviderRouting.subscription(
+            fetched.body, fetched.routing, group.subOptions.routingProvider.ifBlank { "Happ" }, group.subOptions.providerIgnoreImport,
+        )
+        if (payload.warnings.isNotEmpty()) {
+            val warning = str(R.string.provider_routing_skipped, payload.warnings.distinct().joinToString("\n"))
+            Logs.w("${group.name}: $warning")
+            if (notifyErrors) SubscriptionQueue.report(gid, "", warning, false)
+        }
+        val result = parse(payload.body)
+        if (result.outbounds.isEmpty()) {
+            val probe = result.report()
+            if (looksLikeWebPage(fetched.body)) probe.addFatal(str(R.string.subs_web_page))
+            // Panels answer a device or quota limit with an empty list and an announcement saying why.
+            if (info.valid) {
+                if (info.announce.isNotEmpty()) probe.addFatal(str(R.string.subs_announcement_from, group.name, info.announce))
+                saveMetadata(group, info)
+            }
+            val message = str(R.string.subs_empty_aborted)
+            probe.addFatal(message)
+            Logs.w("${group.name}: " + probe.text())
+            if (surface != Surface.Log) SubscriptionQueue.report(gid, reportTitle(surface, group.name), probe.text(), true)
+            else if (notifyErrors) SubscriptionQueue.error(gid, message)
+            return null
+        }
+        val routing = if (current.importSubRoute) SubscriptionRoute.valueOf(fetched.routing, fetched.body) else ""
+        return Fetched(info, result, routing, payload.commands)
+    }
+
+    /**
+     * reconnectSuccessor (GroupUpdater.cpp, #2051): the refresh deleted the running profile, so only an unambiguous
+     * successor (same type and name) takes over; with none or several, the profile stays stopped.
+     */
+    private fun reconnectSuccessor(gid: Long, stopped: ProxyEntity) {
+        val name = stopped.name.orEmpty()
+        val matches = if (name.isEmpty()) emptyList() else {
+            SagerDatabase.proxyDao.getNamesByGroup(gid).filter { it.type == stopped.type && it.name == name }
+        }
+        val display = stopped.outbound.displayTypeAndName()
+        if (matches.size != 1) {
+            Logs.w(str(R.string.subs_running_removed, display))
+            return
+        }
+        Logs.i(str(R.string.subs_running_replaced, display))
+        val successor = matches.first().id
+        runOnDefaultDispatcher { startWhenStopped(stopped.id, successor) }
+    }
+
+    /**
+     * EngineHost's subscriptionReplacedRunning: the delete only asked the service to stop, and a start while it is
+     * stopping is ignored, so this waits for Stopped. Whatever the user started meanwhile wins.
+     */
+    private suspend fun startWhenStopped(stoppedId: Long, successor: Long) {
+        val deadline = SystemClock.elapsedRealtime() + RECONNECT_WAIT_MS
+        while (SystemClock.elapsedRealtime() < deadline) {
+            val state = DataStore.serviceState
+            if (state == BaseService.State.Stopped) {
+                DataStore.selectedProxy = successor
+                try {
+                    SagerNet.startService()
+                } catch (e: Exception) {
+                    Logs.w(e)
+                }
+                return
+            }
+            if (state.started && DataStore.currentProfile != stoppedId) return
+            delay(200)
+        }
+    }
+
+    /** The group as the diff starts from it; [routeNames] is [SubscriptionRouteRebind.referencedNames]' result. */
+    private class Snapshot(
+        @JvmField val sticky: List<Pair<Int, Long>>,
+        @JvmField val stickyIds: HashSet<Long>,
+        @JvmField val membersBefore: List<Long>,
+        @JvmField val routeNames: Map<Long, String>,
+        @JvmField val old: ArrayList<OldEntry>,
+        @JvmField val working: HashSet<Long>,
+        @JvmField val cleared: Boolean,
+        @JvmField val stopped: ProxyEntity?,
+    )
+
+    /**
+     * Loads the group once and runs "clear servers before updating"; null after a database error (already reported).
+     * The loaded rows, with their parsed outbounds, die with this frame instead of living through the whole refresh.
+     */
+    private suspend fun loadSnapshot(
+        gid: Long,
+        options: SubscriptionOptions,
+        disturbed: MutableList<Long>,
+        removed: MutableList<Long>,
+    ): Snapshot? {
+        // Auto selectors are local state, not servers the remote sent: keep them out of the diff.
+        var members = ProfileManager.members(gid)
+        val sticky = members.withIndex()
+            .filter { it.value.type == AUTOSELECTOR }
+            .map { it.index to it.value.id }
+        val stickyIds = sticky.mapTo(HashSet()) { it.second }
+        val membersBefore = members.map { it.id }
+        members = members.filter { it.id !in stickyIds }
+
+        val routeNames = SubscriptionRouteRebind.referencedNames(members)
+        var cleared = false
+        var stopped: ProxyEntity? = null
+        if (DataStore.subClear) {
+            Logs.i(str(R.string.subs_clearing))
+            val doomed = if (options.keepWorking) members.filter { !it.isWorking() } else members
+            val outcome = ProfileManager.batchDeleteProfiles(doomed.map { it.id })
+            if (!outcome.ok) {
+                val message = str(R.string.subs_db_error_retry)
+                Logs.e(message)
+                SubscriptionQueue.error(gid, message)
+                return null
+            }
+            disturbed.addAll(outcome.deleted)
+            removed.addAll(outcome.deleted)
+            stopped = outcome.stopped
+            // A survivor still belongs to the subscription: fall through to the diff. A row gone meanwhile is none.
+            val alive = ProfileManager.memberIds(gid).toHashSet()
+            members = members.filter { it.id in alive }
+            cleared = members.isEmpty()
+        }
+
+        val old = ArrayList<OldEntry>()
+        val working = HashSet<Long>()
+        if (!cleared) {
+            for (profile in members) {
+                old.add(OldEntry(profile.id, contentKey(profile), identityKey(profile), profile.outbound.displayTypeAndName()))
+                if (options.keepWorking && profile.isWorking()) working.add(profile.id)
+            }
+        }
+        return Snapshot(sticky, stickyIds, membersBefore, routeNames, old, working, cleared, stopped)
+    }
+
+    /**
+     * importDocuments (GroupUpdater.cpp): a plain import into [gid] (<= 0: the current group). With problems the
+     * import box goes out as a popup report; [emptyReason] replaces the generic "nothing found" when nothing is stored.
+     */
+    suspend fun importDocuments(gid: Long, documents: List<String>, emptyReason: String = ""): ImportResult {
         val target = if (gid > 0) gid else GroupRepo.currentId()
         val sink = ImportSink(target, null)
+        val report = ImportReport()
         Logs.i(">>>>>>>> " + str(R.string.subs_processing))
         for (document in documents) {
-            val payload = ProviderRouting.subscription(document,ignoreRouting = GroupRepo.get(target)?.subOptions?.providerIgnoreImport == true)
-            for (outbound in parse(payload.body)) sink.add(outbound)
+            val payload = ProviderRouting.subscription(document, ignoreRouting = GroupRepo.get(target)?.subOptions?.providerIgnoreImport == true)
+            val result = parse(payload.body)
+            report.addAll(result.reports)
+            for (outbound in result.outbounds) sink.add(outbound)
             ProviderRouteStore.apply(target, payload.commands)
         }
         sink.flush()
         Logs.i(">>>>>>>> " + str(R.string.subs_process_complete))
-        val count = sink.entries.count { it.id > 0 }
-        Logs.i(str(R.string.subs_imported, count))
-        return ImportResult(target, count)
+        val count = sink.stored()
+        report.setImported(count)
+        val lost = sink.entries.size - count
+        if (lost > 0) report.addFatal(vplural(R.plurals.validation_import_not_saved, lost))
+        if (count == 0) {
+            if (emptyReason.isNotEmpty()) report.addFatal(emptyReason)
+            else if (!report.hasProblems()) report.addFatal(vtr(R.string.validation_import_none))
+        }
+        if (!report.hasProblems()) {
+            Logs.i(str(R.string.subs_imported, count))
+            return ImportResult(target, count)
+        }
+        // The logged summary already carries the count.
+        logImportReport(report)
+        SubscriptionQueue.report(target, vtr(R.string.validation_import_title), report.text(), true)
+        return ImportResult(target, count, reported = true)
     }
 
     /** afterUrlTest (GroupUpdater.cpp:669-683). */
@@ -314,17 +510,38 @@ internal object SubscriptionRefresh {
         SubscriptionQueue.groupChanged(gid, result.deleted)
     }
 
+    /** GroupUpdater.cpp:850-853: an edit of the group's URL meanwhile (or its deletion) makes the answer stale. */
+    private fun urlChanged(gid: Long, url: String): Boolean = GroupRepo.get(gid)?.url?.trim() != url
+
+    /** looksLikeWebPage (GroupUpdater.cpp:84-87): a CAPTCHA, bot check or block page instead of a subscription. */
+    internal fun looksLikeWebPage(body: String): Boolean {
+        val start = body.indexOfFirst { !it.isWhitespace() && it != BOM }
+        if (start < 0) return false
+        return body.startsWith("<!doctype html", start, ignoreCase = true) || body.startsWith("<html", start, ignoreCase = true)
+    }
+
+    /**
+     * Stores what the answer said about the subscription (no update time) and returns the column text; a changed
+     * profile-update-interval moves a group that follows it to another schedule.
+     */
+    private suspend fun saveMetadata(group: ProxyGroup, info: SubUserInfo): String {
+        val metadata = info.toJsonString()
+        SagerDatabase.groupDao.setSubscriptionMetadata(group.id, metadata)
+        GroupRepo.postUpdate(group.id)
+        if (info.serverInterval != group.subInfo.serverInterval && SubscriptionScheduler.followsServerInterval(group)) {
+            SubscriptionScheduler.schedule()
+        }
+        return metadata
+    }
+
     internal fun dbError(gid: Long) {
         val message = str(R.string.subs_db_error_corrupted)
         Logs.e(message)
         SubscriptionQueue.error(gid, message)
     }
 
-    private fun parse(body: String): List<Outbound> {
-        val result = ProfileImport.parse(body, SettingsMapper.xrayVlessPreference())
-        for (message in result.messages) Logs.w(message)
-        return result.outbounds
-    }
+    private fun parse(body: String): ProfileImport.Result =
+        ProfileImport.parse(body, SettingsMapper.xrayVlessPreference(), SettingsMapper.buildContext())
 
     /** The stored JSON of a type this build cannot parse is kept as is (re-exporting would drop its fields). */
     private fun contentKey(profile: ProxyEntity): String = SubscriptionReconcile.contentKey(
@@ -340,11 +557,21 @@ internal object SubscriptionRefresh {
         else outbound.exportIdentity().toCompact()
     )
 
-    /** ImportSink (GroupUpdater.cpp:112-154): inserts in chunks, claiming old ids by identical content first. */
+    /**
+     * ImportSink (GroupUpdater.cpp:112-154): inserts in chunks, claiming old ids by identical content first. Against a
+     * [ContentIndex] the rest waits for [finish], where the identity pairs update their old rows in place.
+     */
     private class ImportSink(private val gid: Long, private val index: ContentIndex?) {
         val entries = ArrayList<NewEntry>()
         private val chunk = ArrayList<Outbound>()
+
+        /** stored (GroupUpdater.cpp): rows that really reached the database, added or reused from the group. */
+        fun stored(): Int = entries.count { it.id > 0 }
         private val entryIndex = ArrayList<Int>()
+
+        /** The entries (by position) waiting for [finish], with their profiles. */
+        private val pendingIndex = ArrayList<Int>()
+        private val pending = ArrayList<Outbound>()
 
         suspend fun add(outbound: Outbound) {
             if(outbound is app.rawline.mobile.outbound.types.Qwdtt && !outbound.deviceIdProvided) {
@@ -366,11 +593,49 @@ internal object SubscriptionRefresh {
                 if (!entry.contentKnown) {
                     entry.identity = subscriptionIdentityKey(outbound)
                 }
+                pendingIndex.add(entries.size)
+                entries.add(entry)
+                pending.add(outbound)
+                return
             }
             entryIndex.add(entries.size)
             entries.add(entry)
             chunk.add(outbound)
             if (chunk.size >= INSERT_CHUNK) flush()
+        }
+
+        /** After the last [add]: the identity pairs of [old] take their arrival's data, the other arrivals are inserted. */
+        suspend fun finish(old: List<OldEntry>) {
+            if (index != null) {
+                SubscriptionReconcile.pairByIdentity(old, entries, index)
+                val updates = ArrayList<Int>()
+                for (k in pending.indices) {
+                    val position = pendingIndex[k]
+                    if (entries[position].supersedes > 0L) {
+                        updates.add(k)
+                        continue
+                    }
+                    entryIndex.add(position)
+                    chunk.add(pending[k])
+                    if (chunk.size >= INSERT_CHUNK) flush()
+                }
+                flush()
+                for (part in updates.chunked(INSERT_CHUNK)) {
+                    val json = part.map { pending[it].exportToJson().toCompact() }
+                    // The old row keeps its id, test results and traffic.
+                    SagerDatabase.instance.runInTransaction {
+                        part.forEachIndexed { i, k ->
+                            val entry = entries[pendingIndex[k]]
+                            val outbound = pending[k]
+                            SagerDatabase.proxyDao.updateOutbound(entry.supersedes, outbound.type, outbound.name, json[i])
+                            entry.id = entry.supersedes
+                        }
+                    }
+                }
+                pendingIndex.clear()
+                pending.clear()
+            }
+            flush()
         }
 
         suspend fun flush() {

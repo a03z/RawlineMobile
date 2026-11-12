@@ -28,20 +28,31 @@ import app.rawline.mobile.database.DataStore
 import app.rawline.mobile.database.GroupRepo
 import app.rawline.mobile.database.ProfileManager
 import app.rawline.mobile.database.ProxyGroup
+import app.rawline.mobile.database.RouteManager
 import app.rawline.mobile.database.SendHwid
+import app.rawline.mobile.database.SubHttpVersion
+import app.rawline.mobile.database.SubTlsVersion
+import app.rawline.mobile.database.SubUserInfo
 import app.rawline.mobile.database.SubscriptionOptions
-import app.rawline.mobile.database.ServerSortRule
 import app.rawline.mobile.database.GroupSort
 import app.rawline.mobile.database.GroupSortAction
 import app.rawline.mobile.database.GroupSortMethod
+import app.rawline.mobile.database.ServerSortRule
+import app.rawline.mobile.database.preference.EditTextPreferenceModifiers
 import app.rawline.mobile.database.preference.OnPreferenceDataStoreChangeListener
 import app.rawline.mobile.group.DeviceDetails
 import app.rawline.mobile.group.RequestIdentity
 import app.rawline.mobile.group.SubscriptionScheduler
 import app.rawline.mobile.group.SubscriptionNameFilter
 import app.rawline.mobile.group.ProviderLinks
+import app.rawline.mobile.group.SubscriptionScheduler
 import app.rawline.mobile.ktx.FixedLinearLayoutManager
 import app.rawline.mobile.ui.settings.DefaultSummaryProvider
+import app.rawline.mobile.ui.settings.SettingChecks
+import app.rawline.mobile.validation.Empty
+import app.rawline.mobile.validation.Severity
+import app.rawline.mobile.validation.Validation
+import app.rawline.mobile.validation.vtr
 import app.rawline.mobile.widget.ListListener
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -65,6 +76,9 @@ open class GroupSettingsActivity : ServerScreenActivity(R.layout.layout_config_s
         const val EXTRA_GROUP_SUBSCRIPTION_LINK = "subscription_link"
         const val EXTRA_GROUP_NAME = "group_name"
 
+        /** Result extra: the save changed the routing profile of the running profile's group (dialog_edit_group restartNeeded). */
+        const val EXTRA_RESTART_NEEDED = "restartNeeded"
+
         /** Values of the "Type" menu (@array/group_types). */
         const val TYPE_BASIC = 0
         const val TYPE_SUBSCRIPTION = 1
@@ -75,10 +89,16 @@ open class GroupSettingsActivity : ServerScreenActivity(R.layout.layout_config_s
         private const val KEY_FRONT = "groupFrontProxyId"
         private const val KEY_LANDING = "groupLandingProxyId"
         private const val KEY_AUTO_CLEAR = "groupAutoClearUnavailable"
+        private const val KEY_ROUTE = "groupRouteId"
         private const val KEY_SUBSCRIPTION = "groupSubscription"
         private const val KEY_SKIP_AUTO_UPDATE = "groupSkipAutoUpdate"
+        private const val KEY_IMPORT_ROUTE = "groupImportSubRoute"
         private const val KEY_SHOW_INFO_CARD = "groupSubShowInfoCard"
         private const val KEY_USER_AGENT = "groupSubUserAgent"
+        private const val KEY_TLS_VERSION = "groupSubTlsVersion"
+        private const val KEY_HTTP_VERSION = "groupSubHttpVersion"
+        private const val KEY_UPDATE_INTERVAL = "groupSubUpdateInterval"
+        private const val KEY_SERVER_INTERVAL = "groupSubServerInterval"
         private const val KEY_SEND_HWID = "groupSubSendHwid"
         private const val KEY_HWID = "groupSubHwid"
         private const val KEY_HWID_OS = "groupSubHwidOs"
@@ -100,12 +120,20 @@ open class GroupSettingsActivity : ServerScreenActivity(R.layout.layout_config_s
         private const val KEY_HIDE_SERVER_SETTINGS = "groupSubHideServerSettings"
         private const val KEY_NAME_INCLUDE = "groupSubNameInclude"
         private const val KEY_NAME_EXCLUDE = "groupSubNameExclude"
-        private val NAME_FILTERS = listOf(
-            KEY_NAME_INCLUDE to R.string.grp_filter_include,
-            KEY_NAME_EXCLUDE to R.string.grp_filter_exclude,
-        )
+        private val NAME_FILTERS = listOf(KEY_NAME_INCLUDE, KEY_NAME_EXCLUDE)
 
         private val HWID_KEYS = listOf(KEY_HWID, KEY_HWID_OS, KEY_HWID_OS_VERSION, KEY_HWID_MODEL)
+        private val OPTION_TEXT_KEYS = listOf(KEY_USER_AGENT) + HWID_KEYS
+        private val OPTION_BOOL_KEYS = listOf(
+            KEY_KEEP_WORKING, KEY_REMOVE_DUPLICATES, KEY_REMOVE_INSECURE, KEY_REMOVE_INVALID, KEY_URL_TEST,
+            KEY_REMOVE_UNAVAILABLE, KEY_SORT_BY_LATENCY,
+        )
+
+        /** Override menus whose "0" is "Keep default" (DialogEditGroupAdvanced's override combos). */
+        private val OPTION_MENU_KEYS = listOf(KEY_TLS_VERSION, KEY_HTTP_VERSION, KEY_SERVER_INTERVAL)
+
+        /** overrideIndex: index 0 keeps the default, the enum values follow. */
+        private fun overrideIndex(value: Int?): String = (if (value == null) 0 else value + 1).toString()
     }
 
     object PasswordSummaryProvider : Preference.SummaryProvider<EditTextPreference> {
@@ -119,8 +147,6 @@ open class GroupSettingsActivity : ServerScreenActivity(R.layout.layout_config_s
             }
         }
     }
-
-    private enum class SaveResult { OK, GONE, URL_REQUIRED }
 
     private var editingId = 0L
     private var loaded = false
@@ -144,10 +170,23 @@ open class GroupSettingsActivity : ServerScreenActivity(R.layout.layout_config_s
     private var defaultUserAgent = ""
     private var defaultDevice = DeviceDetails("", "", "", "")
     private var globalSendHwid = false
+    private var defaultTlsVersion = SubTlsVersion.AUTO
+    private var defaultHttpVersion = SubHttpVersion.AUTO
+
+    /** sub_auto_update and sub_respect_server_interval, and the profile-update-interval the server last sent. */
+    private var globalAutoUpdate = 0
+    private var globalRespectServerInterval = false
+    private var serverIntervalHours = 0
 
     /** "[group] name" of the profiles the front/landing menus offer. */
     private var routeProfiles = emptyList<app.rawline.mobile.route.RouteProfile>()
     private val proxyLabels = HashMap<Long, String>()
+
+    /** The "Routing profile" menu as (route id, label), Default ("-1") first. */
+    private var routeChoices: List<Pair<String, String>> = emptyList()
+
+    /** The menu's value on open; while it stays, the stored route_id is kept, a raw one the menu does not offer included. */
+    private var initialRoute = "-1"
 
     private val fragment get() = supportFragmentManager.findFragmentById(R.id.settings) as? GroupPreferenceFragment
 
@@ -193,6 +232,7 @@ open class GroupSettingsActivity : ServerScreenActivity(R.layout.layout_config_s
             val found = withContext(Dispatchers.IO) {
                 val group = if (editingId > 0) GroupRepo.get(editingId) ?: return@withContext null else ProxyGroup()
                 if (editingId > 0) resetDanglingProxies(group)
+                loadRouteChoices(group)
                 if (fresh) {
                     writeToCache(group)
                     originalSignature = editSignature()
@@ -209,6 +249,11 @@ open class GroupSettingsActivity : ServerScreenActivity(R.layout.layout_config_s
                 defaultUserAgent = identity.userAgent
                 defaultDevice = identity.device
                 globalSendHwid = identity.sendHwid
+                defaultTlsVersion = identity.tlsVersion
+                defaultHttpVersion = identity.httpVersion
+                globalAutoUpdate = DataStore.subAutoUpdate
+                globalRespectServerInterval = DataStore.subRespectServerInterval
+                serverIntervalHours = group.subInfo.serverInterval
                 for (key in listOf(KEY_FRONT, KEY_LANDING)) {
                     val id = proxyId(key)
                     if (id > 0) proxyLabel(id)?.let { proxyLabels[id] = it }
@@ -374,11 +419,24 @@ open class GroupSettingsActivity : ServerScreenActivity(R.layout.layout_config_s
         store.putString(KEY_FRONT, group.frontProxyId.coerceAtLeast(-1L).toString())
         store.putString(KEY_LANDING, group.landingProxyId.coerceAtLeast(-1L).toString())
         store.putBoolean(KEY_AUTO_CLEAR, group.autoClearUnavailable)
+        store.putString(KEY_ROUTE, initialRoute)
         store.putBoolean(KEY_SKIP_AUTO_UPDATE, group.skipAutoUpdate)
+        store.putBoolean(KEY_IMPORT_ROUTE, group.importSubRoute)
         store.putBoolean(KEY_SHOW_INFO_CARD, group.subOptions.showInfoCard)
         val options = group.subOptions
         store.putString(KEY_ROUTE, options.routeProfileId.toString())
         store.putString(KEY_USER_AGENT, options.userAgent)
+        store.putString(KEY_TLS_VERSION, overrideIndex(options.tlsVersion?.value))
+        store.putString(KEY_HTTP_VERSION, overrideIndex(options.httpVersion?.value))
+        store.putString(KEY_UPDATE_INTERVAL, options.updateInterval.takeIf { it > 0 }?.toString().orEmpty())
+        store.putString(
+            KEY_SERVER_INTERVAL,
+            when (options.respectServerInterval) {
+                null -> "0"
+                true -> "1"
+                false -> "2"
+            },
+        )
         store.putString(KEY_SEND_HWID, options.sendHwid.value.toString())
         store.putString(KEY_HWID, options.hwid)
         store.putString(KEY_HWID_OS, options.hwidOs)
@@ -402,19 +460,26 @@ open class GroupSettingsActivity : ServerScreenActivity(R.layout.layout_config_s
         store.putString(KEY_NAME_EXCLUDE, options.nameExclude)
     }
 
-    /** DialogEditGroupAdvanced::accept: the strings trimmed, disabled fields kept. */
+    /** DialogEditGroupAdvanced::accept: the strings trimmed, disabled fields kept, the interval as entered (the form refuses 1-29). */
     private fun optionsFromCache(): SubscriptionOptions {
         val store = DataStore.profileCacheStore
         fun text(key: String) = store.getString(key).orEmpty().trim()
         fun flag(key: String) = store.getBoolean(key, false)
+        // overrideAt: index 0 is "Keep default".
+        fun overrideAt(key: String): Int? = store.getString(key)?.toIntOrNull()?.takeIf { it > 0 }?.minus(1)
+        val minutes = text(KEY_UPDATE_INTERVAL).toIntOrNull() ?: 0
         return SubscriptionOptions(
             routeProfileId = text(KEY_ROUTE).toLongOrNull()?.takeIf { it > 0 } ?: -1L,
             userAgent = text(KEY_USER_AGENT),
+            tlsVersion = overrideAt(KEY_TLS_VERSION)?.let(SubTlsVersion::of),
+            httpVersion = overrideAt(KEY_HTTP_VERSION)?.let(SubHttpVersion::of),
             sendHwid = sendHwidMode(),
             hwid = text(KEY_HWID),
             hwidOs = text(KEY_HWID_OS),
             hwidOsVersion = text(KEY_HWID_OS_VERSION),
             hwidModel = text(KEY_HWID_MODEL),
+            updateInterval = if (minutes > 0) minutes else 0,
+            respectServerInterval = overrideAt(KEY_SERVER_INTERVAL)?.let { it == 0 },
             keepWorking = flag(KEY_KEEP_WORKING),
             removeDuplicates = flag(KEY_REMOVE_DUPLICATES),
             removeInsecure = flag(KEY_REMOVE_INSECURE),
@@ -477,9 +542,17 @@ open class GroupSettingsActivity : ServerScreenActivity(R.layout.layout_config_s
             val url = DataStore.subscriptionLink.trim()
             if (DataStore.groupType==TYPE_SUBSCRIPTION && url.isEmpty()) return@withContext SaveResult.URL_REQUIRED
             val store = DataStore.profileCacheStore
+            // A basic group keeps no URL, even one typed before switching the type back.
+            val newUrl = if (DataStore.groupType == TYPE_SUBSCRIPTION) url else ""
+            // dialog_edit_group.cpp accept: what the old URL's server said no longer applies.
+            if (group.url != newUrl) {
+                group.subMetadata = SubUserInfo()
+                group.subLastUpdate = 0L
+                group.info = ""
+            }
             group.name = DataStore.groupName.trim()
             group.autoClearUnavailable = store.getBoolean(KEY_AUTO_CLEAR, false)
-            group.url = if (DataStore.groupType == TYPE_SUBSCRIPTION) url else ""
+            group.url = newUrl
             group.skipAutoUpdate = store.getBoolean(KEY_SKIP_AUTO_UPDATE, false)
             group.subOptions = optionsFromCache().also {
                 it.routingProvider = group.subOptions.routingProvider
@@ -491,6 +564,14 @@ open class GroupSettingsActivity : ServerScreenActivity(R.layout.layout_config_s
             }
             group.frontProxyId = proxyId(KEY_FRONT)
             group.landingProxyId = proxyId(KEY_LANDING)
+            val pickedRoute = store.getString(KEY_ROUTE) ?: initialRoute
+            if (pickedRoute != initialRoute) group.routeId = pickedRoute.toLongOrNull()?.takeIf { it > 0 } ?: -1L
+            group.importSubRoute = newUrl.isNotEmpty() && store.getBoolean(KEY_IMPORT_ROUTE, false)
+            // dialog_edit_group.cpp: the running profile of this group now resolves to another routing profile.
+            val running = RouteManager.runningRouteId()
+            val restart = editingId > 0 && running > 0L &&
+                ProfileManager.getProfile(ProfileManager.runningProfileId())?.groupId == editingId &&
+                RouteManager.resolveRouteId(group.routeId) != running
             if (editingId > 0) GroupRepo.save(group) else GroupRepo.add(group)
             savedGroupId = group.id
             if (editingId > 0) when (group.subOptions.effectiveSortRule) {
@@ -508,6 +589,8 @@ open class GroupSettingsActivity : ServerScreenActivity(R.layout.layout_config_s
             SaveResult.URL_REQUIRED -> Toast.makeText(this, R.string.group_url_required, Toast.LENGTH_SHORT).show()
             else -> finish()
         }
+        if (restartNeeded) setResult(RESULT_OK, Intent().putExtra(EXTRA_RESTART_NEEDED, true))
+        finish()
     }
 
     // ------------------------------------------------------------------------------------------------ front / landing
@@ -570,6 +653,14 @@ open class GroupSettingsActivity : ServerScreenActivity(R.layout.layout_config_s
             }
             setupProxyMenu(KEY_FRONT)
             setupProxyMenu(KEY_LANDING)
+            findPreference<SimpleMenuPreference>(KEY_ROUTE)!!.apply {
+                entries = host.routeChoices.map { it.second }.toTypedArray()
+                entryValues = host.routeChoices.map { it.first }.toTypedArray()
+                value = value?.takeIf { v -> host.routeChoices.any { it.first == v } } ?: "-1"
+                summaryProvider = Preference.SummaryProvider<SimpleMenuPreference> {
+                    (it.entry ?: "").toString() + "\n" + getString(R.string.grp_route_profile_tip)
+                }
+            }
 
             findPreference<EditTextPreference>(KEY_USER_AGENT)!!.placeholder(host.defaultUserAgent)
             findPreference<EditTextPreference>(KEY_TIMEOUT)!!.apply {
@@ -619,10 +710,83 @@ open class GroupSettingsActivity : ServerScreenActivity(R.layout.layout_config_s
                 }
             }
 
+            overrideMenu(
+                KEY_TLS_VERSION,
+                listOf(getString(R.string.sub_version_auto), getString(R.string.sub_tls_12), getString(R.string.sub_tls_13)),
+                host.defaultTlsVersion.value,
+                getString(R.string.grp_tls_version_tip),
+            )
+            overrideMenu(
+                KEY_HTTP_VERSION,
+                listOf(getString(R.string.sub_version_auto), getString(R.string.sub_http_11)),
+                host.defaultHttpVersion.value,
+                getString(R.string.grp_http_version_tip),
+            )
+            var serverTip = getString(R.string.grp_server_interval_tip)
+            if (host.serverIntervalHours > 0) {
+                serverTip += "\n" + getString(R.string.grp_server_interval_last, host.serverIntervalHours)
+            }
+            overrideMenu(
+                KEY_SERVER_INTERVAL,
+                listOf(getString(R.string.grp_server_interval_use), getString(R.string.grp_server_interval_ignore)),
+                if (host.globalRespectServerInterval) 0 else 1,
+                serverTip,
+            )
+            updateInterval()
+
             nameFilter(KEY_NAME_INCLUDE, R.string.grp_filter_include_empty)
             nameFilter(KEY_NAME_EXCLUDE, R.string.grp_filter_exclude_empty)
 
             refreshState()
+            attachValidation()
+        }
+
+        /** The save gate of [save]; null until the preferences exist. */
+        var form: ValidationForm? = null
+            private set
+
+        /** dialog_edit_group's and dialog_edit_group_advanced's Validation::Form. */
+        private fun attachValidation() {
+            val validation = ValidationForm(this)
+            validation.bind(Key.SUBSCRIPTION_LINK, ::subscriptionUrlError).onlyIf { DataStore.groupType == TYPE_SUBSCRIPTION }
+            for (key in NAME_FILTERS) {
+                validation.bind(key) { pattern -> SubscriptionNameFilter.error(pattern)?.let { vtr(R.string.validation_regex, it) }.orEmpty() }
+            }
+            validation.addIssueSource(::advancedIssues)
+            validation.revealer = { key ->
+                val category = findPreference<Preference>(key)?.parent?.key
+                if (!host.advancedExpanded && category != null && category in ADVANCED_CATEGORIES) {
+                    host.advancedExpanded = true
+                    refreshState()
+                }
+            }
+            validation.start()
+            if (host.editingId > 0L) validation.markAll()
+            form = validation
+        }
+
+        /** The fetcher reads content:// URLs (a picked file) too, and those carry no host. */
+        private fun subscriptionUrlError(text: String): String {
+            if (text.startsWith("content://", ignoreCase = true)) return ""
+            return Validation.url(text, SettingChecks.HTTP, Empty.Required)
+        }
+
+        /**
+         * The Advanced options are checked while collapsed too, as the desktop's own dialog checks them; the save gate
+         * expands them to show the first error. Disabled ones (HWID values that are not sent) are skipped.
+         */
+        private fun advancedIssues(): List<FormIssue> {
+            if (DataStore.groupType != TYPE_SUBSCRIPTION) return emptyList()
+            val store = DataStore.profileCacheStore
+            val issues = ArrayList<FormIssue>()
+            fun check(key: String, message: String) {
+                val preference = findPreference<Preference>(key) ?: return
+                if (message.isEmpty() || !preference.isEnabled) return
+                issues.add(FormIssue(Severity.Error, preference.title?.toString().orEmpty(), message, key))
+            }
+            for (key in OPTION_TEXT_KEYS) check(key, SettingChecks.headerValue(store.getString(key).orEmpty().trim()))
+            check(KEY_UPDATE_INTERVAL, SettingChecks.groupUpdateInterval(store.getString(KEY_UPDATE_INTERVAL).orEmpty()))
+            return issues
         }
 
         override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
@@ -645,17 +809,44 @@ open class GroupSettingsActivity : ServerScreenActivity(R.layout.layout_config_s
             }
         }
 
-        /** The pattern, or what an empty filter means; an invalid one says so before the save refuses it. */
+        /** "Keep default (resolved)" then [choices]; [defaultIndex] is the choice the global setting resolves to. */
+        private fun overrideMenu(key: String, choices: List<String>, defaultIndex: Int, tip: String) {
+            val preference = findPreference<SimpleMenuPreference>(key) ?: return
+            val keep = getString(R.string.grp_keep_default_state, choices.getOrElse(defaultIndex) { choices[0] })
+            preference.entries = (listOf<CharSequence>(keep) + choices).toTypedArray()
+            if (preference.entryValues.take(choices.size + 1).none { it.toString() == preference.value }) {
+                preference.value = "0"
+            }
+            preference.summaryProvider = Preference.SummaryProvider<SimpleMenuPreference> {
+                (it.entry ?: "").toString() + "\n" + tip
+            }
+        }
+
+        /** Empty or 0 is "Keep default" (sub_auto_update, or off); the form refuses 1-29. */
+        private fun updateInterval() {
+            val preference = findPreference<EditTextPreference>(KEY_UPDATE_INTERVAL) ?: return
+            val global = host.globalAutoUpdate
+            val keep = getString(
+                R.string.grp_keep_default_state,
+                if (global >= SubscriptionScheduler.MIN_INTERVAL_MINUTES) getString(R.string.auto_update_interval_sum, global)
+                else getString(R.string.off),
+            )
+            preference.summaryProvider = Preference.SummaryProvider<EditTextPreference> {
+                val minutes = it.text?.trim()?.toIntOrNull()?.takeIf { m -> m > 0 }
+                val shown = if (minutes == null) keep else getString(R.string.auto_update_interval_sum, minutes)
+                shown + "\n" + getString(R.string.grp_update_interval_tip)
+            }
+            preference.setOnBindEditTextListener {
+                EditTextPreferenceModifiers.Number.onBindEditText(it)
+                it.hint = keep
+            }
+        }
+
+        /** The pattern, or what an empty filter means; the form marks one that does not compile. */
         private fun nameFilter(key: String, empty: Int) {
             val preference = findPreference<EditTextPreference>(key) ?: return
             preference.summaryProvider = Preference.SummaryProvider<EditTextPreference> {
-                val text = it.text?.trim().orEmpty()
-                val error = SubscriptionNameFilter.error(text)
-                when {
-                    text.isEmpty() -> getString(empty)
-                    error != null -> getString(R.string.grp_filter_invalid, text, error)
-                    else -> text
-                }
+                it.text?.trim().orEmpty().ifEmpty { getString(empty) }
             }
             preference.setOnBindEditTextListener {
                 it.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
@@ -730,6 +921,17 @@ open class GroupSettingsActivity : ServerScreenActivity(R.layout.layout_config_s
             val filtersEnabled = !store.getBoolean(KEY_IGNORE_FILTERS, false)
             for ((key, _) in NAME_FILTERS) findPreference<Preference>(key)?.isEnabled = filtersEnabled
 
+            val set = OPTION_TEXT_KEYS.count { !store.getString(it).isNullOrBlank() } +
+                OPTION_BOOL_KEYS.count { store.getBoolean(it, false) } +
+                OPTION_MENU_KEYS.count { (store.getString(it)?.toIntOrNull() ?: 0) > 0 } +
+                (if ((store.getString(KEY_UPDATE_INTERVAL)?.trim()?.toIntOrNull() ?: 0) > 0) 1 else 0) +
+                (if (mode != SendHwid.KEEP_DEFAULT) 1 else 0)
+            findPreference<Preference>(KEY_ADVANCED_TOGGLE)?.apply {
+                title = if (set > 0) getString(R.string.grp_advanced_count, set) else getString(R.string.grp_advanced)
+                summary = getString(if (host.advancedExpanded) R.string.grp_advanced_hide else R.string.grp_advanced_show)
+                setIcon(if (host.advancedExpanded) R.drawable.ic_baseline_expand_less_24 else R.drawable.ic_baseline_expand_more_24)
+            }
+            form?.refresh()
         }
     }
 }

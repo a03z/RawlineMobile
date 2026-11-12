@@ -9,6 +9,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
 import androidx.activity.OnBackPressedCallback
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.DrawableRes
 import androidx.annotation.StringRes
 import androidx.appcompat.widget.SearchView
@@ -41,6 +42,7 @@ import app.rawline.mobile.database.ProxyGroup
 import app.rawline.mobile.database.preference.OnPreferenceDataStoreChangeListener
 import app.rawline.mobile.group.SubscriptionClient
 import app.rawline.mobile.ktx.dp2px
+import app.rawline.mobile.ktx.needReload
 import app.rawline.mobile.ktx.onMainDispatcher
 import app.rawline.mobile.ktx.runOnDefaultDispatcher
 import app.rawline.mobile.ktx.runOnMainDispatcher
@@ -124,15 +126,24 @@ class ConfigurationFragment : ToolbarFragment(R.layout.layout_group_list),
     private val pickedGroup: Long get() = arguments?.getLong(ARG_PICKED_GROUP) ?: 0L
 
     val alwaysShowAddress by lazy { DataStore.alwaysShowAddress }
+    val compactRows by lazy { DataStore.compactProfileRows }
 
-    /** Double column (groupLayoutMode 1): the compact card, two columns at least (the width may give more). */
+    /**
+     * Double column (groupLayoutMode 1): the compact card, two columns at least (the width may give more). Landscape
+     * only, switched from the toolbar; portrait always lists single column cards.
+     */
     var doubleColumn = false
         private set
+    private var landscape = false
 
     val groupMenu = GroupMenu(this)
     val selection = SelectionMode(this)
     val itemMenu = ProfileItemMenu(this)
     private val imports = ProfileImports(this)
+
+    private val groupEditor = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.data?.getBooleanExtra(GroupSettingsActivity.EXTRA_RESTART_NEEDED, false) == true) needReload()
+    }
 
     private lateinit var tabLayout: TabLayout
     private lateinit var pager: ViewPager2
@@ -204,7 +215,9 @@ class ConfigurationFragment : ToolbarFragment(R.layout.layout_group_list),
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        doubleColumn = DataStore.groupLayoutMode == 1
+        val config = resources.configuration
+        landscape = config.screenWidthDp > config.screenHeightDp
+        doubleColumn = landscape && DataStore.groupLayoutMode == 1
         readProfileState()
 
         setUpToolbar()
@@ -220,7 +233,6 @@ class ConfigurationFragment : ToolbarFragment(R.layout.layout_group_list),
         val card = SubscriptionInfoCard(view.findViewById(R.id.subscription_card))
         card.view.applyInsetMargin(horizontal = true)
         infoCard = card
-        val config = resources.configuration
         header = ProfilesHeader(
             view as ViewGroup, view.findViewById(R.id.toolbar), tabLayout, runtimeStatus, card.view,
             autoHide = config.screenHeightDp < COMPACT_HEIGHT_DP && !SagerNet.isTv,
@@ -255,18 +267,21 @@ class ConfigurationFragment : ToolbarFragment(R.layout.layout_group_list),
         requireActivity().onBackPressedDispatcher.addCallback(viewLifecycleOwner, backCallback)
 
         val scope = viewLifecycleOwner.lifecycleScope
-        ProfilesDbWatcher(
-            onProfiles = { lists.forEach { it.adapter.reload() } },
-            onGroups = { reloadGroups() },
-        ).start(scope)
         scope.launch {
             for (request in stateRequests) {
                 val (selected, current, started) = withContext(Dispatchers.IO) { profileStateSnapshot() }
                 applyProfileState(selected, current, started)
             }
         }
+        var restarted = false
         scope.launch {
             viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                // a new observer each time: the stopped run removes its own one late, off the main thread
+                ProfilesDbWatcher(
+                    onProfiles = { onProfilesChanged() },
+                    onGroups = { reloadGroups() },
+                ).start(this, catchUp = restarted)
+                restarted = true
                 launch { TestSessionClient.state.collect { onTestState(it) } }
                 launch { AutoSelectorStatusLine.follow(this@ConfigurationFragment) }
                 launch {
@@ -318,7 +333,7 @@ class ConfigurationFragment : ToolbarFragment(R.layout.layout_group_list),
         pager.unregisterOnPageChangeCallback(pageCallback)
         mediator?.detach()
         mediator = null
-        selection.finish()
+        selection.reset()
         lists.clear()
         pendingReveal = null
         searchView = null
@@ -349,6 +364,7 @@ class ConfigurationFragment : ToolbarFragment(R.layout.layout_group_list),
             TvControls.addServerSwitch(toolbar.menu, R.id.group_profiles_toolbar)
             groupMenu.setUp(toolbar.menu)
             imports.prepare(toolbar.menu)
+            updateLayoutAction()
             toolbar.setNavigationOnClickListener {
                 if (selection.active) {
                     selection.finish()
@@ -467,6 +483,13 @@ class ConfigurationFragment : ToolbarFragment(R.layout.layout_group_list),
     /** Every group in tab order. */
     fun groups(): List<ProxyGroup> = if (::pagerAdapter.isInitialized) pagerAdapter.groups else emptyList()
 
+    /** Shows group [id], reloading the tabs first when it is not one yet (a group :bg has just created). */
+    fun showGroup(id: Long) {
+        if (view == null || select || !::pagerAdapter.isInitialized) return
+        val index = pagerAdapter.indexOf(id)
+        if (index >= 0) pager.setCurrentItem(index, false) else reloadGroups(switchTo = id)
+    }
+
     private fun reloadGroups(switchTo: Long = 0L) {
         val owner = viewLifecycleOwnerLiveData.value ?: return
         owner.lifecycleScope.launch {
@@ -501,7 +524,8 @@ class ConfigurationFragment : ToolbarFragment(R.layout.layout_group_list),
         if (group.id == shownGroupId) return
         shownGroupId = group.id
         if (!select) GroupRepo.setCurrent(group.id)
-        selection.finish()
+        selection.onGroupShown(group.id)
+        currentList()?.adapter?.onShown()
         applyQuery()
         updateGroupProgress()
         header?.show()
@@ -514,6 +538,12 @@ class ConfigurationFragment : ToolbarFragment(R.layout.layout_group_list),
 
     fun detachList(list: ProfileListFragment) {
         lists.remove(list)
+    }
+
+    /** Either process wrote the profiles table: the shown list reloads (and is waited for), the others go stale. */
+    private suspend fun onProfilesChanged() {
+        val current = currentGroupId
+        lists.mapNotNull { it.adapter.onTableChanged(it.groupId == current) }.forEach { it.join() }
     }
 
     fun listFor(groupId: Long): ProfileListFragment? = lists.firstOrNull { it.groupId == groupId }
@@ -635,6 +665,7 @@ class ConfigurationFragment : ToolbarFragment(R.layout.layout_group_list),
         if (toolbar != null) {
             toolbar.menu.setGroupVisible(R.id.group_profiles_toolbar, !active)
             toolbar.menu.setGroupVisible(R.id.group_selection_toolbar, active)
+            updateLayoutAction()
             if (active) {
                 searchView?.clearFocus()
                 setNavigationIcon(R.drawable.ic_navigation_close, R.string.navigation_cancel_selection)
@@ -656,10 +687,19 @@ class ConfigurationFragment : ToolbarFragment(R.layout.layout_group_list),
     }
 
     fun setDoubleColumn(value: Boolean) {
-        if (value == doubleColumn) return
+        if (value == doubleColumn || !landscape) return
         doubleColumn = value
         runOnDefaultDispatcher { DataStore.groupLayoutMode = if (value) 1 else 0 }
         lists.forEach { it.switchLayout() }
+        updateLayoutAction()
+    }
+
+    /** The toolbar's layout switch shows the layout it switches to; setGroupVisible brings it back in portrait too. */
+    private fun updateLayoutAction() {
+        val item = toolbar?.menu?.findItem(R.id.action_layout) ?: return
+        item.isVisible = landscape && !select && !selection.active
+        item.setIcon(if (doubleColumn) R.drawable.ic_baseline_view_list_24 else R.drawable.ic_baseline_grid_view_24)
+        item.setTitle(if (doubleColumn) R.string.layout_single_column else R.string.layout_double_column)
     }
 
     // ------------------------------------------------------------------------------------------------ state

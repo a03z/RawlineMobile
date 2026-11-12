@@ -208,6 +208,10 @@
                 <data android:scheme="tt" />
                 <data android:scheme="rawline" />
                 <!-- Links shared before the rename still open here. -->
+                <data android:scheme="dnst" />
+                <data android:scheme="slipnet" />
+                <data android:scheme="masterdns" />
+                <data android:scheme="stormdns" />
                 <data android:scheme="throne" />
                 <data android:scheme="happ" />
                 <data android:scheme="incy" />
@@ -278,6 +282,12 @@
             android:configChanges="uiMode" />
         <activity
             android:name="app.rawline.mobile.ui.profile.TrustTunnelSettingsActivity"
+            android:configChanges="uiMode" />
+        <activity
+            android:name="app.rawline.mobile.ui.profile.DnsttSettingsActivity"
+            android:configChanges="uiMode" />
+        <activity
+            android:name="app.rawline.mobile.ui.profile.MasterDnsSettingsActivity"
             android:configChanges="uiMode" />
         <activity
             android:name="app.rawline.mobile.ui.profile.DirectSettingsActivity"

@@ -8,15 +8,28 @@ import androidx.preference.ListPreference
 import androidx.preference.Preference
 import androidx.preference.PreferenceCategory
 import androidx.preference.PreferenceFragmentCompat
-import androidx.preference.SwitchPreference
 import androidx.preference.TwoStatePreference
 import app.rawline.mobile.R
 import app.rawline.mobile.database.DataStore
 import app.rawline.mobile.database.SettingsMapper
 import app.rawline.mobile.database.preference.EditTextPreferenceModifiers
 import app.rawline.mobile.outbound.BuildContext
+import app.rawline.mobile.outbound.Outbound
 import app.rawline.mobile.outbound.common.Ech
 import app.rawline.mobile.outbound.common.MUX_CUSTOM
+import app.rawline.mobile.outbound.common.MuxSettings
+import app.rawline.mobile.outbound.common.QuicChecks
+import app.rawline.mobile.outbound.common.XRAY_MUX_MAX_COUNT
+import app.rawline.mobile.outbound.common.XrayMuxSettings
+import app.rawline.mobile.outbound.common.certificatePinsFromHex
+import app.rawline.mobile.outbound.common.splitCipherSuites
+import app.rawline.mobile.outbound.common.xrayXudpProxyUDP443Modes
+import app.rawline.mobile.outbound.config.DnsServers
+import app.rawline.mobile.ui.ValidationForm
+import app.rawline.mobile.validation.Empty
+import app.rawline.mobile.validation.Validation
+import app.rawline.mobile.validation.vtr
+import moe.matsuri.nb4a.proxy.CustomRows
 import moe.matsuri.nb4a.proxy.PreferenceBindingManager
 import moe.matsuri.nb4a.ui.SimpleMenuPreference
 
@@ -37,6 +50,10 @@ fun PreferenceFragmentCompat.portInput(vararg keys: String) {
 
 fun PreferenceFragmentCompat.numberInput(vararg keys: String) {
     for (key in keys) findPreference<EditTextPreference>(key)?.setOnBindEditTextListener(EditTextPreferenceModifiers.Number)
+}
+
+fun PreferenceFragmentCompat.signedNumberInput(vararg keys: String) {
+    for (key in keys) findPreference<EditTextPreference>(key)?.setOnBindEditTextListener(EditTextPreferenceModifiers.SignedNumber)
 }
 
 /** Multi-line editing for list fields (one item per line) and PEM blocks. */
@@ -71,6 +88,22 @@ fun PreferenceFragmentCompat.echInputs(prefix: String) {
     findPreference<EditTextPreference>("$prefix.config")?.setOnPreferenceChangeListener { row, newValue ->
         val lines = (newValue as String).split('\n').map { it.trim() }.filter { it.isNotEmpty() }
         (row as EditTextPreference).text = Ech.normalizeConfig(lines).joinToString("\n")
+        false
+    }
+}
+
+/** Cipher suite names as entered (split by line, ':' or ','), stored joined by [separator] (splitCipherSuites). */
+fun PreferenceFragmentCompat.cipherSuitesInput(key: String, separator: String) {
+    findPreference<EditTextPreference>(key)?.setOnPreferenceChangeListener { row, newValue ->
+        (row as EditTextPreference).text = splitCipherSuites((newValue as String).replace('\n', ':')).joinToString(separator)
+        false
+    }
+}
+
+/** Pins pasted as hex SHA-256 (openssl's output) are stored in the base64 form sing-box takes (CertificatePinsFromHex). */
+fun PreferenceFragmentCompat.certificatePinsInput(vararg keys: String) {
+    for (key in keys) findPreference<EditTextPreference>(key)?.setOnPreferenceChangeListener { row, newValue ->
+        (row as EditTextPreference).text = certificatePinsFromHex((newValue as String).split('\n')).joinToString("\n")
         false
     }
 }
@@ -132,7 +165,7 @@ private fun defaultSummary(context: Context, preset: String, coreDefault: String
     else -> context.getString(R.string.setting_default)
 }
 
-/** A Keep default / On / Off menu: "Keep default (On)" when the preset turns it on. */
+/** A Keep default / On / Off (/ Custom) menu: "Keep default (On)" when the preset turns it on. */
 fun PreferenceFragmentCompat.presetTriSummary(key: String, defaultOn: Boolean) {
     findPreference<ListPreference>(key)?.summaryProvider = Preference.SummaryProvider<ListPreference> {
         val on = it.context.getString(R.string.tri_state_on)
@@ -187,6 +220,7 @@ object TlsBlock {
         pbm.text("$prefix.cipher_suites")
         pbm.text("$prefix.min_version")
         pbm.text("$prefix.max_version")
+        pbm.text("$prefix.cipher_suites")
         pbm.text("$prefix.certificate")
         pbm.text("$prefix.certificate_path")
         pbm.text("$prefix.certificate_sha256")
@@ -240,14 +274,17 @@ object TlsBlock {
         }
 
         multilineInput(
-            "$prefix.alpn", "$prefix.cipher_suites", "$prefix.certificate", "$prefix.certificate_sha256", "$prefix.certificate_public_key_sha256",
-            "$prefix.ech.config",
+            "$prefix.alpn", "$prefix.certificate", "$prefix.certificate_sha256", "$prefix.certificate_public_key_sha256",
+            "$prefix.ech.config", "$prefix.cipher_suites",
         )
         echInputs("$prefix.ech")
+        cipherSuitesInput("$prefix.cipher_suites", "\n")
+        certificatePinsInput("$prefix.certificate_sha256", "$prefix.certificate_public_key_sha256")
         if (mustTls) {
             findPreference<Preference>(enabledKey)?.isVisible = false
             // a new profile starts with TLS off, and with the switch hidden the block would be dropped on save
-            if (!DataStore.profileCacheStore.getBoolean(enabledKey, false)) DataStore.profileCacheStore.putBoolean(enabledKey, true)
+            // (dialog_edit_profile_singbox.cpp:130,172 forces it on through the security combo)
+            DataStore.profileCacheStore.putBoolean(enabledKey, true)
         } else {
             onSwitch(enabledKey) {
                 enabled = it
@@ -289,22 +326,51 @@ object TlsBlock {
     }
 }
 
-/** The sing-box multiplex block (`multiplex.*`), shared by shadowsocks, vmess, vless and trojan. */
+/**
+ * The sing-box multiplex block (`multiplex.*`), shared by shadowsocks, vmess, vless and trojan: the Keep default / On /
+ * Off / Custom menu and, inline while it is Custom, the rows of the desktop's Custom dialog (MuxSettingsWidget.cpp)
+ * holding Multiplex::CustomSettings (dialog_edit_profile_singbox.cpp:150-154, 188-192). The preset screen reuses
+ * [poolVisibility] and [modeSummary] for the same rows under its own keys.
+ */
 object MuxBlock {
-    private const val MODE_STREAMS = "max_streams"
-    private const val MODE_CONNECTIONS = "max_connections"
+    const val MODE_STREAMS = "max_streams"
+    const val MODE_CONNECTIONS = "max_connections"
 
     fun bind(pbm: PreferenceBindingManager, prefix: String = "multiplex") {
-        pbm.text("$prefix.protocol")
-        pbm.int("$prefix.max_connections")
-        pbm.int("$prefix.min_streams")
-        pbm.int("$prefix.max_streams")
-        pbm.bool("$prefix.padding")
-        pbm.bool("$prefix.brutal.enabled")
-        pbm.int("$prefix.brutal.up_mbps")
-        pbm.int("$prefix.brutal.down_mbps")
-        // last: Keep default, On and Off drop the own settings read above
-        pbm.muxState(prefix, "$prefix.enabled")
+        pbm.muxState(prefix, Rows(prefix))
+    }
+
+    /** MuxSettingsWidget::setSettings / settings (MuxSettingsWidget.cpp:114-139): a count of 0 shows blank, min_streams as a number. */
+    private class Rows(private val prefix: String) : CustomRows<MuxSettings> {
+        private val store get() = DataStore.profileCacheStore
+
+        private fun positive(value: Int) = if (value > 0) value.toString() else ""
+
+        private fun number(key: String) = store.getString("$prefix.$key")?.trim()?.toIntOrNull() ?: 0
+
+        override fun write(settings: MuxSettings) {
+            store.putString("$prefix.protocol", settings.protocol)
+            store.putString("$prefix.mode", if (settings.by_connections) MODE_CONNECTIONS else MODE_STREAMS)
+            store.putString("$prefix.max_streams", positive(settings.max_streams))
+            store.putString("$prefix.max_connections", positive(settings.max_connections))
+            store.putString("$prefix.min_streams", maxOf(0, settings.min_streams).toString())
+            store.putBoolean("$prefix.padding", settings.padding)
+            store.putBoolean("$prefix.brutal.enabled", settings.brutal)
+            store.putString("$prefix.brutal.up_mbps", positive(settings.brutal_up_mbps))
+            store.putString("$prefix.brutal.down_mbps", positive(settings.brutal_down_mbps))
+        }
+
+        override fun read() = MuxSettings(
+            protocol = store.getString("$prefix.protocol").orEmpty(),
+            by_connections = store.getString("$prefix.mode") == MODE_CONNECTIONS,
+            max_streams = number("max_streams"),
+            max_connections = number("max_connections"),
+            min_streams = number("min_streams"),
+            padding = store.getBoolean("$prefix.padding", false),
+            brutal = store.getBoolean("$prefix.brutal.enabled", false),
+            brutal_up_mbps = number("brutal.up_mbps"),
+            brutal_down_mbps = number("brutal.down_mbps"),
+        )
     }
 
     fun setup(
@@ -312,36 +378,22 @@ object MuxBlock {
         prefix: String = "multiplex",
         presets: BuildContext = SettingsMapper.buildContext(),
     ) = with(pf) {
-        numberInput("$prefix.max_connections", "$prefix.min_streams", "$prefix.max_streams", "$prefix.brutal.up_mbps", "$prefix.brutal.down_mbps")
+        val stateKey = "$prefix.enabled"
+        numberInput("$prefix.max_streams", "$prefix.max_connections", "$prefix.min_streams", "$prefix.brutal.up_mbps", "$prefix.brutal.down_mbps")
+        findPreference<ListPreference>("$prefix.protocol")?.keepUnlistedValue()
         val category = findPreference<PreferenceCategory>("muxCategory")
-        val store = DataStore.profileCacheStore
-        fun number(key: String) = store.getString("$prefix.$key")?.trim()?.toIntOrNull() ?: 0
-        // The pool mode is not stored: a profile with a connection cap opens in that mode.
-        var mode = if (number("max_connections") > 0 || number("min_streams") > 0) MODE_CONNECTIONS else MODE_STREAMS
-        findPreference<ListPreference>("$prefix.mode")?.value = mode
         var custom = false
+        var mode = MODE_STREAMS
         var brutal = false
         fun applyVisibility() {
-            category?.setChildrenVisible(custom, setOf("$prefix.enabled"))
-            if (!custom) return
-            setVisible(mode == MODE_STREAMS, "$prefix.max_streams")
-            setVisible(mode == MODE_CONNECTIONS, "$prefix.max_connections", "$prefix.min_streams")
-            setVisible(brutal, "$prefix.brutal.up_mbps", "$prefix.brutal.down_mbps")
+            category?.setChildrenVisible(custom, setOf(stateKey))
+            if (custom) poolVisibility(pf, mode, brutal) { "$prefix.$it" }
         }
-        onMenu("$prefix.enabled") {
+        onMenu(stateKey) {
             custom = it == MUX_CUSTOM.toString()
             applyVisibility()
         }
         onMenu("$prefix.mode") {
-            // the other mode's values would still reach the core, which lets max_connections win
-            if (mode != it) {
-                if (it == MODE_STREAMS) {
-                    findPreference<EditTextPreference>("$prefix.max_connections")?.text = "0"
-                    findPreference<EditTextPreference>("$prefix.min_streams")?.text = "0"
-                } else {
-                    findPreference<EditTextPreference>("$prefix.max_streams")?.text = "0"
-                }
-            }
             mode = it
             applyVisibility()
         }
@@ -349,23 +401,127 @@ object MuxBlock {
             brutal = it
             applyVisibility()
         }
+        presetTriSummary(stateKey, presets.muxDefaultOn)
+        modeSummary(pf, "$prefix.mode")
+    }
 
-        // multiplex.cpp:128-137
-        presetTriSummary("$prefix.enabled", presets.muxDefaultOn)
-        presetMenuSummary("$prefix.protocol", presets.muxProtocol)
-        fun unset(key: String) = (findPreference<EditTextPreference>(key)?.text?.trim()?.toIntOrNull() ?: 0) == 0
-        presetIntSummary("$prefix.max_streams", presets.muxConcurrency) {
-            unset("$prefix.max_connections") && unset("$prefix.min_streams")
+    /**
+     * MuxSettingsWidget::updateControls (MuxSettingsWidget.cpp:152-170) over the rows [key] names by their profile
+     * names (mode, max_streams, max_connections, min_streams, brutal.up_mbps, brutal.down_mbps): [mode] shows its pool
+     * rows, the speeds show with [brutal], and TCP Brutal disables the mode and pool rows, since the core then sends
+     * every stream over a single connection.
+     */
+    /** [speedsAlways]: the preset keeps the speed rows, which must be set before TCP Brutal can be switched on. */
+    fun poolVisibility(
+        pf: PreferenceFragmentCompat,
+        mode: String,
+        brutal: Boolean,
+        speedsAlways: Boolean = false,
+        key: (String) -> String,
+    ) {
+        val connections = mode == MODE_CONNECTIONS
+        pf.setVisible(!connections, key("max_streams"))
+        pf.setVisible(connections, key("max_connections"), key("min_streams"))
+        pf.setVisible(brutal || speedsAlways, key("brutal.up_mbps"), key("brutal.down_mbps"))
+        for (name in arrayOf("mode", "max_streams", "max_connections", "min_streams")) {
+            pf.findPreference<Preference>(key(name))?.isEnabled = !brutal
         }
-        val maxStreams = findPreference<Preference>("$prefix.max_streams")
-        for (key in arrayOf("$prefix.max_connections", "$prefix.min_streams")) {
-            findPreference<Preference>(key)?.setOnPreferenceChangeListener { _, _ ->
-                // the new value is stored after this returns
-                listView?.post { maxStreams?.refreshSummary() }
-                true
-            }
+    }
+
+    /** The mode menu's summary explains the selected mode (the desktop's mode tooltip). */
+    fun modeSummary(pf: PreferenceFragmentCompat, key: String) {
+        pf.findPreference<ListPreference>(key)?.summaryProvider = Preference.SummaryProvider<ListPreference> {
+            it.context.getString(if (it.value == MODE_CONNECTIONS) R.string.mux_mode_max_connections_sum else R.string.mux_mode_max_streams_sum)
         }
-        if (presets.muxPadding) findPreference<Preference>("$prefix.padding")?.summary = getString(R.string.preset_forced_on)
+    }
+
+    /** MuxSettingsWidget::bindValidation (MuxSettingsWidget.cpp:141-150): checked while shown, so a profile's rows only under Custom. */
+    fun bindValidation(form: ValidationForm, prefix: String = "multiplex") {
+        val count = Validation.Rules.int(1, Int.MAX_VALUE.toLong(), Empty.Required)
+        // warnings: the desktop checks these only inside its Custom dialog, a profile save never refuses them
+        for (key in listOf("max_streams", "max_connections", "brutal.up_mbps", "brutal.down_mbps")) {
+            form.bind("$prefix.$key", count).warning()
+        }
+        form.bind("$prefix.min_streams", Validation.Rules.int(0, Int.MAX_VALUE.toLong())).warning()
+    }
+}
+
+/**
+ * The Xray mux rows, the desktop's XrayMuxSettingsWidget (MuxSettingsWidget.cpp): a profile's Custom mux, and the Xray
+ * preset. A row is named by its profile name: concurrency, maxConnections, xudpConcurrency, xudpProxyUDP443.
+ */
+object XrayMuxBlock {
+    private val ROWS = listOf("concurrency", "maxConnections", "xudpConcurrency", "xudpProxyUDP443")
+
+    /** Concurrency and XUDP Concurrency: -1 and 0 mean something to Xray, so blank is no value. */
+    val COUNT_RULE = Validation.Rules.int(-1, XRAY_MUX_MAX_COUNT.toLong(), Empty.Required)
+
+    /** Max Connections: blank is 0, no limit. */
+    val MAX_CONNECTIONS_RULE = Validation.Rules.int(0, XRAY_MUX_MAX_COUNT.toLong())
+
+    fun bind(pbm: PreferenceBindingManager, prefix: String = "multiplex") {
+        pbm.muxState(prefix, Rows(prefix))
+    }
+
+    /** XrayMuxSettingsWidget::setSettings / settings: no connection limit shows blank, an unknown UDP/443 mode as Reject. */
+    private class Rows(private val prefix: String) : CustomRows<XrayMuxSettings> {
+        private val store get() = DataStore.profileCacheStore
+
+        private fun number(key: String) = store.getString("$prefix.$key")?.trim()?.toIntOrNull() ?: 0
+
+        override fun write(settings: XrayMuxSettings) {
+            store.putString("$prefix.concurrency", settings.concurrency.toString())
+            store.putString("$prefix.maxConnections", if (settings.max_connections > 0) settings.max_connections.toString() else "")
+            store.putString("$prefix.xudpConcurrency", settings.xudp_concurrency.toString())
+            val mode = settings.xudp_proxy_udp443
+            store.putString("$prefix.xudpProxyUDP443", if (mode in xrayXudpProxyUDP443Modes) mode else xrayXudpProxyUDP443Modes[0])
+        }
+
+        override fun read() = XrayMuxSettings(
+            concurrency = number("concurrency"),
+            max_connections = number("maxConnections"),
+            xudp_concurrency = number("xudpConcurrency"),
+            xudp_proxy_udp443 = store.getString("$prefix.xudpProxyUDP443").orEmpty(),
+        )
+    }
+
+    fun setup(
+        pf: PreferenceFragmentCompat,
+        prefix: String = "multiplex",
+        presets: BuildContext = SettingsMapper.buildContext(),
+    ) = with(pf) {
+        val stateKey = "$prefix.enabled"
+        inputs(pf) { "$prefix.$it" }
+        val rows = ROWS.map { "$prefix.$it" }.toTypedArray()
+        onMenu(stateKey) { setVisible(it == MUX_CUSTOM.toString(), *rows) }
+        presetTriSummary(stateKey, presets.xrayMuxDefaultOn)
+    }
+
+    /** The rows' input types and summaries; [key] maps a row's profile name to the screen's key. */
+    fun inputs(pf: PreferenceFragmentCompat, key: (String) -> String) = with(pf) {
+        signedNumberInput(key("concurrency"), key("xudpConcurrency"))
+        numberInput(key("maxConnections"))
+        findPreference<EditTextPreference>(key("maxConnections"))?.summaryProvider = Preference.SummaryProvider<EditTextPreference> {
+            val text = it.text?.trim().orEmpty()
+            if (text.isEmpty() || text == "0") it.context.getString(R.string.xray_mux_no_limit) else text
+        }
+        // The menu's summary explains the selected mode (the desktop's UDP/443 tooltip).
+        findPreference<ListPreference>(key("xudpProxyUDP443"))?.summaryProvider = Preference.SummaryProvider<ListPreference> {
+            it.context.getString(
+                when (it.value) {
+                    "allow" -> R.string.xray_mux_udp443_allow_sum
+                    "skip" -> R.string.xray_mux_udp443_skip_sum
+                    else -> R.string.xray_mux_udp443_reject_sum
+                },
+            )
+        }
+    }
+
+    /** XrayMuxSettingsWidget::bindValidation: checked while shown, so a profile's rows only under Custom. */
+    fun bindValidation(form: ValidationForm, prefix: String = "multiplex") {
+        form.bind("$prefix.concurrency", COUNT_RULE)
+        form.bind("$prefix.maxConnections", MAX_CONNECTIONS_RULE)
+        form.bind("$prefix.xudpConcurrency", COUNT_RULE)
     }
 }
 
@@ -416,8 +572,12 @@ object TransportBlock {
     fun setup(pf: PreferenceFragmentCompat, prefix: String = "transport") = with(pf) {
         numberInput("$prefix.max_early_data")
         multilineInput("$prefix.headers")
-        // the model stores "" for plain TCP; the menu needs a selectable value
-        findPreference<SimpleMenuPreference>("$prefix.type")?.let { if (it.value.isNullOrEmpty()) it.value = "tcp" }
+        // the model stores "" for plain TCP; the menu needs a selectable value. Another stored type (quic, or one
+        // sing-box lacks) stays as it is and validate flags it, rather than becoming tcp on save.
+        findPreference<SimpleMenuPreference>("$prefix.type")?.let {
+            if (it.value.isNullOrEmpty()) it.value = "tcp"
+            it.keepUnlistedValue()
+        }
         onMenu("$prefix.type") { type ->
             val hostPath = type == "ws" || type == "http" || type == "httpupgrade"
             setVisible(hostPath, "$prefix.host", "$prefix.path")
@@ -442,4 +602,50 @@ object DialBlock {
         pbm.bool("$prefix.udp_fragment")
         pbm.bool("$prefix.reuse_addr")
     }
+}
+
+/**
+ * The shared blocks' editor-only checks (dialog_edit_profile_singbox.cpp bindSingboxStream, edit_advanced.cpp), bound
+ * on every profile screen: rows a screen does not have stay inert. The model's Validate covers the rest.
+ */
+fun ValidationForm.bindProfileBlocks(outbound: Outbound) {
+    if (outbound.hasTls()) {
+        addAlias("tls.ech.query_server_name", "tls.ech.queryTarget")
+        bind("tls.ech.queryTarget", ::echResolverRule).warning()
+    }
+    if (outbound.hasTransport()) {
+        bind("transport.headers", ::headerLines)
+        bind("transport.max_early_data", Validation.Rules.int(0, Int.MAX_VALUE.toLong()))
+    }
+    if (outbound.hasMux()) MuxBlock.bindValidation(this)
+    if (outbound.hasQuic()) {
+        bind("quic.max_concurrent_streams", Validation.Rules.int(0, Int.MAX_VALUE.toLong()))
+        // validate sees the parsed number, where text beyond an Int has become 0
+        bind("quic.initial_packet_size", QuicChecks::quicInitialPacketSize)
+    }
+}
+
+/**
+ * The header rows' text (headers_hint): a name line then a value line per header, so a "Name: value" line shifts every
+ * pair after it. "|" separates headers in share links.
+ */
+fun headerLines(text: String): String {
+    val lines = text.split('\n').map { it.trim() }.filter { it.isNotEmpty() }
+    if (lines.any { it.contains('|') }) return vtr(R.string.validation_header_pipe)
+    if (lines.size % 2 != 0) return vtr(R.string.validation_header_lines)
+    for (i in lines.indices step 2) {
+        val message = Validation.httpToken(lines[i])
+        if (message.isNotEmpty()) return vtr(R.string.validation_naive_header_name, lines[i], message)
+    }
+    return ""
+}
+
+/** generate.cpp falls back to the default resolver for an ECH resolver it cannot use; the domain part is validate's. */
+private fun echResolverRule(text: String): String {
+    val target = Ech()
+    target.setQueryTarget(text)
+    if (target.resolver.isEmpty()) return ""
+    val parsed = DnsServers.parseDnsAddress(target.resolver)
+    val address = parsed.address ?: return parsed.why
+    return if (address.type == "dhcp") vtr(R.string.validation_ech_resolver_dhcp) else ""
 }

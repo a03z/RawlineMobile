@@ -8,9 +8,9 @@ import app.rawline.mobile.ktx.Logs
 import app.rawline.mobile.ktx.app
 
 /**
- * Route rules and default outbounds name a server by profile id, so a refresh that replaces a node (a new identity,
- * "clear servers before updating", a filter) would leave them pointing at nothing. They follow the group's member of
- * the same name instead, when exactly one member has it; ambiguous or blank names are never guessed.
+ * Android-only (#94): route rules and default outbounds name a server by profile id, so a refresh that replaces a node
+ * (a new identity, "clear servers before updating", a filter) would leave them pointing at nothing. They follow the
+ * group's member of the same name instead, when exactly one member has it.
  */
 internal object SubscriptionRouteRebind {
 
@@ -25,7 +25,10 @@ internal object SubscriptionRouteRebind {
         return names
     }
 
-    /** Re-points the references to the [removed] ids of group [gid]; [names] is [referencedNames]' result. */
+    /**
+     * Re-points the references to the [removed] ids of group [gid]; [names] is [referencedNames]' result. The running
+     * service keeps the old node until reloaded, so the UI is asked for its reload hint when the running config used one.
+     */
     fun rebind(gid: Long, removed: Collection<Long>, names: Map<Long, String>) {
         val orphans = removed.filter { !names[it].isNullOrBlank() }
         if (orphans.isEmpty()) return
@@ -38,14 +41,18 @@ internal object SubscriptionRouteRebind {
         }
         val dao = SagerDatabase.routeDao
         var rebound = 0
+        val movedIds = ArrayList<Long>()
         SagerDatabase.instance.runInTransaction {
             for (old in orphans) {
                 val name = names.getValue(old)
                 if (name in ambiguous) continue
                 val target = byName[name] ?: continue
-                rebound += dao.replaceRuleOutbound(old, target) + dao.replaceDefaultOutbound(old, target)
+                val count = dao.replaceRuleOutbound(old, target) + dao.replaceDefaultOutbound(old, target)
+                if (count > 0) movedIds.add(old)
+                rebound += count
             }
         }
         if (rebound > 0) Logs.i(app.getString(R.string.subs_routes_rebound, rebound))
+        if (movedIds.any { ProfileManager.runningUses(it) }) SubscriptionQueue.reloadNeeded(gid)
     }
 }

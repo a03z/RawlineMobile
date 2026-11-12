@@ -77,7 +77,7 @@ data class GeneratorSettings(
     /** platform.http_proxy.bypass_domain <- DataStore.httpProxyBypass split on newlines. */
     val httpProxyBypassDomains: List<String> = emptyList(),
 
-    // ---- dns (SettingsRepo.h:179-197, :296)
+    // ---- dns (SettingsRepo.h:179-197, :296); the RouteDns members come from RouteDns::Current
     /** remote_dns (desktop address syntax, see DnsServers.buildDnsObj). */
     val remoteDns: String = DnsDefaults.REMOTE,
     /** remote_dns_disable_ipv6. */
@@ -155,7 +155,7 @@ data class GeneratorSettings(
     // ---- warp (SettingsRepo.h:252-267), the built-in WARP hop of WarpHop
     /** enable_warp. */
     val enableWarp: Boolean = false,
-    /** warp_mode: "wireguard" or "masque". */
+    /** warp_mode: "wireguard", "amnezia" (the WireGuard identity as AmneziaWG) or "masque". */
     val warpMode: String = "wireguard",
     val warpAmneziaPackets: List<String> = emptyList(),
     /** warp_ep, warp_private_key, warp_public_key, warp_ifc_addrs, warp_reserved (decimal strings). */
@@ -164,6 +164,8 @@ data class GeneratorSettings(
     val warpPublicKey: String = "",
     val warpIfcAddrs: List<String> = emptyList(),
     val warpReserved: List<String> = emptyList(),
+    /** warp_amnezia_packets: I1-I5 of the amnezia mode. */
+    val warpAmneziaPackets: List<String> = emptyList(),
     /** warp_masque_ep, warp_masque_private_key, warp_masque_peer_public_key, warp_masque_ifc_addrs, warp_masque_sni. */
     val warpMasqueEp: String = "",
     val warpMasquePrivateKey: String = "",

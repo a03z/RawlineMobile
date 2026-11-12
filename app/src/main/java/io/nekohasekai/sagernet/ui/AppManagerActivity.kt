@@ -36,6 +36,7 @@ import app.rawline.mobile.ktx.confirmAction
 import app.rawline.mobile.ktx.crossFadeFrom
 import app.rawline.mobile.ktx.onMainDispatcher
 import app.rawline.mobile.ktx.runOnDefaultDispatcher
+import app.rawline.mobile.route.RouteRule
 import app.rawline.mobile.utils.PackageCache
 import app.rawline.mobile.widget.applyListInsets
 import kotlinx.coroutines.Dispatchers
@@ -414,19 +415,24 @@ class AppManagerActivity : ThemedActivity() {
             }
 
             R.id.action_import_clipboard -> {
-                val proxiedAppString =
-                    SagerNet.clipboard.primaryClip?.getItemAt(0)?.text?.toString()
-                if (!proxiedAppString.isNullOrBlank()) {
-                    // The export's first line is the bypass flag; a bare package list keeps the chosen mode.
-                    val flag = proxiedAppString.substringBefore('\n').trim().toBooleanStrictOrNull()
-                    if (flag != null) binding.bypassGroup.check(if (flag) R.id.appProxyModeBypass else R.id.appProxyModeOn)
-                    initProxiedUids(PackageCache.snapshot(), if (flag != null) proxiedAppString.substringAfter('\n', "") else proxiedAppString)
-                    Snackbar.make(binding.list, R.string.action_import_msg, Snackbar.LENGTH_LONG).show()
-                    selectionChanged()
-                    loadApps()
+                // This screen's export leads with the bypass flag; a plain package list (the route rule picker's
+                // export, whose "unknown" entry is no package) keeps the current mode.
+                val lines = SagerNet.getClipboardText().lines().map { it.trim() }.filter { it.isNotEmpty() }
+                val bypass = lines.firstOrNull()?.takeIf { it == "true" || it == "false" }?.toBoolean()
+                val packages = (if (bypass != null) lines.drop(1) else lines).filter { it != RouteRule.UNKNOWN_PACKAGE }
+                if (bypass == null && packages.isEmpty()) {
+                    Snackbar.make(binding.list, R.string.action_import_err, Snackbar.LENGTH_LONG).show()
                     return true
                 }
-                Snackbar.make(binding.list, R.string.action_import_err, Snackbar.LENGTH_LONG).show()
+                if (PackageNameInput.rejectInvalid(binding.list, packages)) return true
+                if (bypass != null) {
+                    binding.bypassGroup.check(if (bypass) R.id.appProxyModeBypass else R.id.appProxyModeOn)
+                }
+                DataStore.individual = packages.distinct().joinToString("\n")
+                Snackbar.make(binding.list, R.string.action_import_msg, Snackbar.LENGTH_LONG).show()
+                selectionLoaded = false
+                loadApps()
+                return true
             }
         }
         return super.onOptionsItemSelected(item)

@@ -7,16 +7,22 @@ import androidx.preference.EditTextPreference
 import androidx.preference.Preference
 import androidx.preference.PreferenceCategory
 import androidx.preference.PreferenceFragmentCompat
+import app.rawline.mobile.ui.MobileAlertDialogBuilder
+import com.google.android.material.textfield.TextInputEditText
+import com.google.android.material.textfield.TextInputLayout
 import app.rawline.mobile.R
 import app.rawline.mobile.bg.CoreServiceClient
+import app.rawline.mobile.database.DataStore
 import app.rawline.mobile.ktx.Logs
 import app.rawline.mobile.ktx.dp2px
 import app.rawline.mobile.outbound.json.JsonInput
-import app.rawline.mobile.ui.MobileAlertDialogBuilder
 import app.rawline.mobile.outbound.types.WireGuard
+import app.rawline.mobile.outbound.types.WireGuardChecks
+import app.rawline.mobile.ui.ValidationForm
 import app.rawline.mobile.ui.warp.WarpClient
 import app.rawline.mobile.ui.warp.WarpGenerate
 import app.rawline.mobile.ui.warp.setFieldText
+import app.rawline.mobile.validation.Validation
 import com.google.android.material.textfield.TextInputEditText
 import com.google.android.material.textfield.TextInputLayout
 import kotlinx.coroutines.CancellationException
@@ -57,6 +63,35 @@ class WireGuardSettingsActivity : BindingSettingsActivity<WireGuard>() {
         pbm.text("obfs_masking")
         pbm.int("obfs_obfuscate_bytes")
         pbm.text("obfs_media_ssrc")
+    }
+
+    /** edit_wireguard.cpp onEnd: reserved and addresses take commas as well as lines, bare addresses get /32 or /128. */
+    override fun WireGuard.serialize() {
+        pbm.fromCacheAll(this)
+        WireGuardChecks.wireguardReserved(reservedText(DataStore.profileCacheStore.getString("peer.reserved").orEmpty()), peer.reserved)
+        address = address.flatMapTo(ArrayList()) { it.split(',') }
+        fixAddress()
+    }
+
+    private fun reservedText(text: String) = text.replace('\n', ',')
+
+    override fun issueKey(field: String): String? = when (field) {
+        "server" -> "peer.address"
+        "server_port" -> "peer.port"
+        "public_key", "pre_shared_key", "reserved" -> "peer.$field"
+        "persistent_keepalive_interval" -> "peer.persistent_keepalive"
+        else -> null
+    }
+
+    /**
+     * edit_wireguard.cpp / edit_wireguard_amnezia.cpp bindValidation, for the text the bindings lose: reserved bytes
+     * and integers they would turn into 0. WireGuard.validate covers the rest, Amnezia rows included.
+     */
+    override fun ValidationForm.bindValidation() {
+        val intMax = Int.MAX_VALUE.toLong()
+        bind("peer.reserved") { WireGuardChecks.wireguardReserved(reservedText(it)) }
+        for (key in listOf("mtu", "worker_count", "jc", "jmin", "jmax")) bind(key, Validation.Rules.int(0, intMax))
+        for (key in listOf("s1", "s2", "s3", "s4")) bind(key, Validation.Rules.int(0, 65535))
     }
 
     override fun PreferenceFragmentCompat.onPreferencesCreated() {
@@ -108,6 +143,7 @@ class WireGuardSettingsActivity : BindingSettingsActivity<WireGuard>() {
         }
     }
 
+    // edit_wireguard_amnezia.cpp generateSignature
     private fun askSignatureDomain(screen: PreferenceFragmentCompat, button: Preference) {
         val layout = TextInputLayout(this).apply { hint = getString(R.string.amnezia_quic_signature_domain) }
         val input = TextInputEditText(layout.context).apply {
@@ -170,7 +206,7 @@ class WireGuardSettingsActivity : BindingSettingsActivity<WireGuard>() {
         const val KEY_QUIC_SIGNATURE = "amneziaQuicSignature"
         val SIGNATURE_FIELDS = listOf("i1", "i2", "i3", "i4", "i5")
 
-        // Offered again next time.
+        // Offered again next time, like the desktop's lastSignatureDomain.
         var lastSignatureDomain = ""
     }
 

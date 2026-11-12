@@ -1,6 +1,7 @@
 package app.rawline.mobile.aidl;
 
 import app.rawline.mobile.aidl.ISagerNetServiceCallback;
+import app.rawline.mobile.aidl.LiveStatsBatch;
 
 interface ISagerNetService {
   int getState();
@@ -24,4 +25,7 @@ interface ISagerNetService {
   String autoSelectorStatus(boolean withMembers);
   void autoSelectorRecheck();
   void autoSelectorSelect(long memberProfileId);
+
+  // The live graphs' points after afterSerial of session (bg.LiveStatsRecorder); another session returns them all.
+  LiveStatsBatch liveStats(long session, long afterSerial);
 }

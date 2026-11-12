@@ -25,8 +25,14 @@ import app.rawline.mobile.database.ProxyEntity
 import app.rawline.mobile.databinding.LayoutAddEntityBinding
 import app.rawline.mobile.databinding.LayoutProfileBinding
 import app.rawline.mobile.ktx.*
+import app.rawline.mobile.outbound.Outbound
 import app.rawline.mobile.outbound.types.Chain
+import app.rawline.mobile.outbound.types.Custom
+import app.rawline.mobile.ui.FormIssue
 import app.rawline.mobile.ui.ProfileSelectActivity
+import app.rawline.mobile.ui.ValidationForm
+import app.rawline.mobile.validation.Severity
+import app.rawline.mobile.validation.vplural
 import app.rawline.mobile.widget.applyInsetPadding
 import app.rawline.mobile.widget.applyListInsets
 import moe.matsuri.nb4a.Protocols.getProtocolColor
@@ -41,9 +47,100 @@ class ChainSettingsActivity : ProfileSettingsActivity<Chain>(R.layout.layout_cha
 
     private companion object {
         const val KEY_CHAIN_IDS = "chainProxyIds"
+
+        /** The row above the hop list that carries the list's problems (name_preferences.xml). */
+        const val KEY_HOPS = "chainHops"
     }
 
     val proxyList = ArrayList<ProxyEntity>()
+
+    /** Stored hops left out on load because their profile no longer exists. */
+    private var droppedHops = 0
+    private var hopsLoaded = false
+
+    override fun issueKey(field: String): String? = if (field == "list") KEY_HOPS else null
+
+    /** edit_chain.cpp bindValidation. */
+    override fun ValidationForm.bindValidation() {
+        addIssueSource {
+            if (!hopsLoaded) return@addIssueSource emptyList()
+            val label = getString(R.string.validation_chain_hops)
+            val issues = ArrayList<FormIssue>()
+            hopsError().takeIf { it.isNotEmpty() }?.let { issues.add(FormIssue(Severity.Error, label, it, KEY_HOPS)) }
+            if (droppedHops > 0) {
+                issues.add(FormIssue(Severity.Warning, label, vplural(R.plurals.validation_chain_dropped, droppedHops), KEY_HOPS))
+            }
+            issues
+        }
+    }
+
+    private fun hopsChanged() {
+        form?.revalidate(KEY_HOPS)
+    }
+
+    private fun refreshForm() {
+        form?.refresh()
+    }
+
+    private fun storedHopIds(): List<Long> = (DataStore.profileCacheStore.getString(KEY_CHAIN_IDS) ?: "").split(",")
+        .mapNotNull { it.takeIf { it.isNotBlank() }?.toLongOrNull() }
+
+    /** Until the hops are loaded (off the main thread) the stored ids stand in for them, so a chain does not flash "empty". */
+    override fun validationOutbound(): Chain {
+        if (hopsLoaded) return super.validationOutbound()
+        val copy = createEntity()
+        copy.parseFromJson(ensureEditingOutbound().exportToJson())
+        pbm.fromCacheAll(copy)
+        copy.list = ArrayList(storedHopIds())
+        return copy
+    }
+
+    private fun hopsError(): String {
+        if (proxyList.isEmpty()) return getString(R.string.validation_chain_empty)
+        // The picker only refuses circular references; the chain builder refuses these too.
+        for ((i, hop) in proxyList.withIndex()) {
+            when (hop.type) {
+                "chain" -> return getString(R.string.validation_chain_hop_chain, i + 1)
+                "autoselector" -> return getString(R.string.validation_chain_hop_autoselector, i + 1)
+            }
+        }
+        return scanError(proxyList.map { it.outbound })
+    }
+
+    /**
+     * edit_chain.cpp editChainScanError: generate.cpp's chain scan over the build order, which reads the list
+     * bottom-up. The extra-core rules are left out, Android has no extra cores.
+     */
+    private fun scanError(topFirst: List<Outbound>): String {
+        val count = topFirst.size
+        var xrayFullConfigs = 0
+        var xrayFullConfigIndex = -1
+        var xrayHops = 0
+        var transitions = 0
+        var customFullConfig = false
+        var inXray = false
+        for (k in 0 until count) {
+            val hop = topFirst[count - 1 - k]
+            val xray = hop.isXray()
+            if (xray != inXray) transitions++
+            inXray = xray
+            if (hop.isXrayFullConfig()) {
+                xrayFullConfigs++
+                xrayFullConfigIndex = k
+            }
+            if (xray) xrayHops++
+            if ((hop as? Custom)?.isFullConfig() == true) customFullConfig = true
+        }
+        if (customFullConfig) return getString(R.string.validation_chain_custom_full_config)
+        if (xrayFullConfigs > 1) return getString(R.string.validation_chain_xray_full_configs)
+        if (xrayFullConfigs > 0 && xrayHops > 0) return getString(R.string.validation_chain_xray_full_config_mixed)
+        // A custom Xray config is reached through its local socks port, so nothing can come after it.
+        if (xrayFullConfigs == 1 && count > 1 && xrayFullConfigIndex != count - 1) {
+            return getString(R.string.validation_chain_xray_full_config_last)
+        }
+        if (transitions > 2) return getString(R.string.validation_chain_transitions)
+        return ""
+    }
 
     override fun Chain.init() {
         pbm.writeToCacheAll(this)
@@ -139,18 +236,20 @@ class ChainSettingsActivity : ProfileSettingsActivity<Chain>(R.layout.layout_cha
     inner class ProxiesAdapter : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
         suspend fun reload() {
-            val idList = (DataStore.profileCacheStore.getString(KEY_CHAIN_IDS) ?: "").split(",")
-                .mapNotNull { it.takeIf { it.isNotBlank() }?.toLongOrNull() }
-            val loaded=ArrayList<ProxyEntity>()
+            val idList = storedHopIds()
+            var dropped = 0
             if (idList.isNotEmpty()) {
                 val profiles = ProfileManager.getProfiles(idList).map { it.id to it }.toMap()
                 for (id in idList) {
-                    loaded.add(profiles[id] ?: continue)
+                    val profile = profiles[id]
+                    if (profile == null) dropped++ else proxyList.add(profile)
                 }
             }
             onMainDispatcher {
-                proxyList.clear();proxyList.addAll(loaded)
+                droppedHops = dropped
+                hopsLoaded = true
                 notifyDataSetChanged()
+                refreshForm()
             }
         }
 
@@ -159,6 +258,8 @@ class ChainSettingsActivity : ProfileSettingsActivity<Chain>(R.layout.layout_cha
             proxyList.add(to-1,proxyList.removeAt(from-1))
             cacheChain()
             notifyItemMoved(from, to)
+            DataStore.dirty = true
+            hopsChanged()
         }
 
         fun remove(index: Int) {
@@ -166,6 +267,8 @@ class ChainSettingsActivity : ProfileSettingsActivity<Chain>(R.layout.layout_cha
             proxyList.removeAt(index - 1)
             cacheChain()
             notifyItemRemoved(index)
+            DataStore.dirty = true
+            hopsChanged()
         }
 
         override fun getItemId(position: Int): Long {
@@ -254,7 +357,7 @@ class ChainSettingsActivity : ProfileSettingsActivity<Chain>(R.layout.layout_cha
                             proxyList.add(profile)
                             configurationAdapter.notifyItemInserted(proxyList.size)
                         }
-                        cacheChain()
+                        hopsChanged()
                     }
                 }
             }

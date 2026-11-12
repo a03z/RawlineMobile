@@ -17,6 +17,8 @@ import app.rawline.mobile.database.backup.DesktopSchema.PROFILES
 import app.rawline.mobile.database.backup.DesktopSchema.ROUTE_PROFILES
 import app.rawline.mobile.database.backup.DesktopSchema.ROUTE_RULES
 import app.rawline.mobile.database.backup.DesktopSchema.SETTINGS
+import app.rawline.mobile.group.RemoteRouteUpdater
+import app.rawline.mobile.group.SubscriptionScheduler
 import app.rawline.mobile.ktx.app
 import app.rawline.mobile.outbound.json.JsonArray
 import app.rawline.mobile.outbound.json.JsonInput
@@ -71,6 +73,8 @@ object BackupRestore {
             if (choice.any()) {
                 val staged = stage(backup.database, choice, warnings)
                 commit(staged, choice, backup.contents.isAndroid, warnings)
+                if (choice.profiles || choice.settings) SubscriptionScheduler.schedule()
+                if (choice.settings) RemoteRouteUpdater.schedule()
             }
             return warnings
         } finally {
@@ -358,6 +362,11 @@ object BackupRestore {
                 db.execSQL("DELETE FROM `$ROUTE_PROFILES`")
                 insertRows(db, ROUTE_PROFILES, staged.routeProfiles!!)
                 insertRows(db, ROUTE_RULES, staged.routeRules!!)
+            }
+            // Database.cpp:590-594: route_id and source_gid point across the two parts; restored apart, they would name unrelated rows.
+            if (choice.profiles != choice.routes) {
+                db.execSQL("UPDATE `$GROUPS` SET `route_id` = -1")
+                db.execSQL("UPDATE `$ROUTE_PROFILES` SET `source_gid` = -1")
             }
             if (choice.profiles || choice.routes) {
                 // Database.cpp:364-377 raises all three counters whichever of the two parts was restored.

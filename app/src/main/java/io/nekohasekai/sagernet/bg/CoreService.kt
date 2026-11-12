@@ -45,8 +45,15 @@ class CoreService : Service() {
 
         override fun genQuicSignature(domain: String?): String = QuicSignature.generate(domain.orEmpty())
 
-        override fun captureDiagnostics(durationMs: Int, outputPath: String?): String =
-            CoreDiagnostics.capture(durationMs, outputPath.orEmpty())
+        override fun captureDiagnostics(
+            durationMs: Int,
+            contention: Boolean,
+            trace: Boolean,
+            attachmentPaths: Array<String>?,
+            outputPath: String?,
+        ): String = CoreDiagnostics.capture(
+            durationMs, contention, trace, attachmentPaths ?: emptyArray(), outputPath.orEmpty()
+        )
 
         override fun stopDiagnostics() = CoreDiagnostics.stop()
     }

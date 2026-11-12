@@ -28,7 +28,7 @@ object WarpHop {
         return ""
     }
 
-    /** Whether the identity of the active warp_mode is incomplete (:559-567). */
+    /** Whether the identity of the active warp_mode is incomplete (:559-567); amnezia also needs its packets. */
     @JvmStatic
     fun missing(settings: GeneratorSettings): Boolean =
         if (settings.warpMode == "masque") {
@@ -40,7 +40,7 @@ object WarpHop {
                 (settings.warpMode == "amnezia" && settings.warpAmneziaPackets.isEmpty())
         }
 
-    /** getWarpProfile (:475-524): named "warp", MTU 1280, an endpoint either way. */
+    /** getWarpProfile (:475-524): named "warp", MTU 1280, an endpoint either way; amnezia turns AmneziaWG on. */
     @JvmStatic
     fun outbound(settings: GeneratorSettings): Outbound {
         if (settings.warpMode == "masque") {

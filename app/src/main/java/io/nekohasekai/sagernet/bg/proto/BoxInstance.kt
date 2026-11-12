@@ -6,12 +6,14 @@ import app.rawline.mobile.bg.SingBoxDashboard
 import app.rawline.mobile.bg.XrayGeoAssets
 import app.rawline.mobile.database.DataStore
 import app.rawline.mobile.database.ProxyEntity
+import app.rawline.mobile.database.RouteManager
 import app.rawline.mobile.ktx.Logs
 import app.rawline.mobile.ktx.isLoopbackPortFree
 import app.rawline.mobile.ktx.mkPort
 import app.rawline.mobile.ktx.readableMessage
 import app.rawline.mobile.outbound.config.AutoSelectorBuild
 import app.rawline.mobile.outbound.config.GeneratedConfig
+import app.rawline.mobile.outbound.config.PortLease
 import app.rawline.mobile.outbound.types.Custom
 import app.rawline.core.mobile.Instance
 import app.rawline.core.mobile.Mobile
@@ -48,6 +50,13 @@ abstract class BoxInstance(
     /** This start does not wait for remote rule-sets the core has no copy of ([DeferredRuleSets]). */
     var deferRuleSets = false
 
+    /** The routing profile [config] was built with (BuildConfigResult::routeId), 0 for a custom full config. */
+    var routeId = 0L
+        private set
+
+    /** The bridge ports [config] listens on (Xray may bind them late), no other box's until [close]. */
+    private val ports = PortLease()
+
     fun isInitialized(): Boolean {
         return ::config.isInitialized && ::box.isInitialized
     }
@@ -73,7 +82,9 @@ abstract class BoxInstance(
         }
         // A custom full config keeps its own rule-sets as written.
         if (isCustomFullConfig()) deferRuleSets = false
-        config = CoreConfigs.buildMain(profile, deferRuleSets)
+        val route = RouteManager.routeFor(profile.groupId)
+        routeId = if (isCustomFullConfig()) 0L else route.id
+        config = CoreConfigs.buildMain(profile, deferRuleSets, ports, route)
         if(DataStore.serviceMode==app.rawline.mobile.Key.MODE_VPN) {
             app.rawline.mobile.bg.carrier.VpnListenerPolicy.check(config.coreConfig, DataStore.lanSharingEnabled)
         }
@@ -229,9 +240,12 @@ abstract class BoxInstance(
         wakeCheck?.cancel();wakeCheck=null
         releaseLocks()
         nativeStatus?.close();nativeStatus=null
-        boxOrNull?.let(CoreRuntime::detachRunning)
-        try { boxOrNull?.close() } finally {
+        try {
+            boxOrNull?.let(CoreRuntime::detachRunning)
+            boxOrNull?.close()
+        } finally {
             carrierProcesses.asReversed().forEach { it.close() };carrierProcesses.clear()
+            ports.close()
         }
     }
 

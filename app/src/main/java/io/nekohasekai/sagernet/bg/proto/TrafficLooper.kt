@@ -5,10 +5,13 @@ import app.rawline.mobile.aidl.TrafficData
 import app.rawline.mobile.aidl.TrafficDataBatch
 import app.rawline.mobile.appwidget.Widgets
 import app.rawline.mobile.bg.BaseService
+import app.rawline.mobile.bg.LiveStatsRecorder
 import app.rawline.mobile.bg.SagerConnection
 import app.rawline.mobile.database.DataStore
+import app.rawline.mobile.database.GroupSort
 import app.rawline.mobile.database.ProfileManager
 import app.rawline.mobile.database.SagerDatabase
+import app.rawline.mobile.database.SortInput
 import app.rawline.mobile.ktx.Logs
 import app.rawline.mobile.ktx.app
 import kotlinx.coroutines.*
@@ -63,6 +66,8 @@ class TrafficLooper(val data: BaseService.Data, private val sc: CoroutineScope) 
         ProfileManager.removeCreditListener(credits)
         job?.cancelAndJoin()
         job = null
+        // stopRunner keeps the notification only for a restart in place (a switch or reload).
+        LiveStatsRecorder.stopped(restart = data.notification != null)
         if (DataStore.disableTrafficStats) return
         stateMutex.withLock {
             // Polling pauses with the screen off; the core's counters outlive the box, so collect the rest now.
@@ -72,11 +77,14 @@ class TrafficLooper(val data: BaseService.Data, private val sc: CoroutineScope) 
                 Logs.w(e)
             }
             val traffic = ArrayList<TrafficData>()
-            for (item in profiles.values) {
-                if (item.id <= 0L) continue
-                persist(item)
-                traffic.add(TrafficData(id = item.id, rx = item.rx, tx = item.tx))
+            SagerDatabase.instance.runInTransaction {
+                for (item in profiles.values) {
+                    if (item.id <= 0L) continue
+                    persist(item)
+                    traffic.add(TrafficData(id = item.id, rx = item.rx, tx = item.tx))
+                }
             }
+            if (traffic.isNotEmpty()) GroupSort.repositionLater(traffic.map { it.id }, SortInput.TRAFFIC)
             data.proxy?.trafficMap?.values?.forEach { entities ->
                 for (entity in entities) profiles[entity.id]?.let {
                     entity.rx = it.rx
@@ -103,6 +111,7 @@ class TrafficLooper(val data: BaseService.Data, private val sc: CoroutineScope) 
 
     fun start() {
         ProfileManager.addCreditListener(credits)
+        LiveStatsRecorder.started(data.proxy?.profile?.displayName().orEmpty())
         job = sc.launch { loop() }
     }
 
@@ -213,6 +222,7 @@ class TrafficLooper(val data: BaseService.Data, private val sc: CoroutineScope) 
                     mainRxRate += stat.rxRate
                 }
                 val direct = stats[CoreConfig.TAG_DIRECT]
+                LiveStatsRecorder.record(mainRxRate, mainTxRate, direct?.rxRate ?: 0L, direct?.txRate ?: 0L, proxy.boxOrNull)
                 val trafficUpdates = arrayListOf<TrafficData>()
                 if (profileTrafficStatistics) {
                     for (item in profiles.values) {

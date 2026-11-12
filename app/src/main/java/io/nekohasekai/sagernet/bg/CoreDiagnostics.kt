@@ -1,26 +1,40 @@
 package app.rawline.mobile.bg
 
 import androidx.core.app.NotificationCompat
-import app.rawline.core.mobile.DiagnosticsRequest
-import app.rawline.core.mobile.Mobile
 import app.rawline.mobile.R
+import app.rawline.mobile.SagerNet
 import app.rawline.mobile.ktx.Logs
 import app.rawline.mobile.ktx.app
 import app.rawline.mobile.ktx.readableMessage
+import app.rawline.core.mobile.DiagnosticsRequest
+import app.rawline.core.mobile.Mobile
+import java.io.File
 
 /**
  * :bg side of ICoreService.captureDiagnostics (core/mobile/diagnostics.go): the core profiles the process it runs in,
- * which is this one. The service stays in the foreground for the window, so the capture survives the app going to
- * the background while the problem is reproduced. No logs or configs are attached.
+ * which is this one. Keeps the service in the foreground for the window, so the capture survives the app going to the
+ * background while the user reproduces a problem.
  */
 object CoreDiagnostics {
 
     private const val FOREGROUND_REASON = "diagnostics"
 
     /** Blocks the binder thread for the window; returns "" or the error. */
-    fun capture(durationMs: Int, outputPath: String): String = try {
+    fun capture(
+        durationMs: Int,
+        contention: Boolean,
+        trace: Boolean,
+        attachmentPaths: Array<String>,
+        outputPath: String,
+    ): String = try {
         val request = DiagnosticsRequest()
         request.durationMs = durationMs
+        request.contention = contention
+        request.trace = trace
+        for (path in attachmentPaths) {
+            val file = File(path)
+            if (file.isFile) request.addAttachment(file.name, file.readBytes())
+        }
         CoreForeground.acquire(FOREGROUND_REASON, notification())
         try {
             Mobile.captureDiagnostics(request, outputPath)
@@ -36,7 +50,7 @@ object CoreDiagnostics {
     fun stop() = Mobile.stopDiagnostics()
 
     private fun notification() = NotificationCompat.Builder(app, CoreForeground.CHANNEL)
-        .setSmallIcon(R.drawable.ic_rawline_tile)
+        .setSmallIcon(R.drawable.ic_throne_tile)
         .setContentTitle(app.getString(R.string.app_name))
         .setContentText(app.getString(R.string.diagnostics_notification))
         .setProgress(0, 0, true)
@@ -44,5 +58,6 @@ object CoreDiagnostics {
         .setSilent(true)
         .setShowWhen(false)
         .setCategory(NotificationCompat.CATEGORY_PROGRESS)
+        .setContentIntent(SagerNet.configureIntent(app))
         .build()
 }

@@ -8,6 +8,7 @@ import app.rawline.mobile.outbound.Outbound
 import app.rawline.mobile.outbound.common.Multiplex
 import app.rawline.mobile.outbound.common.Tls
 import app.rawline.mobile.outbound.common.Transport
+import app.rawline.mobile.outbound.common.XrayStreamSetting
 import app.rawline.mobile.outbound.common.tlsForTransport
 import app.rawline.mobile.outbound.json.JsonObject
 import app.rawline.mobile.outbound.link.LinkBuilder
@@ -32,6 +33,24 @@ class Trojan : Outbound("trojan") {
     override fun getTls(): Tls = tls
     override fun getMux(): Multiplex = multiplex
     override fun getTransport(): Transport = transport
+
+    // WS and gRPC run on Xray with the authority of their link, as VLESS does (Transport.runsOnXray).
+    override fun isXray(): Boolean = transport.runsOnXray(tls)
+    override fun getXrayStream(): XrayStreamSetting = XrayStreamSetting().also { it.parseFromLink(exportToLink()) }
+
+    override fun buildXray(ctx: BuildContext): BuildResult {
+        val obj = JsonObject()
+        obj["protocol"] = "trojan"
+        val settings = JsonObject()
+        settings["address"] = server
+        settings["port"] = serverPort
+        settings["password"] = password
+        obj["settings"] = settings
+        val stream = getXrayStream().build(ctx)
+        if (!stream.ok) return stream
+        if (stream.json.isNotEmpty()) obj["streamSettings"] = stream.json
+        return BuildResult(obj)
+    }
 
     /** Trojan::ParseFromLink (trojan.cpp): port 443 by default, TLS is not forced on, always true for a parsable URL. */
     override fun parseFromLink(link: String): Boolean {

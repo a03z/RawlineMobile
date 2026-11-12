@@ -31,8 +31,11 @@ class XrayMuxTest {
             security = "tls"
             tls.serverName = "example.org"
         }
-        assertNull(stream.build(BuildContext()).json.obj("tlsSettings")["useSystemCA"])
-        assertTrue(stream.build(BuildContext(xrayUseSystemCA = true)).json.obj("tlsSettings")["useSystemCA"] == true)
+        val outbound = app.rawline.mobile.outbound.json.jsonObjectOf("protocol" to "vless", "streamSettings" to stream.build(BuildContext()).json)
+        assertNull(outbound.obj("streamSettings").obj("tlsSettings")["useSystemCA"])
+        // The setting applies to the whole Xray outbound (ChainBuilder), the XHTTP download leg included.
+        useXraySystemCA(outbound)
+        assertTrue(outbound.obj("streamSettings").obj("tlsSettings")["useSystemCA"] == true)
     }
 
     @Test fun xdriveSurvivesJson() {

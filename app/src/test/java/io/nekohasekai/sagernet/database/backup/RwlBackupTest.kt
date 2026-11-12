@@ -125,8 +125,8 @@ class RwlBackupTest {
         val created = GregorianCalendar(2026, Calendar.SEPTEMBER, 4, 3, 43, 0).time
         val meta = RwlBackup.androidMeta(RwlBackup.Parts(routes = true), "2.0", "device", "Phone", created = created)
         assertEquals(
-            "{\"android\":{\"app_version\":\"2.0\",\"icons\":false},\"backup_version\":2," +
-                "\"created_at\":\"Fri Sep 4 03:43:00 2026\",\"parts\":{\"icons\":false,\"otp\":false," +
+            "{\"android\":{\"app_version\":\"2.0\",\"icons\":false},\"app_version\":\"2.0\",\"backup_version\":2," +
+                "\"created_at\":\"Fri Sep 4 03:43:00 2026\",\"device\":{\"id\":\"device\",\"name\":\"Phone\"},\"parts\":{\"icons\":false,\"otp\":false," +
                 "\"profiles\":false,\"routes\":true,\"settings\":false},\"platform\":\"android\"}",
             meta.toCompact()
         )

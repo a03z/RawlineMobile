@@ -143,7 +143,7 @@ class Http : Outbound("http") {
     }
 
     /** http::DisplayType (http.cpp). */
-    override fun displayType(): String = "HTTP"
+    override fun displayType(): String = if (tls.enabled) "HTTPS" else "HTTP"
 
     /** http::Validate (http.cpp). */
     override fun validate(issues: MutableList<Issue>, ctx: BuildContext) {

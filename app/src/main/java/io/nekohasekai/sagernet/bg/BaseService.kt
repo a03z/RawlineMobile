@@ -676,7 +676,11 @@ class BaseService {
         fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
             DataStore.baseService = this
 
-            if (data.state != State.Stopped) return Service.START_NOT_STICKY
+            if (data.state != State.Stopped) {
+                // Android 12+ ends a service started in the foreground that does not post its notification in time.
+                data.notification?.showAgain()
+                return Service.START_NOT_STICKY
+            }
             startProxy()
             return Service.START_NOT_STICKY
         }

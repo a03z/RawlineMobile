@@ -33,8 +33,13 @@ object UpdateScheduler {
                 if (BuildConfig.IN_APP_UPDATER && DataStore.updateCheckAuto) {
                     val request = PeriodicWorkRequestBuilder<CheckTask>(15, TimeUnit.MINUTES)
                         .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+                        // A remote worker names the service it runs in, or WorkManager fails it at once.
+                        .setInputData(androidx.work.Data.Builder()
+                            .putString(androidx.work.multiprocess.RemoteListenableWorker.ARGUMENT_PACKAGE_NAME, app.packageName)
+                            .putString(androidx.work.multiprocess.RemoteListenableWorker.ARGUMENT_CLASS_NAME, androidx.work.multiprocess.RemoteWorkerService::class.java.name)
+                            .build())
                         .build()
-                    manager.enqueueUniquePeriodicWork(WORK_NAME, ExistingPeriodicWorkPolicy.KEEP, request).get()
+                    manager.enqueueUniquePeriodicWork(WORK_NAME, ExistingPeriodicWorkPolicy.UPDATE, request).get()
                 } else manager.cancelUniqueWork(WORK_NAME).get()
             } catch (e: Exception) {
                 Logs.w("UpdateScheduler: scheduling failed", e)

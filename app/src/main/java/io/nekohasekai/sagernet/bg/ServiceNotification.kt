@@ -289,6 +289,9 @@ class ServiceNotification(
     }
 
 
+    /** Every startForegroundService needs its startForeground, a repeated start of a running service included. */
+    fun showAgain() = runOnMainDispatcher { show() }
+
     private suspend fun show() =
         useBuilder {
             try {

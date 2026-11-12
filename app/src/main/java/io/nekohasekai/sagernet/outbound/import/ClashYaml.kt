@@ -65,7 +65,7 @@ object ClashYaml {
 
     /** Yaml(SafeConstructor()).load: the same Composer and LoaderOptions, so aliases and their limit are unchanged. */
     private fun loadWhole(text: String): Document {
-        val root = Composer(ParserImpl(StreamReader(text), false), Resolver(), LoaderOptions()).getSingleNode()
+        val root = Composer(ParserImpl(StreamReader(text), LoaderOptions()), Resolver(), LoaderOptions()).getSingleNode()
         val constructor = NodeConstructor()
         if (root is MappingNode && root.tag == Tag.MAP && !root.isTwoStepsConstruction) return constructor.readRoot(root)
         return rootDocument(root?.let(constructor::constructNode))
@@ -102,7 +102,7 @@ object ClashYaml {
     private class Unsupported : RuntimeException()
 
     /** SafeConstructor over one node at a time, each as a document of its own. */
-    private class NodeConstructor : SafeConstructor() {
+    private class NodeConstructor : SafeConstructor(LoaderOptions()) {
         fun constructNode(node: Node): Any? = constructDocument(node)
 
         /**
@@ -137,7 +137,7 @@ object ClashYaml {
      * first, then the values of the fields that survive the duplicate keys (a repeated key keeps its last value).
      */
     private class StreamingRead(text: String) {
-        private val parser = ParserImpl(StreamReader(text), false)
+        private val parser = ParserImpl(StreamReader(text), LoaderOptions())
         private val resolver = Resolver()
         private val constructor = NodeConstructor()
 

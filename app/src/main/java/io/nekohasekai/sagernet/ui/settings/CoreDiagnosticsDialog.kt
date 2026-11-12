@@ -59,7 +59,7 @@ object CoreDiagnosticsDialog {
         }
         activity.lifecycleScope.launch {
             val error = try {
-                withContext(Dispatchers.IO) { CoreServiceClient.call { it.captureDiagnostics(DURATION_MS, file.absolutePath) } }
+                withContext(Dispatchers.IO) { CoreServiceClient.call { it.captureDiagnostics(DURATION_MS, false, false, emptyArray(), file.absolutePath) } }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

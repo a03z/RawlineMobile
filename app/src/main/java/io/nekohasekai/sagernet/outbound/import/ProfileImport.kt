@@ -481,18 +481,6 @@ object ProfileImport {
                 return
             }
 
-            if (allowBase64) {
-                val decoded = when {
-                    Scan.looksLikeBase64(text) -> Scan.decodeBase64(text)
-                    Scan.looksLikeUrlSafeBase64(text) -> Scan.decodeBase64UrlSafe(text)
-                    else -> null
-                }
-                if (decoded != null) {
-                    document(decoded, allowBase64 = false, needParse = true, depth = depth + 1, overrideName = overrideName)
-                    return
-                }
-            }
-
             // QJsonDocument::fromJson rejects trailing content, which org.json would silently ignore
             if ((text[0] == '{' || text[0] == '[') && Scan.matchingClose(text, 0) == text.length - 1) {
                 val value = JsonInput.parseValue(text)

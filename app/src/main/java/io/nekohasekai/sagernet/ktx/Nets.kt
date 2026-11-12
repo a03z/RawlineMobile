@@ -67,11 +67,8 @@ fun useAppHttpProxy(builder: OkHttpClient.Builder) {
 fun appProxyHost(): String =
     if (DataStore.serviceMode == Key.MODE_VPN) LOCALHOST else DataStore.inboundAddress.let { if (it == "::") LOCALHOST else it }
 
-/**
- * Whether an app request that would use the proxy fails while no profile runs: only with net_use_proxy (or a
- * request that asks for the proxy itself). The proxy service mode alone goes direct then.
- */
-fun appRequestsNeedProxy(useProxy: Boolean = false): Boolean = useProxy || DataStore.netUseProxy
+/** App requests use the mixed inbound with net_use_proxy or in proxy service mode (HTTPRequestHelper.cpp:26). */
+fun appRequestsViaProxy(): Boolean = DataStore.netUseProxy || DataStore.serviceMode == Key.MODE_PROXY
 
 /**
  * Whether an app request that would use the proxy fails while no profile runs: only with net_use_proxy (or a

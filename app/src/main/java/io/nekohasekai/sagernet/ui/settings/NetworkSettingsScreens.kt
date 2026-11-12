@@ -174,6 +174,8 @@ open class InboundSettingsFragment(@androidx.annotation.XmlRes preferences: Int 
 
 /** Tun Settings: stack, MTU, IPv6, tun routing, private range bypass, per-app proxy and the tun addresses. */
 open class TunSettingsFragment : InboundSettingsFragment(R.xml.settings_tun_combined) {
+    private lateinit var proxyApps: SwitchPreference
+
     override fun bind() {
         super.bind()
         LanSharingSettings.bind(this)
@@ -237,6 +239,7 @@ open class TunSettingsFragment : InboundSettingsFragment(R.xml.settings_tun_comb
     override fun onResume() {
         super.onResume()
         LanSharingSettings.refresh(this)
+        if (::proxyApps.isInitialized) proxyApps.isChecked = DataStore.proxyApps
     }
 
     private companion object {

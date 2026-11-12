@@ -78,10 +78,6 @@ data class ProxyEntity(
     @Ignore
     private var cachedJson: String? = null
 
-    @IgnoredOnParcel
-    @Ignore
-    private var cachedJson: String? = null
-
     /**
      * The parsed profile: an [InvalidOutbound] when the type is unknown or [outboundJson] is not a JSON object. The
      * cache is checked against the stored strings themselves, so a large list does not build a key on every read.

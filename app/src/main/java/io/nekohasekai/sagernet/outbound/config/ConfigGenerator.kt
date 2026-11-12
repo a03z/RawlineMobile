@@ -67,7 +67,7 @@ class ConfigGenerator @JvmOverloads constructor(
             if (core.isEmpty()) return GeneratedConfig.failure("Custom full config is not a valid JSON object")
             if(settings.vpnMode && core.array("inbounds").filterIsInstance<JsonObject>().none { it.string("type")=="tun" }) {
                 val inbounds=core.array("inbounds")
-                inbounds.add(buildTunInbound(BuildState(forTest=false)))
+                inbounds.add(buildTunInbound(BuildState(forTest=false, ports)))
                 core["inbounds"]=inbounds
                 if(core.obj("dns").array("servers").isEmpty()) {
                     core["dns"]=jsonObjectOf("servers" to JsonArray.of(jsonObjectOf(
@@ -331,21 +331,6 @@ class ConfigGenerator @JvmOverloads constructor(
         val l = if (landing > 0 && reads.get(landing) != null) landing else null
         val f = if (front > 0 && reads.get(front) != null) front else null
         return l to f
-    }
-
-    /**
-     * The landing / front proxies the main path dials: the given pair, or for an auto-selector those of the groups its
-     * built members came from, each once.
-     */
-    private fun groupProxyIds(landingProxyId: Long, frontProxyId: Long, plan: AutoSelectorPlan?): Collection<Long> {
-        if (plan == null) return listOf(frontProxyId, landingProxyId)
-        val ids = LinkedHashSet<Long>()
-        for (id in plan.build) {
-            val group = plan.groupOf(id) ?: continue
-            ids.add(group.frontProxyId)
-            ids.add(group.landingProxyId)
-        }
-        return ids
     }
 
     /**

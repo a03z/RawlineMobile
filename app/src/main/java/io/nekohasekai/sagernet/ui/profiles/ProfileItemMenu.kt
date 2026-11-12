@@ -20,8 +20,6 @@ import app.rawline.mobile.ktx.needReload
 import app.rawline.mobile.ktx.readableMessage
 import app.rawline.mobile.ktx.showAllowingStateLoss
 import app.rawline.mobile.ktx.snackbar
-import app.rawline.mobile.ktx.isIpAddress
-import app.rawline.mobile.group.SubscriptionClient
 import app.rawline.mobile.ktx.startFilesForResult
 import app.rawline.mobile.ui.ConfigurationFragment
 import app.rawline.mobile.ui.MainActivity

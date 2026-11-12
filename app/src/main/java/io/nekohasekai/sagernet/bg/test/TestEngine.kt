@@ -2,7 +2,6 @@ package app.rawline.mobile.bg.test
 
 import app.rawline.mobile.database.ProxyEntity
 import app.rawline.mobile.aidl.ITestSessionCallback
-import app.rawline.mobile.database.ProxyEntity
 import app.rawline.core.mobile.Mobile
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers

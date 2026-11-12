@@ -9,7 +9,6 @@ import app.rawline.mobile.ktx.Logs
 import app.rawline.mobile.ktx.USER_AGENT
 import app.rawline.mobile.ktx.newHttpClient
 import app.rawline.mobile.ktx.readableMessage
-import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONArray
@@ -30,7 +29,6 @@ object UpdateChecker {
     private const val MANIFEST = "rawline-update.json"
     private const val MAX_MANIFESTS = 5
     private const val MAX_MANIFEST_BYTES = 256 * 1024
-    private const val MAX_CHANGELOG_BYTES = 1024 * 1024
 
     private fun hasManifest(release: Release) = UpdateReleaseNotes.containsMetadata(release.body) ||
         release.assets.any { it.name == MANIFEST }
@@ -49,7 +47,7 @@ object UpdateChecker {
 
     /**
      * The newest eligible release. [apk] and [expected] are set when it can be installed in-app; otherwise
-     * [browserReason] says why only the release page is offered. [notes] is Markdown, empty unless asked for.
+     * [browserReason] says why only the release page is offered.
      */
     class Offer(
         val release: Release,
@@ -59,7 +57,6 @@ object UpdateChecker {
         val apk: Asset?,
         val expected: ManifestAsset?,
         val browserReason: String?,
-        val notes: String,
     ) {
         val installable get() = apk != null && expected != null && browserReason == null
     }
@@ -74,15 +71,14 @@ object UpdateChecker {
     fun httpClient(timeoutSeconds: Long = 30): OkHttpClient =
         newHttpClient(viaProxy = true, allowInsecure = false, timeoutSeconds = timeoutSeconds)
 
-    /** [withNotes]: also fetch the release notes, which only the updater UI shows. */
-    fun check(context: Context, withNotes: Boolean = false): Result = try {
-        find(context, withNotes)
+    fun check(context: Context): Result = try {
+        find(context)
     } catch (e: Exception) {
         Logs.w("Update check failed", e)
         Result.Failed(e.readableMessage)
     }
 
-    private fun find(context: Context, withNotes: Boolean): Result {
+    private fun find(context: Context): Result {
         val client = httpClient()
         val allowBeta = DataStore.allowBetaUpdate
         val installed = Semver.parse(BuildConfig.VERSION_NAME)
@@ -93,7 +89,6 @@ object UpdateChecker {
             .sortedWith { a, b -> Semver.compare(b.second, a.second) }
             .map { it.first }
         if (candidates.isEmpty()) return Result.UpToDate
-        fun notes(release: Release) = if (withNotes) notesOf(client, release) else ""
 
         var best: Pair<Release, JSONObject>? = null
         for (release in candidates.filter(::hasManifest).take(MAX_MANIFESTS)) {
@@ -109,7 +104,7 @@ object UpdateChecker {
             if (code <= BuildConfig.VERSION_CODE || manifest.optInt("minSdk", 1) > Build.VERSION.SDK_INT) continue
             if (best == null || code > best.second.optLong("versionCode")) best = release to manifest
         }
-        best?.let { (release, manifest) -> return Result.Available(offerOf(context, release, manifest, notes(release))) }
+        best?.let { (release, manifest) -> return Result.Available(offerOf(context, release, manifest)) }
 
         // Releases without a manifest predate the in-app updater: open them in the browser.
         val legacy = candidates.firstOrNull { !hasManifest(it) } ?: return Result.UpToDate
@@ -125,8 +120,7 @@ object UpdateChecker {
         val versionName = manifest.optString("versionName").ifEmpty { release.tag.removePrefix(Semver.TAG_PREFIX) }
         val versionCode = manifest.getLong("versionCode")
         val assets = manifest.optJSONObject("assets") ?: JSONObject()
-        fun browserOnly(abi: String?, reason: String) =
-            Offer(release, versionName, versionCode, abi, null, null, reason, notes)
+        fun browserOnly(abi: String?, reason: String) = Offer(release, versionName, versionCode, abi, null, null, reason)
         if (manifest.optInt("schema") != 1) {
             return browserOnly(null, context.getString(R.string.update_reason_no_manifest))
         }
@@ -142,31 +136,7 @@ object UpdateChecker {
         val expected = ManifestAsset(entry.getString("name"), entry.getLong("size"), entry.getString("sha256").lowercase())
         val apk = release.assets.firstOrNull { it.name == expected.name && it.size == expected.size }
             ?: return browserOnly(abi, context.getString(R.string.update_reason_no_abi, abi))
-        return Offer(release, versionName, versionCode, abi, apk, expected, null, notes)
-    }
-
-    /** The CHANGELOG.md sections up to the release, read at its tag; tags that predate the file keep their body. */
-    private fun notesOf(client: OkHttpClient, release: Release): String {
-        val notes = try {
-            ReleaseNotes.select(fetchChangelog(client, release.tag), BuildConfig.VERSION_NAME, release.tag)
-        } catch (e: Exception) {
-            Logs.w("Changelog of ${release.tag}: ${e.readableMessage}")
-            ""
-        }
-        return notes.ifEmpty { release.body.trim() }
-    }
-
-    private fun fetchChangelog(client: OkHttpClient, tag: String): String {
-        val url = CHANGELOG_API.toHttpUrl().newBuilder().addQueryParameter("ref", tag).build()
-        val request = Request.Builder().url(url)
-            .header("Accept", "application/vnd.github.raw+json")
-            .header("User-Agent", USER_AGENT)
-            .build()
-        client.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) throw IOException("HTTP ${response.code}")
-            val stream = response.body?.byteStream() ?: throw IOException("empty response")
-            return String(readLimited(stream, MAX_CHANGELOG_BYTES), Charsets.UTF_8)
-        }
+        return Offer(release, versionName, versionCode, abi, apk, expected, null)
     }
 
     /** The ABI of the installed split: the extracted native library directory (useLegacyPackaging) names it. */
@@ -250,7 +220,7 @@ object UpdateChecker {
             val n = input.read(buffer)
             if (n < 0) break
             out.write(buffer, 0, n)
-            if (out.size() > max) throw IOException("response larger than $max bytes")
+            if (out.size() > max) throw IOException("manifest larger than $max bytes")
         }
         return out.toByteArray()
     }

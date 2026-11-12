@@ -33,6 +33,13 @@ class LinkQuery(@JvmField val items: List<Pair<String, String>>) {
         return result.toList()
     }
 
+    /**
+     * formDecodedQueryValue (utils.cpp): the FullyEncoded value with '+' read as a space, as urlencode()-style
+     * panels send it, then percent-decoded; an encoded %2B stays a '+'.
+     */
+    fun valueFormDecoded(key: String): String =
+        LinkCodec.decodeFully(LinkCodec.recodeQueryFullyEncoded(value(key)).replace("+", "%20"))
+
     /** GetQueryValue (Utils.cpp:69-75): [default] when the item is absent OR empty. */
     fun valueOr(key: String, default: String): String = value(key).ifEmpty { default }
 

@@ -37,6 +37,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
+import app.rawline.mobile.ktx.snackbar
 import kotlinx.coroutines.withContext
 
 /** Mobile dashboard backed by the existing Room repositories and subscription queue. */
@@ -580,8 +581,10 @@ class MobileHomeFragment : ToolbarFragment() {
                     addView(text(route.name,15f).apply { setTypeface(typeface,Typeface.BOLD);maxLines=1;ellipsize=android.text.TextUtils.TruncateAt.END })
                     setOnClickListener {
                         sheet.dismiss()
-                        app.rawline.mobile.ui.route.RouteQuickSwitch.switchTo(route.id)
-                        app.rawline.mobile.ui.route.RouteQuickSwitch.switched(this@MobileHomeFragment,route.name)
+                        viewLifecycleOwner.lifecycleScope.launch {
+                            val kept=app.rawline.mobile.ui.route.RouteQuickSwitch.switchTo(route.id)
+                            snackbar(app.rawline.mobile.ui.route.RouteQuickSwitch.switchedMessage(this@MobileHomeFragment,route.name,kept)).show()
+                        }
                         routeChipView?.text=route.name
                     }
                     MobileFeedback.apply(this)
@@ -1718,8 +1721,10 @@ class MobileHomeFragment : ToolbarFragment() {
                 popup.menu.add(1, android.view.Menu.NONE, android.view.Menu.NONE, route.name).apply {
                     isCheckable=true;isChecked=route.id==DataStore.currentRouteId
                     setOnMenuItemClickListener {
-                        app.rawline.mobile.ui.route.RouteQuickSwitch.switchTo(route.id)
-                        app.rawline.mobile.ui.route.RouteQuickSwitch.switched(this@MobileHomeFragment,route.name);true
+                        viewLifecycleOwner.lifecycleScope.launch {
+                            val kept=app.rawline.mobile.ui.route.RouteQuickSwitch.switchTo(route.id)
+                            snackbar(app.rawline.mobile.ui.route.RouteQuickSwitch.switchedMessage(this@MobileHomeFragment,route.name,kept)).show()
+                        };true
                     }
                 }
             }

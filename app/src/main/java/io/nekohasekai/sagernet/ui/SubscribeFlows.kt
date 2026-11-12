@@ -17,7 +17,6 @@ import app.rawline.mobile.databinding.LayoutRouteRemotePromptBinding
 import app.rawline.mobile.databinding.LayoutSubscribeChoiceBinding
 import app.rawline.mobile.group.SlipNetBundle
 import app.rawline.mobile.group.SubscriptionClient
-import app.rawline.mobile.database.GroupRepo
 import app.rawline.mobile.database.DataStore
 import app.rawline.mobile.database.ProfileManager
 import app.rawline.mobile.outbound.Outbound

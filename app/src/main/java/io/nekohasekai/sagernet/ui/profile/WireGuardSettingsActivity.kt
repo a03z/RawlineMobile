@@ -23,8 +23,6 @@ import app.rawline.mobile.ui.warp.WarpClient
 import app.rawline.mobile.ui.warp.WarpGenerate
 import app.rawline.mobile.ui.warp.setFieldText
 import app.rawline.mobile.validation.Validation
-import com.google.android.material.textfield.TextInputEditText
-import com.google.android.material.textfield.TextInputLayout
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch

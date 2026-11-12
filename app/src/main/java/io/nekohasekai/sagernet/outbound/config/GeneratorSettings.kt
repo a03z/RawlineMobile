@@ -165,7 +165,6 @@ data class GeneratorSettings(
     val warpIfcAddrs: List<String> = emptyList(),
     val warpReserved: List<String> = emptyList(),
     /** warp_amnezia_packets: I1-I5 of the amnezia mode. */
-    val warpAmneziaPackets: List<String> = emptyList(),
     /** warp_masque_ep, warp_masque_private_key, warp_masque_peer_public_key, warp_masque_ifc_addrs, warp_masque_sni. */
     val warpMasqueEp: String = "",
     val warpMasquePrivateKey: String = "",

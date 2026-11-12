@@ -8,6 +8,7 @@ import app.rawline.mobile.ktx.Logs
 import app.rawline.mobile.ktx.app
 import app.rawline.mobile.ktx.appRequestsNeedProxy
 import app.rawline.mobile.ktx.appRequestsViaProxy
+import app.rawline.mobile.ktx.LOCALHOST
 import app.rawline.mobile.outbound.json.JsonInput
 import app.rawline.mobile.outbound.link.LinkCodec
 import kotlinx.coroutines.CancellationException

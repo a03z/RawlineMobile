@@ -1,5 +1,6 @@
 package app.rawline.mobile.outbound.types
 
+import app.rawline.mobile.R
 import app.rawline.mobile.outbound.BuildContext
 import app.rawline.mobile.outbound.import.ClashProxy
 import app.rawline.mobile.outbound.BuildResult
@@ -9,9 +10,54 @@ import app.rawline.mobile.outbound.common.Multiplex
 import app.rawline.mobile.outbound.common.Tls
 import app.rawline.mobile.outbound.common.Transport
 import app.rawline.mobile.outbound.common.XrayStreamSetting
+import app.rawline.mobile.outbound.common.tlsForTransport
 import app.rawline.mobile.outbound.json.JsonObject
 import app.rawline.mobile.outbound.link.LinkBuilder
 import app.rawline.mobile.outbound.link.LinkParser
+import app.rawline.mobile.validation.Issue
+import app.rawline.mobile.validation.ParseDiag
+import app.rawline.mobile.validation.Severity
+import app.rawline.mobile.validation.Validation
+import app.rawline.mobile.validation.acceptOptional
+import app.rawline.mobile.validation.addIssue
+import app.rawline.mobile.validation.vtr
+
+/** vlessFlows (vless.h). */
+val vlessFlows = listOf("xtls-rprx-vision")
+
+/** Share links write none for no flow; the core knows only the empty value and matches names exactly. */
+private fun vlessImportFlow(raw: String): String {
+    val value = raw.trim().lowercase()
+    return if (value == "none") "" else value
+}
+
+/** Throne's own links write none for the empty encoding. */
+private fun vlessImportPacketEncoding(raw: String): String {
+    val value = raw.trim()
+    if (value == "none") return ""
+    if (value in vPacketEncoding) return value
+    ParseDiag.warn("packet_encoding", vtr(R.string.validation_vmess_packet_encoding_unknown), value)
+    return ""
+}
+
+/** No flow is the core's default; an unknown one stops it and a misplaced Vision fails every connection. */
+private fun dropUnusableVlessFlow(v: Vless) {
+    if (v.flow == "xtls-rprx-vision-udp443") return
+    if (!acceptOptional("flow", VlessChecks.vlessFlow(v.flow, v.tls.enabled, v.transport.type), v.flow)) v.flow = ""
+}
+
+/** The Checks of vless.h. */
+object VlessChecks {
+    /** sing-box takes only xtls-rprx-vision, and Vision works only on TLS (or REALITY) directly over TCP. */
+    @JvmStatic
+    fun vlessFlow(flow: String, tlsEnabled: Boolean, transportType: String): String {
+        if (flow.isEmpty()) return ""
+        if (flow == "xtls-rprx-vision-udp443") return vtr(R.string.validation_vless_flow_udp443)
+        if (flow != "xtls-rprx-vision") return Validation.oneOf(flow, vlessFlows)
+        if (!tlsEnabled || !(transportType.isEmpty() || transportType == "tcp")) return vtr(R.string.validation_vless_flow_vision)
+        return ""
+    }
+}
 
 /** vless, the sing-box one (include/configs/outbounds/vless.h, src/configs/outbounds/vless.cpp). */
 class Vless : Outbound("vless") {
@@ -46,7 +92,7 @@ class Vless : Outbound("vless") {
         return BuildResult(obj)
     }
 
-    /** vless.cpp:9-34. */
+    /** vless::ParseFromLink (vless.cpp). */
     override fun parseFromLink(link: String): Boolean {
         val url = LinkParser.parse(link)
         if (!url.isValid) return false
@@ -54,32 +100,33 @@ class Vless : Outbound("vless") {
         super.parseFromLink(url)
         uuid = url.userName
         if (serverPort == 0) serverPort = 443
-        flow = q.valueOr("flow", "")
+        flow = vlessImportFlow(q.value("flow"))
         transport.parseFromLink(url)
         tls.parseFromLink(url)
-        if (tls.server_name.isNotEmpty()) tls.enabled = true
-        packet_encoding = q.valueOr("packetEncoding", "xudp")
-        if (packet_encoding !in vPacketEncoding) packet_encoding = ""
+        val packetEncoding = q.value("packetEncoding")
+        packet_encoding = if (packetEncoding.isEmpty()) "xudp" else vlessImportPacketEncoding(packetEncoding)
         multiplex.parseFromLink(url)
+        dropUnusableVlessFlow(this)
         return !(uuid.isEmpty() || server.isEmpty())
     }
 
-    /** vless.cpp:49-61: `packet-encoding` is copied even when absent, like the desktop. */
+    /** vless::ParseFromClash (vless.cpp): `packet-encoding` is copied even when absent, like the desktop. */
     override fun parseFromClash(node: JsonObject): Boolean {
         val proxy = ClashProxy(node)
         if (proxy.type != "vless") return false
         baseParseFromClash(proxy)
         uuid = proxy.string("uuid")
         val clashFlow = proxy.string("flow")
-        if (clashFlow.isNotEmpty()) flow = clashFlow
-        packet_encoding = proxy.string("packet-encoding")
-        tls.parseFromClash(proxy)
+        if (clashFlow.isNotEmpty()) flow = vlessImportFlow(clashFlow)
+        packet_encoding = vlessImportPacketEncoding(proxy.string("packet-encoding"))
+        tls.parseFromClash(node, clashTlsOn(proxy))
         transport.parseFromClash(proxy)
         multiplex.parseFromClash(proxy)
+        dropUnusableVlessFlow(this)
         return true
     }
 
-    /** vless.cpp:36-47. */
+    /** vless::ParseFromJson (vless.cpp): also the DB loader, so only an import normalizes flow and packet encoding. */
     override fun parseFromJson(obj: JsonObject): Boolean {
         if (obj.isEmpty() || obj.string("type") != "vless") return false
         super.parseFromJson(obj)
@@ -89,10 +136,15 @@ class Vless : Outbound("vless") {
         if (obj.contains("tls")) tls.parseFromJson(obj.obj("tls"))
         if (obj.contains("transport")) transport.parseFromJson(obj.obj("transport"))
         if (obj.contains("multiplex")) multiplex.parseFromJson(obj.obj("multiplex"))
+        if (ParseDiag.active()) {
+            flow = vlessImportFlow(flow)
+            packet_encoding = vlessImportPacketEncoding(packet_encoding)
+            dropUnusableVlessFlow(this)
+        }
         return true
     }
 
-    /** vless.cpp:63-84: no dial-field query items. */
+    /** vless::ExportToLink (vless.cpp): no dial-field query items. */
     override fun exportToLink(): String {
         val url = LinkBuilder("vless")
         // a uuid missing from the link or JSON is a null QString on the desktop, which adds no user-info
@@ -109,7 +161,7 @@ class Vless : Outbound("vless") {
         return url.build()
     }
 
-    /** vless.cpp:86-98: `packet_encoding` is always written. */
+    /** vless::ExportToJson (vless.cpp): `packet_encoding` is always written. */
     override fun exportToJson(): JsonObject {
         val obj = JsonObject()
         obj["type"] = "vless"
@@ -126,7 +178,7 @@ class Vless : Outbound("vless") {
         return obj
     }
 
-    /** vless.cpp:100-112. */
+    /** vless::Build (vless.cpp): the quic transport drops uTLS ([tlsForTransport]). */
     override fun build(ctx: BuildContext): BuildResult {
         val obj = JsonObject()
         obj["type"] = "vless"
@@ -135,7 +187,7 @@ class Vless : Outbound("vless") {
         if (flow.isNotEmpty()) obj["flow"] = flow
         obj["packet_encoding"] = packet_encoding
         val tlsObj = tls.build(ctx)
-        if (tlsObj.isNotEmpty()) obj["tls"] = tlsObj
+        if (tlsObj.isNotEmpty()) obj["tls"] = tlsForTransport(tlsObj, transport.type)
         val transportObj = transport.build(ctx)
         if (transportObj.isNotEmpty()) obj["transport"] = transportObj
         val muxObj = multiplex.build(ctx)
@@ -143,6 +195,14 @@ class Vless : Outbound("vless") {
         return BuildResult(obj)
     }
 
-    /** vless.cpp:114-117. */
+    /** vless::DisplayType (vless.cpp). */
     override fun displayType(): String = "VLESS"
+
+    /** vless::Validate (vless.cpp). */
+    override fun validate(issues: MutableList<Issue>, ctx: BuildContext) {
+        super.validate(issues, ctx)
+        issues.addIssue(Severity.Error, "uuid", Validation.required(uuid))
+        issues.addIssue(Severity.Error, "flow", VlessChecks.vlessFlow(flow, tls.enabled, transport.type), flow)
+        issues.addIssue(Severity.Error, "packet_encoding", Validation.oneOf(packet_encoding, vPacketEncoding), packet_encoding)
+    }
 }

@@ -255,3 +255,9 @@ class Masque : Outbound("masque") {
         }
     }
 }
+
+private fun withPrefix(address: String, prefix: String): String? {
+    val result = address.trim()
+    if (result.isEmpty()) return null
+    return if (result.contains('/')) result else result + prefix
+}

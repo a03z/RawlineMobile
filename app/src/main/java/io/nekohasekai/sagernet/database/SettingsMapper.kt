@@ -137,7 +137,6 @@ object SettingsMapper {
             warpPublicKey = DataStore.warpPublicKey,
             warpIfcAddrs = DataStore.warpIfcAddrs,
             warpReserved = DataStore.warpReserved,
-            warpAmneziaPackets = DataStore.warpAmneziaPackets,
             warpMasqueEp = DataStore.warpMasqueEp,
             warpMasquePrivateKey = DataStore.warpMasquePrivateKey,
             warpMasquePeerPublicKey = DataStore.warpMasquePeerPublicKey,
@@ -161,9 +160,6 @@ object SettingsMapper {
         muxMaxConnections = DataStore.muxMaxConnections,
         muxMinStreams = DataStore.muxMinStreams,
         muxPadding = DataStore.muxPadding,
-        muxMode = DataStore.muxMode,
-        muxMaxConnections = DataStore.muxMaxConnections,
-        muxMinStreams = DataStore.muxMinStreams,
         muxBrutal = DataStore.muxBrutal,
         muxBrutalUpMbps = DataStore.muxBrutalUpMbps,
         muxBrutalDownMbps = DataStore.muxBrutalDownMbps,
@@ -188,7 +184,6 @@ object SettingsMapper {
         defaultDomainStrategy = DataStore.outboundDomainStrategy,
         directDnsDisableIpv6 = dns?.directDnsDisableIpv6 ?: DataStore.directDnsDisableIpv6,
         useDnsObject = DataStore.useDnsObject,
-        xrayUseSystemCA = DataStore.xrayUseSystemCa,
         routeOwnsDns = dns != null,
     )
 

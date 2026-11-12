@@ -5,6 +5,7 @@ import android.os.Build
 import android.provider.Settings
 import androidx.preference.PreferenceDataStore
 import app.rawline.mobile.Key
+import app.rawline.mobile.utils.Theme
 import app.rawline.mobile.bg.BaseService
 import app.rawline.mobile.bg.VpnService
 import app.rawline.mobile.database.preference.OnPreferenceDataStoreChangeListener
@@ -78,7 +79,7 @@ object DataStore : OnPreferenceDataStoreChangeListener {
     var networkChangeResetConnections by configurationStore.boolean(Key.NETWORK_CHANGE_RESET_CONNECTIONS) { true }
     var wakeResetConnections by configurationStore.boolean(Key.WAKE_RESET_CONNECTIONS) { true }
 
-    var appTheme by configurationStore.int(Key.APP_THEME) { app.rawline.mobile.utils.Theme.GREY }
+    var appTheme by configurationStore.int(Key.APP_THEME) { Theme.GREY }
     var useSystemTheme by configurationStore.boolean(Key.USE_SYSTEM_THEME)
     var nightTheme by configurationStore.stringToInt(Key.NIGHT_THEME) { 1 }
     var amoledTheme by configurationStore.boolean(Key.AMOLED_THEME)
@@ -180,6 +181,10 @@ object DataStore : OnPreferenceDataStoreChangeListener {
             ?: (SettingsRegistry.INBOUND_HTTP_PORT.default + userIndex)
         set(value) = SettingsRegistry.INBOUND_HTTP_PORT.write(configurationStore, value)
     var disableMixedInbound by SettingsRegistry.DISABLE_MIXED_INBOUND
+
+    /** disable_mixed_inbound only applies in VPN mode: the proxy-only service mode needs the mixed inbound. */
+    val mixedInboundDisabled: Boolean
+        get() = disableMixedInbound && serviceMode == Key.MODE_VPN
     var randomInboundPort by SettingsRegistry.RANDOM_INBOUND_PORT
     var inboundAuth by SettingsRegistry.INBOUND_AUTH
     val effectiveInboundAuth: Boolean
@@ -266,12 +271,6 @@ object DataStore : OnPreferenceDataStoreChangeListener {
     var muxBrutalUpMbps by SettingsRegistry.MUX_BRUTAL_UP_MBPS
     var muxBrutalDownMbps by SettingsRegistry.MUX_BRUTAL_DOWN_MBPS
     var muxDefaultOn by SettingsRegistry.MUX_DEFAULT_ON
-    var muxMode by SettingsRegistry.MUX_MODE
-    var muxMaxConnections by SettingsRegistry.MUX_MAX_CONNECTIONS
-    var muxMinStreams by SettingsRegistry.MUX_MIN_STREAMS
-    var muxBrutal by SettingsRegistry.MUX_BRUTAL
-    var muxBrutalUpMbps by SettingsRegistry.MUX_BRUTAL_UP_MBPS
-    var muxBrutalDownMbps by SettingsRegistry.MUX_BRUTAL_DOWN_MBPS
     var xrayMuxConcurrency by SettingsRegistry.XRAY_MUX_CONCURRENCY
     var xrayMuxMaxConnections by SettingsRegistry.XRAY_MUX_MAX_CONNECTIONS
     var xrayMuxXudpConcurrency by SettingsRegistry.XRAY_MUX_XUDP_CONCURRENCY
@@ -335,7 +334,6 @@ object DataStore : OnPreferenceDataStoreChangeListener {
     var warpPublicKey by SettingsRegistry.WARP_PUBLIC_KEY
     var warpIfcAddrs by SettingsRegistry.WARP_IFC_ADDRS
     var warpReserved by SettingsRegistry.WARP_RESERVED
-    var warpAmneziaPackets by SettingsRegistry.WARP_AMNEZIA_PACKETS
     var warpTosAccepted by SettingsRegistry.WARP_TOS_ACCEPTED
     var warpMasqueEp by SettingsRegistry.WARP_MASQUE_EP
     var warpMasquePrivateKey by SettingsRegistry.WARP_MASQUE_PRIVATE_KEY

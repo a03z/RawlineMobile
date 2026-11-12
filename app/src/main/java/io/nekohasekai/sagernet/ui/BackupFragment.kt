@@ -268,7 +268,7 @@ class BackupFragment : Fragment(R.layout.layout_backup) {
             val file = File(app.cacheDir, "rwlupload-${System.currentTimeMillis()}.rwlbackup")
             try {
                 file.outputStream().use { BackupExport.write(selection, it) }
-                val parts = ThrBackup.Parts(
+                val parts = RwlBackup.Parts(
                     profiles = selection.profiles, routes = selection.routes, settings = selection.settings
                 )
                 dav.upload(file, parts)

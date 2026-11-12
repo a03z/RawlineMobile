@@ -343,7 +343,7 @@ object ProfileManager {
                     moved.add(id)
                 }
             }
-            if (beforeId != null) writeOrder(insertProfilesBefore(dao.getIdsByGroup(groupId), moved, beforeId))
+            if (beforeId != null) writeOrder(dao.getPositionsByGroup(groupId), insertProfilesBefore(dao.getIdsByGroup(groupId), moved, beforeId))
             sources.forEach(::compactLocked)
         }
         for (gid in sources) GroupRepo.postReload(gid)

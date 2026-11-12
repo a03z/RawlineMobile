@@ -111,15 +111,14 @@ object CoreLog {
     private val ansiColor = Regex("\u001B\\[[0-9;]*m")
 
     fun write(line: String) {
-        val policy = policy()
-        if (!policy.enabled) return
+        if (!enabled()) return
         val stamp = synchronized(timestamp) { timestamp.format(Date()) }
         val text = if (line.indexOf('\u001B') >= 0) ansiColor.replace(line, "") else line
         val bytes = "$stamp $text\n".toByteArray()
         synchronized(lock) {
             runCatching {
                 val out = stream()
-                val max = policy.maxBytes
+                val max = maxSizeBytes()
                 if (out.channel.size() + bytes.size > max) rotate(out.channel, max, bytes.size)
                 out.write(bytes)
             }.onFailure { stream = null }

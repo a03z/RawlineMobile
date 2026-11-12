@@ -1,5 +1,6 @@
 package app.rawline.mobile.widget
 
+import okhttp3.Dns
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.os.SystemClock
@@ -221,12 +222,10 @@ object ExitIp {
             .build()
     }
 
-    /** Two ASCII letters, else empty; XX (unknown) and T1 (Tor) are Cloudflare's markers. */
-    private fun countryCode(raw: String): String {
-        val code = raw.trim().uppercase(Locale.ROOT)
-        return code.takeIf { it.length == 2 && it.all { c -> c in 'A'..'Z' } && it != "XX" && it != "T1" }.orEmpty()
+    /** The default network of this app's UID when it is the VPN. */
+    private fun tunnelNetwork(): Network? {
+        val network = SagerNet.connectivity.activeNetwork ?: return null
+        val capabilities = SagerNet.connectivity.getNetworkCapabilities(network) ?: return null
+        return network.takeIf { capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN) }
     }
-
-    /** The desktop asks through the mixed inbound (HttpGet useProxy, HTTPRequestHelper.cpp:36), which the core routes in either service mode. */
-    private fun client(): OkHttpClient? = appHttpClient(viaProxy = true, timeoutSeconds = TIMEOUT_SECONDS)
 }

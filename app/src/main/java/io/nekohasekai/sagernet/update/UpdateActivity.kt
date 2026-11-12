@@ -5,7 +5,6 @@ import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
-import android.text.SpannableStringBuilder
 import android.text.format.Formatter
 import android.view.View
 import android.widget.Button
@@ -244,7 +243,7 @@ class UpdateActivity : ThemedActivity() {
     }
 
     /** [progress]: null hides the bar, true is indeterminate. */
-    private fun show(title: String, message: CharSequence?, progress: Boolean? = null) {
+    private fun show(title: String, message: String?, progress: Boolean? = null) {
         progressBar(progress)
         binding.title.text = title
         binding.message.text = message.orEmpty()

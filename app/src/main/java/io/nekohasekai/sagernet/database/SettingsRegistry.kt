@@ -327,10 +327,9 @@ object SettingsRegistry {
     @JvmField val WARP_PRIVATE_KEY = string("warp_private_key", "")
     @JvmField val WARP_PUBLIC_KEY = string("warp_public_key", "")
     @JvmField val WARP_IFC_ADDRS = stringList("warp_ifc_addrs", emptyList())
-    @JvmField val WARP_AMNEZIA_PACKETS = stringList("warp_amnezia_packets", emptyList())
-    @JvmField val WARP_RESERVED = stringList("warp_reserved", emptyList())
     /** AmneziaWG I1-I5 of warp_mode "amnezia", generated with the identity so config builds need no core call. */
     @JvmField val WARP_AMNEZIA_PACKETS = stringList("warp_amnezia_packets", emptyList())
+    @JvmField val WARP_RESERVED = stringList("warp_reserved", emptyList())
     @JvmField val WARP_TOS_ACCEPTED = bool("warp_tos_accepted", false)
     @JvmField val WARP_MASQUE_EP = string("warp_masque_ep", "")
     @JvmField val WARP_MASQUE_PRIVATE_KEY = string("warp_masque_private_key", "")

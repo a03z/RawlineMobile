@@ -308,7 +308,13 @@ class Transport {
      * ALPN), and panels behind a reverse proxy or fallbacks answer 404 or close. Xray has no switch for an unverified
      * certificate any more, so such a profile stays on sing-box.
      */
-    fun runsOnXray(tls: Tls): Boolean = (type == "ws" || type == "grpc") && !tls.insecure
+    /**
+     * REALITY runs on Xray whatever the fingerprint: servers since Xray 26.7 want the X25519MLKEM768 share sing-box's
+     * fingerprints may lack. Xray has no REALITY over WebSocket or HTTPUpgrade, so those stay on sing-box.
+     */
+    fun runsOnXray(tls: Tls): Boolean =
+        if (tls.reality.enabled) type.isEmpty() || type == "tcp" || type == "grpc"
+        else (type == "ws" || type == "grpc") && !tls.insecure
 
     /** The sing-box "authority" field does not exist: it stays out of the outbound the core reads. */
     private fun dropAuthority(obj: JsonObject): JsonObject { obj.remove("authority"); return obj }

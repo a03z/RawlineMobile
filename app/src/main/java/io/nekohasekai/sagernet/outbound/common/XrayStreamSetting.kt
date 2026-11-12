@@ -1298,7 +1298,14 @@ class XrayReality {
         val obj = exportToJson()
         if (fingerprint.isEmpty() && ctx.utlsFingerprint.isNotEmpty()) obj["fingerprint"] = ctx.utlsFingerprint
         if (obj.string("fingerprint").lowercase() == TLS_UNSAFE_FINGERPRINT) obj.remove("fingerprint")
+        // REALITY servers since Xray 26.7 refuse a hello without X25519MLKEM768, which these presets lack; the closest
+        // browser that sends it works with old and new servers alike.
+        REALITY_MODERN_FINGERPRINT[obj.string("fingerprint").lowercase()]?.let { obj["fingerprint"] = it }
         return obj
+    }
+
+    private companion object {
+        val REALITY_MODERN_FINGERPRINT = mapOf("ios" to "safari", "edge" to "chrome", "qq" to "chrome", "360" to "chrome", "android" to "chrome")
     }
 }
 

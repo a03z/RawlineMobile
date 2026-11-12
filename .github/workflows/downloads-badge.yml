@@ -37,8 +37,8 @@ jobs:
               for limit, suffix in ((10**9, 'G'), (10**6, 'M'), (10**3, 'k')):
                   if v >= limit:
                       x = v / limit
-                      text = f'{x:.1f}' if x < 10 else f'{round(x)}'
-                      return text.rstrip('0').rstrip('.') + suffix
+                      text = f'{x:.1f}'.removesuffix('.0') if x < 10 else f'{round(x)}'
+                      return text + suffix
               return str(v)
           assert short(4564) == '4.6k' and short(31568) == '32k' and short(999) == '999' and short(10000) == '10k'
           print(json.dumps({"schemaVersion": 1, "label": "downloads-total", "message": short(n), "color": "brightgreen"}))

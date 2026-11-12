@@ -1083,7 +1083,8 @@ class MobileHomeFragment : ToolbarFragment() {
                     sheetUp=text("↑ "+rateText(lastUp),12f,muted).apply { setPadding(dp(6),dp(2),dp(6),dp(2));maxLines=1 }
                     // A fixed height: one line or two beside the speed, the list under it stays put.
                     if(pastelHero!=null) {
-                        val speed=LinearLayout(requireContext()).apply { gravity=Gravity.CENTER }
+                        val speed=LinearLayout(requireContext()).apply {
+                            gravity=Gravity.CENTER
                         val rule=View(requireContext()).apply { setBackgroundColor(MobilePalette.outline) }
                         sheetDown?.gravity=Gravity.CENTER; sheetUp?.gravity=Gravity.CENTER
                         addView(sheetDown!!,LinearLayout.LayoutParams(0,-2,1f))

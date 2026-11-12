@@ -500,6 +500,13 @@ object ProfileImport {
                 return
             }
 
+            if (text.contains("ENCRYPTION_KEY") && text.contains("DOMAINS")) {
+                MasterDnsFiles.fromToml(text)?.let { config ->
+                    produce(OutboundFactory.newByType("masterdns").takeIf { it.parseFromJson(config) })
+                    return
+                }
+            }
+
             if (looksLikeOvpnConfig(text)) {
                 openVpnFile(text)
                 return
@@ -999,12 +1006,12 @@ object ProfileImport {
 
         private fun linkBody(line: String, depth: Int, overrideName: String) {
             if (line.startsWith("//") || line.startsWith("#") || line.length < 2) return
-            if (line.startsWith("json://")) {
-                jsonLink(line, false)
-                return
-            }
-            if (app.rawline.mobile.route.UrlText.isAddLink(line)) {
-                jsonLink(line, true)
+            // json:// and rawline://add/ carry any JSON document: one profile, an array, or a whole Xray config.
+            val addLink = app.rawline.mobile.route.UrlText.isAddLink(line)
+            if (line.startsWith("json://", ignoreCase = true) || addLink) {
+                val payload = OutboundFactory.decodeJsonLink(line, addLink)
+                if (payload == null) report({ elide(line) }, false, listOf(parserError(vtr(R.string.validation_import_link_damaged_base64))))
+                else document(payload, allowBase64 = false, needParse = true, depth = depth + 1, overrideName = overrideName)
                 return
             }
             if (line.startsWith("phobos://", ignoreCase = true)) {
@@ -1043,58 +1050,6 @@ object ProfileImport {
             val parsed = ParseDiag.scoped(issues) { outbound = OutboundFactory.parseLink(line, preference); outbound != null }
             if (parsed && profileType == "wireguard") setNameIfEmpty(outbound!!, overrideName)
             accept(outbound, parsed, issues) { linkSource(line, outbound) }
-        }
-
-        /** Parser::jsonLink (SubscriptionParser.cpp): `throne://add/<base64 of ExportToJson>` or `json://#<base64url>`. */
-        private fun jsonLink(str: String, throneAdd: Boolean) {
-            var type = ""
-            var name = ""
-            val source = {
-                val label = StringBuilder(if (throneAdd) "throne://add/" else "json://").append(type)
-                val shown = elide(name)
-                if (shown.isNotEmpty()) label.append(" #").append(shown)
-                label.toString()
-            }
-            fun damaged(message: String) = report(source, false, listOf(parserError(message)))
-
-            val url = LinkParser.parse(str)
-            if (!url.isValid) {
-                damaged(vtr(R.string.validation_import_link_damaged_url))
-                return
-            }
-            var dataBytes = if (throneAdd) Base64Strict.decode(url.path.drop(1)) else Base64Strict.decode(url.fragment ?: "", urlSafe = true)
-            // ExportJsonLink emits the url-safe alphabet, which the standard decoder rejects whenever '-' or '_' occurs
-            if ((dataBytes == null || dataBytes.isEmpty()) && throneAdd) dataBytes = Base64Strict.decode(url.path.drop(1), urlSafe = true)
-            if (dataBytes == null || dataBytes.isEmpty()) {
-                damaged(vtr(R.string.validation_import_link_damaged_base64))
-                return
-            }
-            val data = JsonInput.parseObject(String(dataBytes, Charsets.UTF_8))
-            if (data.isEmpty()) {
-                damaged(vtr(R.string.validation_import_link_damaged_object))
-                return
-            }
-            name = data.string("tag")
-            val outbound: Outbound
-            if (data.contains("protocol")) {
-                type = "xray" + data.string("protocol")
-                outbound = OutboundFactory.newByType(type)
-            } else {
-                type = data.string("type")
-                val refusal = OutboundFactory.refusedForeignType(type)
-                if (refusal.isNotEmpty()) {
-                    damaged(refusal)
-                    return
-                }
-                outbound = OutboundFactory.newByType(type)
-            }
-            if (outbound.invalid) {
-                damaged(if (type.isEmpty()) vtr(R.string.validation_import_missing_type) else vtr(R.string.validation_import_unsupported_type, type))
-                return
-            }
-            val issues = ArrayList<Issue>()
-            val parsed = ParseDiag.scoped(issues) { outbound.parseFromJson(data) }
-            accept(outbound, parsed, issues, source)
         }
 
         /** A Phobos link is the client's whole .conf in base64url: WireGuard behind the obfuscator, or its SOCKS5 mode. */

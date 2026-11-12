@@ -24,7 +24,7 @@ class ShadowsocksRTest {
         val formats = listOf(profile.exportToLink(), json, "[$json]", "{\"outbounds\":[$json]}",
             "{\"configs\":[$legacy]}", Base64Strict.encode(profile.exportToLink()), profile.exportJsonLink())
         for (format in formats) {
-            val restored = ProfileImport.parse(format).outbounds.single() as ShadowsocksR
+            val restored = ProfileImport.parse(format).also { assertEquals("$format ${it.messages}", 1, it.outbounds.size) }.outbounds.single() as ShadowsocksR
             assertEquals(format, json, restored.exportToJson().toCompact())
         }
         assertTrue(OutboundFactory.fromJson(profile.exportToJson()) is ShadowsocksR)

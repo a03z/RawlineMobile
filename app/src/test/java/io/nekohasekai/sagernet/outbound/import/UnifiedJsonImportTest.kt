@@ -49,7 +49,7 @@ class UnifiedJsonImportTest {
             """{"type":"openflux","secret":"01234567890123456789","transports":[{"type":"direct","dial":"192.0.2.3:443"}]}""",
             """{"type":"olcrtc","room":"https://meet.example.org/room","key":"${"a".repeat(64)}","device_id":"phone"}"""
         )
-        val all=native+"""{"type":"vmess","server":"example.org","server_port":443}"""+
+        val all=native+"""{"type":"vmess","server":"example.org","server_port":443,"uuid":"00000000-0000-0000-0000-000000000001"}"""+
             """{"protocol":"hysteria","settings":{"address":"example.org","port":443,"version":2}}"""
         val body="[${all.joinToString(",")}]"
         val expected=ProfileImport.parse(body)

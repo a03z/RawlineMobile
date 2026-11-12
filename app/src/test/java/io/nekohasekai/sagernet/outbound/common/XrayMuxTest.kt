@@ -20,10 +20,11 @@ class XrayMuxTest {
         val restored = XrayMultiplex()
         restored.parseFromJson(mux.exportToJson())
         assertEquals(4, restored.maxConnections)
-        // an unknown mode would fail the Xray start, so it is dropped; the cap is an int16 in Xray
-        restored.parseFromJson(JsonObject().also { it["enabled"] = true; it["xudpProxyUDP443"] = "bogus"; it["maxConnections"] = 99999 })
-        assertEquals("", restored.xudpProxyUDP443)
-        assertEquals(Short.MAX_VALUE.toInt(), restored.maxConnections)
+        // ParseFromJson also loads the database, so only an import drops values; validate refuses them before a start
+        val loaded = XrayMultiplex()
+        loaded.parseFromJson(JsonObject().also { it["enabled"] = true; it["xudpProxyUDP443"] = "bogus"; it["maxConnections"] = 99999 })
+        assertEquals("bogus", loaded.xudpProxyUDP443)
+        assertEquals(99999, loaded.maxConnections)
     }
 
     @Test fun systemCaOnlyWhenEnabled() {

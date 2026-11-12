@@ -125,9 +125,9 @@ class NativeTransportSettingsActivity : ProfileSettingsActivity<Outbound>() {
             for(key in listOf("endpoint","region","bucket","prefix","accessKey","secretKey")) if(!storage.contains(key)) storage[key]=""
             if(!storage.contains("sessionsDir")) storage["sessionsDir"]="sessions"
             document["storage"]=storage
-            // The original app's tuning; both sides keep their own.
+            // The original app's client tuning (its server side uses 20 ms, 300 s and 2 MB).
             val tuning=document.obj("tuning")
-            for((key,value) in mapOf("pollIntervalMs" to 100,"writeIntervalMs" to 20,"idleTimeoutSec" to 300,"maxFileSizeBytes" to 2097152))
+            for((key,value) in mapOf("pollIntervalMs" to 100,"writeIntervalMs" to 80,"idleTimeoutSec" to 3600,"maxFileSizeBytes" to 16777216))
                 if(!tuning.contains(key)) tuning[key]=value
             document["tuning"]=tuning
         }

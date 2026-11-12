@@ -5,7 +5,7 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class MasterDnsFilesTest {
-    private fun single(text: String): DnsTunnel = ProfileImport.parse(text).outbounds.single() as DnsTunnel
+    private fun single(text: String): DnsTunnel = ProfileImport.parse(text).also { assertEquals(it.messages.toString(), 1, it.outbounds.size) }.outbounds.single() as DnsTunnel
 
     @Test fun clientConfigTomlBecomesAMasterDnsProfile() {
         val profile = single("""

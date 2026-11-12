@@ -258,10 +258,12 @@ class PastelSpeedWave(context: Context, private val tint: Int) : View(context) {
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val path = Path()
     private var phase = 0f
-    private val tick = Runnable {
-        phase += if (level > 0.25f) 0.11f else 0.04f
-        invalidate()
-        postDelayed(tick, if (hasWindowFocus()) 32L else 90L)
+    private val tick: Runnable = object : Runnable {
+        override fun run() {
+            phase += if (level > 0.25f) 0.11f else 0.04f
+            invalidate()
+            postDelayed(this, if (hasWindowFocus()) 32L else 90L)
+        }
     }
 
     override fun onAttachedToWindow() {

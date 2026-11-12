@@ -148,7 +148,6 @@ abstract class BoxInstance(
     }
 
     override fun launch() {
-        moe.matsuri.nb4a.OwnerLookupHealth.reset()
         try {
             box.start()
         } catch (error: Throwable) {

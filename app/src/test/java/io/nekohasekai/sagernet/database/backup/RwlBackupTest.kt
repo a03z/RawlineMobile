@@ -89,7 +89,7 @@ class RwlBackupTest {
     fun roundTripKeepsEntriesInQMapOrder() {
         val db = temp.newFile("snapshot.db").apply { writeBytes(sqliteHeader + ByteArray(70_000) { it.toByte() }) }
         val parts = RwlBackup.Parts(profiles = true, settings = true)
-        val meta = RwlBackup.androidMeta(parts, "1.0")
+        val meta = RwlBackup.androidMeta(parts, "1.0", "device", "Phone")
         // UTF-16 order puts the surrogate pair (0xD83D) before U+FFFD, code point order would not.
         val keys = listOf("icons/�.png", "icons/😀.png", "about.txt")
         val files = LinkedHashMap<String, RwlBackup.Payload>()
@@ -123,7 +123,7 @@ class RwlBackupTest {
     @Test
     fun androidMetaIsCompactAndSorted() {
         val created = GregorianCalendar(2026, Calendar.SEPTEMBER, 4, 3, 43, 0).time
-        val meta = RwlBackup.androidMeta(RwlBackup.Parts(routes = true), "2.0", created = created)
+        val meta = RwlBackup.androidMeta(RwlBackup.Parts(routes = true), "2.0", "device", "Phone", created = created)
         assertEquals(
             "{\"android\":{\"app_version\":\"2.0\",\"icons\":false},\"backup_version\":2," +
                 "\"created_at\":\"Fri Sep 4 03:43:00 2026\",\"parts\":{\"icons\":false,\"otp\":false," +

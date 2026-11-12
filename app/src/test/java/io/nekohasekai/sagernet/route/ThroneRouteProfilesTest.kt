@@ -17,7 +17,7 @@ class ThroneRouteProfilesTest {
     }
 
     @Test fun throneRouteLinkImports() {
-        val imported = RouteShare.fromShareInput(route) { null }
+        val imported = RouteShare.fromShareInput(route, { null }, RuleEnv())
         assertNotNull(imported.fatal, imported.profile)
         assertEquals("Bypass Russia", imported.profile!!.name)
     }

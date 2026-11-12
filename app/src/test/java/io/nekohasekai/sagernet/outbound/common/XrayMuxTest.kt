@@ -31,8 +31,8 @@ class XrayMuxTest {
             security = "tls"
             tls.serverName = "example.org"
         }
-        assertNull(stream.build(BuildContext()).obj("tlsSettings")["useSystemCA"])
-        assertTrue(stream.build(BuildContext(xrayUseSystemCA = true)).obj("tlsSettings")["useSystemCA"] == true)
+        assertNull(stream.build(BuildContext()).json.obj("tlsSettings")["useSystemCA"])
+        assertTrue(stream.build(BuildContext(xrayUseSystemCA = true)).json.obj("tlsSettings")["useSystemCA"] == true)
     }
 
     @Test fun xdriveSurvivesJson() {

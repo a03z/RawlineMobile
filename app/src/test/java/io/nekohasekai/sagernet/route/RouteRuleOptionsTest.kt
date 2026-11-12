@@ -50,10 +50,10 @@ class RouteRuleOptionsTest {
             dns = RouteDns(remoteDns = "tls://1.1.1.1", directDns = "77.88.8.8")
         }
         assertTrue(profile.copy().rules.single().disabled)
-        val imported = RouteShare.fromShareInput(RouteShare.toShareLink(profile) { null }) { null }.profile!!
+        val imported = RouteShare.fromShareInput(RouteShare.toShareLink(profile) { null }, { null }, RuleEnv()).profile!!
         assertTrue(imported.rules.single().disabled)
         assertEquals("tls://1.1.1.1", imported.activeDns()?.remoteDns)
         profile.custom_dns = false
-        assertFalse(RouteShare.fromShareInput(RouteShare.toShareLink(profile) { null }) { null }.profile!!.custom_dns)
+        assertFalse(RouteShare.fromShareInput(RouteShare.toShareLink(profile) { null }, { null }, RuleEnv()).profile!!.custom_dns)
     }
 }

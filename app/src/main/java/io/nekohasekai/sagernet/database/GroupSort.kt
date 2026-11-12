@@ -379,7 +379,8 @@ object GroupSort {
         latency == 0 -> 100000
         latency == ProxyEntity.LATENCY_CONNECT_ONLY -> 99998
         latency < 0 -> 99999
-        else -> latency
+        // A very slow working profile still ranks above the failures and the untested.
+        else -> latency.coerceAtMost(99997)
     }
 
     /** Group.cpp:55-71: "12.3Mbps" as bits per second, "N/A" = -1, anything else 0. */

@@ -18,10 +18,10 @@ class ProtocolLabelTest {
     }
 
     @Test fun bareHopIntervalIsSeconds() {
-        assertEquals("10s", hopSeconds("10"))
-        assertEquals("30s", hopSeconds("30s"))
-        assertEquals("1m", hopSeconds(" 1m "))
-        assertEquals("", hopSeconds(""))
+        assertEquals("10s", Hysteria.hopDuration("10"))
+        assertEquals("30s", Hysteria.hopDuration("30s"))
+        assertEquals(" 1m ", Hysteria.hopDuration(" 1m "))
+        assertEquals("", Hysteria.hopDuration(""))
     }
 
     @Test fun amneziaWgShowsItsGeneration() {

@@ -113,6 +113,11 @@ class ConfigGenerator @JvmOverloads constructor(
         state.remotePrivateNetworks = state.sstpRemoteLan || settings.vpnMode &&
             (profile.type in remoteVpnTypes || (profile.type == "chain" &&
                 TypeAccess.chainHops(profile).firstOrNull()?.let { reads.get(it)?.type in remoteVpnTypes } == true))
+        for (id in route.usedOutboundIds()) {
+            if (id < 0 || id == profileId) continue
+            // A rule's Xray full config runs as its proxy outbound (the main profile keeps the whole config).
+            (reads.get(id) as? app.rawline.mobile.outbound.types.Custom)?.routeOutbound()?.let { reads.overrides[id] = it }
+        }
         val chains = ChainBuilder(reads, buildContext, state, if (settings.enableWarp) WarpHop.outbound(settings) else null)
         calculatePrerequisites(state, chains, reads, profile, route, landing, front, plan)
         if (state.failed) return GeneratedConfig.failure(state.error)
@@ -184,11 +189,6 @@ class ConfigGenerator @JvmOverloads constructor(
         // Each outbound is wrapped in its group's landing / front proxies exactly like the main chain
         // (buildOutboundsSection), so a server the group only dials through its front proxy is not left bare here.
         var suffix = 0
-        for (id in route.usedOutboundIds()) {
-            if (id < 0 || id == profileId) continue
-            // A rule's Xray full config runs as its proxy outbound (the main profile keeps the whole config).
-            (reads.get(id) as? app.rawline.mobile.outbound.types.Custom)?.routeOutbound()?.let { reads.overrides[id] = it }
-        }
         for (id in route.usedOutboundIds()) {
             if (id < 0) continue
             val needed = reads.get(id)

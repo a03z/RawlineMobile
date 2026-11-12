@@ -452,19 +452,22 @@ class MobileHomeFragment : ToolbarFragment() {
         }
     }
     /** The server's country flag, any flag at the start of its name, or a globe. */
-    private fun flagBadge(displayName: String): ImageView {
+    /** The server's country from the tests' IP lookup first, then a flag the name starts with. */
+    private fun flagBadge(displayName: String, geoCountry: String? = null): ImageView {
+        val geo=geoCountry?.trim()?.lowercase(java.util.Locale.ROOT)?.takeIf { it.length==2 && it.all { c -> c in 'a'..'z' } }
+            ?.let { code -> MobileCountryFlags.bitmap(requireContext(),code)?.let { code to it } }
         val first=if(displayName.isNotEmpty()) displayName.codePointAt(0) else 0
         val firstLength=Character.charCount(first)
         val second=if(displayName.length>firstLength) displayName.codePointAt(firstLength) else 0
         val hasFlag=first in 0x1f1e6..0x1f1ff && second in 0x1f1e6..0x1f1ff
         val leadingFlag=MobileCountryFlags.leading(displayName)
         val countryCode=if(hasFlag) "${('a'.code+first-0x1f1e6).toChar()}${('a'.code+second-0x1f1e6).toChar()}" else ""
-        val flag=(if(hasFlag) MobileCountryFlags.bitmap(requireContext(),countryCode) else null)
-            ?: if(leadingFlag.isNotEmpty()) MobileCountryFlags.emoji(requireContext(),leadingFlag) else null
+        val flag=geo?.second ?: (if(hasFlag) MobileCountryFlags.bitmap(requireContext(),countryCode) else null)
+            ?: if(hasFlag && leadingFlag.isNotEmpty()) MobileCountryFlags.emoji(requireContext(),leadingFlag) else null
         return ImageView(requireContext()).apply {
             if(flag!=null) {
                 setImageBitmap(flag);scaleType=ImageView.ScaleType.FIT_XY
-                contentDescription="Flag: ${countryCode.uppercase(java.util.Locale.ROOT).ifEmpty { leadingFlag }}"
+                contentDescription="Flag: ${(geo?.first ?: countryCode).uppercase(java.util.Locale.ROOT).ifEmpty { leadingFlag }}"
             } else {
                 setImageResource(R.drawable.ic_mobile_globe)
                 imageTintList=android.content.res.ColorStateList.valueOf(muted)
@@ -1335,9 +1338,10 @@ class MobileHomeFragment : ToolbarFragment() {
                     val first=if(displayName.isNotEmpty()) displayName.codePointAt(0) else 0
                     val firstLength=Character.charCount(first)
                     val second=if(displayName.length>firstLength) displayName.codePointAt(firstLength) else 0
-                    val leadingFlag=MobileCountryFlags.leading(displayName)
+                    // Only a country flag leaves the name for the badge; a white or other flag stays in it.
+                    val leadingFlag=MobileCountryFlags.leadingCountry(displayName)
                     val flagLength=leadingFlag.length
-                    val badge=flagBadge(displayName)
+                    val badge=flagBadge(displayName,profile.testCountry)
                     row.addView(badge,LinearLayout.LayoutParams(dp(28),dp(28)).apply { marginStart=dp(10) })
                     val labels = LinearLayout(requireContext()).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(10), dp(6), dp(6), dp(6)) }
                     labels.addView(text(if(flagLength>0) displayName.substring(flagLength).trimStart() else displayName, 15f).apply { setTypeface(typeface,Typeface.BOLD); includeFontPadding=!MobileStyle.new; setPadding(0,0,0,dp(if(MobileStyle.new) 3 else 2)); maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END })

@@ -1136,7 +1136,7 @@ class MobileHomeFragment : ToolbarFragment() {
                         controlParent.addView(hero,LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(16) })
                         val pair=LinearLayout(requireContext()).apply { isBaselineAligned=false; if(landscape) orientation=LinearLayout.VERTICAL }
                         val switches=listOf(
-                            Triple(Key.MODE_VPN, R.drawable.ic_mobile_tun, R.string.qmobile_tun),
+                            Triple(Key.MODE_VPN, R.drawable.ic_mobile_tun, R.string.qmobile_mode_tun),
                             Triple(Key.MODE_PROXY, R.drawable.ic_mobile_route, R.string.qmobile_proxy)
                         ).mapIndexed { index, (mode, icon, label) ->
                             val caption=text(getString(R.string.qmobile_mode_off),12f,muted).apply { setPadding(0,dp(1),0,0) }

@@ -1347,7 +1347,11 @@ class MobileHomeFragment : ToolbarFragment() {
                     nextLatencyViews[profile.id]=latency
                     row.addView(latency,LinearLayout.LayoutParams(dp(62),dp(32)))
                     if(!group.isSubscription || !group.subOptions.hideServerSettings) row.addView(ImageView(requireContext()).apply { setImageResource(R.drawable.ic_mobile_chevron); setPadding(dp(6),dp(6),dp(6),dp(6)); contentDescription=getString(R.string.qmobile_edit); setOnClickListener { startActivity(profile.profileSettingsIntent(requireContext(),group.isSubscription)) } },LinearLayout.LayoutParams(dp(32),dp(32)))
-                    val swipe = MobileSwipeTile(requireContext(), row, { listOf(
+                    val swipe = MobileSwipeTile(requireContext(), row, { listOfNotNull(
+                        // ThroneForAndroid's selector panel: each member's checks, and a member picked by hand.
+                        if(profile.type=="autoselector") iconAction(R.drawable.ic_baseline_show_chart_24,getString(R.string.autosel_stats_title),Color.rgb(105,93,176)) {
+                            openSwipe?.closeActions(); startActivity(AutoSelectorStatusActivity.intent(requireContext(),profile.id))
+                        } else null,
                         iconAction(R.drawable.ic_mobile_test,getString(R.string.qmobile_tests),Color.rgb(36,171,85)) { openSwipe?.closeActions(); testMenu(longArrayOf(profile.id),profile.displayName(),group.id) },
                         iconAction(R.drawable.ic_mobile_share,getString(R.string.qmobile_share),Color.rgb(60,132,190)) { shareProfile(profile) },
                         iconAction(R.drawable.ic_mobile_delete,getString(R.string.qmobile_delete),Color.rgb(220,66,61)) {

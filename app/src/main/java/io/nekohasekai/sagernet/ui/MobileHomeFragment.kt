@@ -1060,7 +1060,11 @@ class MobileHomeFragment : ToolbarFragment() {
                 geoBanner!!.addView(geoCheck,LinearLayout.LayoutParams(dp(24),dp(24)))
                 // Under the decoration, right above the subscriptions it is about.
                 // In the new style the check sits beside the speed, under the button.
-                subscriptionTop?.let { if(dockLeft!=null) { currentCheck?.maxLines=3; it.layoutParams=FrameLayout.LayoutParams(-1,-2); dockLeft?.addView(it) } else if(statusRow!=null) { it.layoutParams=LinearLayout.LayoutParams(0,-2,1f); statusRow?.addView(it,0) } else body.addView(it) }
+                subscriptionTop?.let { if(dockLeft!=null) { currentCheck?.maxLines=3; it.layoutParams=FrameLayout.LayoutParams(-1,-2); dockLeft?.addView(it) } else if(statusRow!=null) {
+                    // A narrow column (tablets, split screen) wraps the label onto a third line the row cuts off: it shrinks instead.
+                    it.layoutParams=LinearLayout.LayoutParams(0,-1,1f); statusRow?.addView(it,0)
+                    currentCheck?.let { check -> check.layoutParams=FrameLayout.LayoutParams(-1,-1); check.gravity=Gravity.START or Gravity.CENTER_VERTICAL; androidx.core.widget.TextViewCompat.setAutoSizeTextTypeUniformWithConfiguration(check,8,12,1,android.util.TypedValue.COMPLEX_UNIT_SP) }
+                } else body.addView(it) }
                 if(!chipBottom && chipNear) chipRow?.let { side.addView(it,LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(6);bottomMargin=dp(6) }) }
                 if(!byGroups) body.addView(geoBanner,LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(6) })
                 updateGeoStatus()

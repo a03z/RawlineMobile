@@ -49,11 +49,28 @@ object ClashYaml {
     @JvmStatic
     fun document(text: String): Document {
         val clean = sanitize(text)
+        budget.set(intArrayOf(MAX_VALUES))
         return try {
             StreamingRead(clean).read()
         } catch (e: Unsupported) {
+            budget.set(intArrayOf(MAX_VALUES))
             loadWhole(clean)
+        } finally {
+            budget.remove()
         }
+    }
+
+    // A few aliases can expand into a huge or self-referencing tree; the converter stops at these bounds.
+    private const val MAX_VALUES = 200_000
+    private const val MAX_DEPTH = 50
+    private val budget = ThreadLocal<IntArray>()
+
+    /** The limits of the original reader: nesting, aliases and size, and no recursive keys. */
+    private fun options() = LoaderOptions().apply {
+        nestingDepthLimit = MAX_DEPTH
+        maxAliasesForCollections = 50
+        codePointLimit = 4 * 1024 * 1024
+        setAllowRecursiveKeys(false)
     }
 
     // sanitizeClashYaml (SubscriptionParser.cpp:242-247): NULs and a leading BOM confuse the YAML reader.
@@ -65,7 +82,7 @@ object ClashYaml {
 
     /** Yaml(SafeConstructor()).load: the same Composer and LoaderOptions, so aliases and their limit are unchanged. */
     private fun loadWhole(text: String): Document {
-        val root = Composer(ParserImpl(StreamReader(text), LoaderOptions()), Resolver(), LoaderOptions()).getSingleNode()
+        val root = Composer(ParserImpl(StreamReader(text), options()), Resolver(), options()).getSingleNode()
         val constructor = NodeConstructor()
         if (root is MappingNode && root.tag == Tag.MAP && !root.isTwoStepsConstruction) return constructor.readRoot(root)
         return rootDocument(root?.let(constructor::constructNode))
@@ -90,10 +107,16 @@ object ClashYaml {
 
     private fun toEntry(value: Any?): JsonObject = (convert(value) as? JsonObject) ?: JsonObject()
 
-    private fun convert(value: Any?): Any = when (value) {
+    private fun convert(value: Any?, depth: Int = 0): Any {
+        val left = budget.get()
+        if (left != null && (left[0]-- <= 0 || depth > MAX_DEPTH)) throw YAMLException("Clash YAML expanded structure is too large or recursive")
+        return convertValue(value, depth)
+    }
+
+    private fun convertValue(value: Any?, depth: Int): Any = when (value) {
         null -> JsonNull
-        is Map<*, *> -> JsonObject().also { obj -> for ((k, v) in value) obj[k.toString()] = convert(v) }
-        is List<*> -> JsonArray().also { arr -> for (v in value) arr.add(convert(v)) }
+        is Map<*, *> -> JsonObject().also { obj -> for ((k, v) in value) obj[k.toString()] = convert(v, depth + 1) }
+        is List<*> -> JsonArray().also { arr -> for (v in value) arr.add(convert(v, depth + 1)) }
         is String, is Boolean, is Long, is Int, is Short, is Byte, is Double, is Float, is BigInteger, is BigDecimal -> value
         else -> value.toString()
     }
@@ -102,7 +125,7 @@ object ClashYaml {
     private class Unsupported : RuntimeException()
 
     /** SafeConstructor over one node at a time, each as a document of its own. */
-    private class NodeConstructor : SafeConstructor(LoaderOptions()) {
+    private class NodeConstructor : SafeConstructor(options()) {
         fun constructNode(node: Node): Any? = constructDocument(node)
 
         /**
@@ -137,7 +160,7 @@ object ClashYaml {
      * first, then the values of the fields that survive the duplicate keys (a repeated key keeps its last value).
      */
     private class StreamingRead(text: String) {
-        private val parser = ParserImpl(StreamReader(text), LoaderOptions())
+        private val parser = ParserImpl(StreamReader(text), options())
         private val resolver = Resolver()
         private val constructor = NodeConstructor()
 

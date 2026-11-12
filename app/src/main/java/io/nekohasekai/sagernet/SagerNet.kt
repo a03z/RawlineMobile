@@ -164,6 +164,9 @@ class SagerNet : Application(),
 
         lateinit var application: SagerNet
 
+        /** False only on the JVM of unit tests, where no Android application runs. */
+        val hasApplication: Boolean get() = ::application.isInitialized
+
         val isTv by lazy {
             uiMode.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION ||
                 application.packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK)

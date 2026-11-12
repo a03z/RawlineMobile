@@ -1,5 +1,6 @@
 package app.rawline.mobile.validation
 
+import app.rawline.mobile.SagerNet
 import androidx.annotation.PluralsRes
 import androidx.annotation.StringRes
 import app.rawline.mobile.R
@@ -35,10 +36,16 @@ fun MutableList<Issue>.addIssue(severity: Severity, field: String, message: Stri
 }
 
 /** QCoreApplication::translate("Validation", …) on Android: resolved on the calling thread, from any process. */
-fun vtr(@StringRes id: Int, vararg args: Any): String = if (args.isEmpty()) app.getString(id) else app.getString(id, *args)
+fun vtr(@StringRes id: Int, vararg args: Any): String = when {
+    // Unit tests run on the JVM without resources: the message is the resource id and its arguments.
+    !SagerNet.hasApplication -> (listOf("#$id") + args.map { it.toString() }).joinToString(" ")
+    args.isEmpty() -> app.getString(id)
+    else -> app.getString(id, *args)
+}
 
 fun vplural(@PluralsRes id: Int, count: Int, vararg args: Any): String =
-    app.resources.getQuantityString(id, count, *(if (args.isEmpty()) arrayOf<Any>(count) else args))
+    if (!SagerNet.hasApplication) "#$id $count"
+    else app.resources.getQuantityString(id, count, *(if (args.isEmpty()) arrayOf<Any>(count) else args))
 
 /**
  * The shared field grammar (include/global/Validation.hpp, src/global/Validation.cpp). Every check returns an empty

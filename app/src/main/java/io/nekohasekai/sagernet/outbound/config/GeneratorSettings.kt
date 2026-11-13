@@ -123,6 +123,10 @@ data class GeneratorSettings(
     val blockUnownedTun: Boolean = false,
     /** block_quic (SettingsRepo.h): QUIC (UDP 443) headed for a proxy is refused so browsers fall back to TCP. */
     val blockQuic: Boolean = true,
+    /** Off: the sniffed domain replaces the destination, so the server gets the domain instead of the IP. */
+    val sniffRouteOnly: Boolean = true,
+    /** Off: the shared HTTP proxy (VPN mode with LAN sharing) takes no login; the SOCKS one keeps it. */
+    val httpProxyAuth: Boolean = true,
     /** enable_stats (SettingsRepo.h:118): route.find_process and the api service. */
     val trafficStats: Boolean = true,
     /**

@@ -627,6 +627,8 @@ class ConfigGenerator @JvmOverloads constructor(
                 http["tag"] = "http-in"
                 http["type"] = "http"
                 http["listen_port"] = settings.httpPort
+                // Many devices' Wi-Fi proxy settings have no login field; only sharing may leave the HTTP proxy open.
+                if (!settings.httpProxyAuth && settings.vpnMode && settings.lanSharingEnabled) http.remove("users")
             })
         }
         if (settings.vpnMode) inbounds.add(buildTunInbound(state))
@@ -1237,7 +1239,7 @@ class ConfigGenerator @JvmOverloads constructor(
                 jsonObjectOf("user_id" to JsonArray.of(0, 1000, 1001, 1002, 1010, 1016, 1020, 1021, 1036, 1051, 1052, 1073, 1076, 2000, 9999), "invert" to true),
             ),
         ))
-        rules.add(jsonObjectOf("action" to "sniff"))
+        rules.add(jsonObjectOf("action" to "sniff").also { if (!settings.sniffRouteOnly) it["override_destination"] = true })
         if (settings.resolveDomainStrategy.isNotEmpty()) {
             rules.add(jsonObjectOf("inbound" to JsonArray.of(Tags.MIXED_IN, "http-in", Tags.TUN_IN), "action" to "resolve", "strategy" to settings.resolveDomainStrategy))
         }

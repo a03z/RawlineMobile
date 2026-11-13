@@ -2689,4 +2689,8 @@
     <string name="validation_route_dns_final">DNS-сервер по умолчанию должен быть удаленным или прямым, а не «%1$s».</string>
     <string name="validation_route_dns_dropped">Собственные настройки DNS профиля отброшены, поэтому он использует глобальные: %1$s</string>
     <string name="provider_routing_skipped">Повреждённая маршрутизация пропущена; сохранённая маршрутизация не изменена. %1$s</string>
+    <string name="sniff_route_only">Маршрутизация по домену (routeOnly)</string>
+    <string name="sniff_route_only_sum">Использовать SNI или host из сниффинга только для выбора маршрута, не подменяя адрес соединения. Оставьте включённым, если серверу не нужно маршрутизировать по доменам, например в каскаде</string>
+    <string name="http_proxy_auth">Авторизация HTTP-прокси</string>
+    <string name="http_proxy_auth_sum">Защищать HTTP-прокси тем же логином и паролем. Действует только при включённом доступе с других устройств</string>
 </resources>

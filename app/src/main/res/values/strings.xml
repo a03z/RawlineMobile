@@ -2816,4 +2816,8 @@
     <string name="validation_route_dns_final">The default DNS server must be remote or direct, not \"%1$s\".</string>
     <string name="validation_route_dns_dropped">The profile\'s own DNS settings were dropped, so it uses the global ones: %1$s</string>
     <string name="provider_routing_skipped">Damaged routing was skipped; the saved routing is unchanged. %1$s</string>
+    <string name="sniff_route_only">Route by domain (routeOnly)</string>
+    <string name="sniff_route_only_sum">Use the sniffed SNI or host only to pick the route, without replacing the connection address. Keep it on unless the server has to route by domain, for example in a cascade</string>
+    <string name="http_proxy_auth">HTTP proxy authentication</string>
+    <string name="http_proxy_auth_sum">Protect the HTTP proxy with the same login and password. Applies only while access from other devices is on</string>
 </resources>

@@ -224,6 +224,8 @@ object DataStore : OnPreferenceDataStoreChangeListener {
     var enableTunRouting by SettingsRegistry.ENABLE_TUN_ROUTING
     var blockUnownedTun by SettingsRegistry.BLOCK_UNOWNED_TUN
     var blockQuic by SettingsRegistry.BLOCK_QUIC
+    var sniffRouteOnly by SettingsRegistry.SNIFF_ROUTE_ONLY
+    var httpProxyAuth by SettingsRegistry.HTTP_PROXY_AUTH
 
     // routing
     var currentRouteId by SettingsRegistry.CURRENT_ROUTE_ID

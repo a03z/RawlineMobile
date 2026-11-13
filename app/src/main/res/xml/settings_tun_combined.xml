@@ -5,6 +5,7 @@
         <SwitchPreference app:icon="@drawable/ic_baseline_legend_toggle_24" app:key="enable_tun_routing" app:summary="@string/enable_tun_routing_sum" app:title="@string/enable_tun_routing" />
         <SwitchPreference app:defaultValue="true" app:icon="@drawable/ic_baseline_legend_toggle_24" app:key="block_unowned_tun" app:summary="@string/block_unowned_tun_sum" app:title="@string/block_unowned_tun" />
         <SwitchPreference app:defaultValue="true" app:icon="@drawable/ic_baseline_legend_toggle_24" app:key="block_quic" app:summary="@string/block_quic_sum" app:title="@string/block_quic" />
+        <SwitchPreference app:defaultValue="true" app:icon="@drawable/ic_baseline_legend_toggle_24" app:key="sniff_route_only" app:summary="@string/sniff_route_only_sum" app:title="@string/sniff_route_only" />
     </PreferenceCategory>
     <PreferenceCategory app:title="@string/cag_private_range_bypass">
         <SwitchPreference app:icon="@drawable/ic_baseline_nat_24" app:key="tunBypassPrivateRanges" app:persistent="false" app:summary="@string/bypass_private_ranges_sum" app:title="@string/bypass_private_ranges" />
@@ -28,6 +29,7 @@
         <SwitchPreference app:key="lan_sharing_enabled" app:defaultValue="false" app:title="@string/allow_access" app:summary="@string/lan_sharing_summary" app:icon="@drawable/ic_mobile_globe" />
         <EditTextPreference app:icon="@drawable/ic_baseline_input_24" app:key="inbound_user" app:title="@string/qmobile_socks_user" app:useSimpleSummaryProvider="true" />
         <EditTextPreference app:icon="@drawable/ic_baseline_input_24" app:key="inbound_pass" app:title="@string/qmobile_socks_pass" />
+        <SwitchPreference app:defaultValue="true" app:icon="@drawable/ic_baseline_lock_24" app:key="http_proxy_auth" app:summary="@string/http_proxy_auth_sum" app:title="@string/http_proxy_auth" />
         <Preference app:icon="@drawable/baseline_undo_24" app:key="qmobileResetSocks" app:title="@string/qmobile_socks_reset" />
         <Preference app:key="sharingAddresses" app:title="@string/lan_sharing_address" app:icon="@drawable/ic_mobile_globe" />
         <EditTextPreference app:icon="@drawable/ic_maps_directions_boat" app:key="inbound_socks_port" app:title="@string/local_socks_port" app:useSimpleSummaryProvider="true" />

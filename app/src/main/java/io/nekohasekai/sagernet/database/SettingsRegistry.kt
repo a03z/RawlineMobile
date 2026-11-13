@@ -190,6 +190,10 @@ object SettingsRegistry {
     // Off by default, as the original has no such guard: VPN Hotspot and other forwarding have no owner and broke.
     @JvmField val BLOCK_UNOWNED_TUN = bool("block_unowned_tun", false)
     @JvmField val BLOCK_QUIC = bool("block_quic", true)
+    /** The sniffed domain only picks the route (on), or also replaces the IP the server is asked for (off), as Xray's routeOnly. */
+    @JvmField val SNIFF_ROUTE_ONLY = bool("sniff_route_only", true)
+    /** The HTTP proxy shared to other devices asks for the SOCKS login (on); off for devices that cannot send one. */
+    @JvmField val HTTP_PROXY_AUTH = bool("http_proxy_auth", true)
 
     // ------------------------------------------------------------------------------------------------ routing
 

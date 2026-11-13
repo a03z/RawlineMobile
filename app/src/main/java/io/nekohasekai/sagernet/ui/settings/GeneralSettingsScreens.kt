@@ -5,6 +5,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
+import android.view.View
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.preference.MultiSelectListPreference
@@ -116,6 +117,19 @@ class GeneralSettingsFragment : SettingsScreenFragment(R.xml.settings_general) {
 /** Theme, language, profile list and notification options (all Android-only). */
 class AppearanceSettingsFragment : SettingsScreenFragment(R.xml.settings_appearance) {
 
+    override fun onViewCreated(view: View, savedInstanceState: android.os.Bundle?) {
+        super.onViewCreated(view, savedInstanceState)
+        findPreference<SimpleMenuPreference>("qmobileSurfaceTheme")?.let(::showSurfaceChoice)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // The menu is not stored. Recreate restores whatever label was showing, and New's
+        // night label is OLED even though that choice was never saved. Pastel would then
+        // keep the check on OLED while its night paint stays plum.
+        findPreference<SimpleMenuPreference>("qmobileSurfaceTheme")?.let(::showSurfaceChoice)
+    }
+
     override fun bind() {
         pref<SimpleMenuPreference>("qmobileUiStyle").setOnPreferenceChangeListener { _, _ -> applyThemeInstantly(); true }
         // The new style is black or white with one look: accent colours, seasonal art and a bottom tile bar mean nothing there.
@@ -133,15 +147,7 @@ class AppearanceSettingsFragment : SettingsScreenFragment(R.xml.settings_appeara
             true
         }
         pref<SimpleMenuPreference>("qmobileSurfaceTheme").apply {
-            if (modern && !pastel) {
-                setEntries(R.array.qmobile_surface_themes_new)
-                setEntryValues(R.array.qmobile_surface_values_new)
-            }
-            value = if (modern && !pastel && DataStore.nightTheme == 1) "oled" else if (DataStore.amoledTheme && DataStore.nightTheme == 1) "oled" else when (DataStore.nightTheme) {
-                0 -> "system"
-                2 -> "light"
-                else -> "dark"
-            }
+            showSurfaceChoice(this)
             setOnPreferenceChangeListener { _, selected ->
                 if (!modern || pastel) DataStore.amoledTheme = selected == "oled"
                 DataStore.nightTheme = when (selected) { "system" -> 0; "light" -> 2; else -> 1 }
@@ -157,6 +163,27 @@ class AppearanceSettingsFragment : SettingsScreenFragment(R.xml.settings_appeara
             true
         }
         reloadOn("qmobileNotificationSpeed")
+    }
+
+    /** Night without the OLED flag is Dark. New has no separate Dark row, so its night stays OLED. */
+    private fun showSurfaceChoice(preference: SimpleMenuPreference) {
+        val pastel = app.rawline.mobile.ui.MobileStyle.pastel
+        val modern = app.rawline.mobile.ui.MobileStyle.new && !pastel
+        if (modern) {
+            preference.setEntries(R.array.qmobile_surface_themes_new)
+            preference.setEntryValues(R.array.qmobile_surface_values_new)
+        } else {
+            preference.setEntries(R.array.qmobile_surface_themes)
+            preference.setEntryValues(R.array.qmobile_surface_values)
+        }
+        val night = DataStore.nightTheme
+        preference.value = when {
+            night == 0 -> "system"
+            night == 2 -> "light"
+            modern -> "oled"
+            DataStore.amoledTheme && night == 1 -> "oled"
+            else -> "dark"
+        }
     }
 
     // Appearance changes apply at once: the recreated host applies the theme and the AMOLED overlay

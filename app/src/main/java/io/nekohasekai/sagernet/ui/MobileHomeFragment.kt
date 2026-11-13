@@ -593,11 +593,11 @@ class MobileHomeFragment : ToolbarFragment() {
                 tag="flag"
                 setImageBitmap(flag);scaleType=ImageView.ScaleType.FIT_XY
                 contentDescription="Flag: ${(geo?.first ?: countryCode).uppercase(java.util.Locale.ROOT).ifEmpty { leadingFlag }}"
-                // Pastel flags are short, so the square badge's 10dp corner becomes a pill drawn over the stripes.
-                val radius=dp(if(MobileStyle.pastel) 3 else if(MobileStyle.new) 10 else 7).toFloat()
-                background=GradientDrawable().apply { setColor(toolbarColor);cornerRadius=radius }
-                clipToOutline=true
-                if(MobileStyle.new) foreground=GradientDrawable().apply { cornerRadius=radius;setStroke(dp(1).coerceAtLeast(1),androidx.core.graphics.ColorUtils.setAlphaComponent(MobilePalette.muted,if(MobilePalette.light) 70 else 110)) }
+                if(!MobileStyle.pastel) {
+                    background=GradientDrawable().apply { setColor(toolbarColor);cornerRadius=dp(if(MobileStyle.new) 10 else 7).toFloat() }
+                    clipToOutline=true
+                    if(MobileStyle.new) foreground=GradientDrawable().apply { cornerRadius=dp(10).toFloat();setStroke(dp(1).coerceAtLeast(1),androidx.core.graphics.ColorUtils.setAlphaComponent(MobilePalette.muted,if(MobilePalette.light) 70 else 110)) }
+                }
             } else {
                 tag="globe"
                 setImageResource(R.drawable.ic_mobile_globe)
@@ -1723,12 +1723,6 @@ class MobileHomeFragment : ToolbarFragment() {
                     val leadingFlag=MobileCountryFlags.leadingCountry(displayName)
                     val flagLength=leadingFlag.length
                     val badge=flagBadge(displayName,profile.testCountry)
-                    if(MobileStyle.pastel && badge.tag=="flag") {
-                        badge.outlineProvider=object:android.view.ViewOutlineProvider() {
-                            override fun getOutline(view:View, outline:android.graphics.Outline) { outline.setRoundRect(0,0,view.width,view.height,dp(3).toFloat()) }
-                        }
-                        badge.clipToOutline=true
-                    }
                     val (badgeW,badgeH)=flagSlotSize(badge)
                     row.addView(badge,LinearLayout.LayoutParams(badgeW,badgeH).apply { marginStart=dp(if(MobileStyle.pastel) 6 else 10) })
                     val labels = LinearLayout(requireContext()).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(10), dp(6), dp(6), dp(6)) }
@@ -1918,7 +1912,6 @@ class MobileHomeFragment : ToolbarFragment() {
                     val badge=flagBadge(raw)
                     val (w,h)=flagSlotSize(badge)
                     pastelFlagSlot?.layoutParams=LinearLayout.LayoutParams(w,h)
-                    pastelFlagSlot?.clipToOutline=badge.tag=="flag"
                     pastelFlagSlot?.addView(badge,FrameLayout.LayoutParams(-1,-1))
                 }
             }
@@ -2252,12 +2245,6 @@ class MobileHomeFragment : ToolbarFragment() {
                 MobileFeedback.apply(this)
             }
             val badge=flagBadge(raw, profile.testCountry)
-            if(badge.tag=="flag") {
-                badge.outlineProvider=object:android.view.ViewOutlineProvider() {
-                    override fun getOutline(view:View, outline:android.graphics.Outline) { outline.setRoundRect(0,0,view.width,view.height,dp(3).toFloat()) }
-                }
-                badge.clipToOutline=true
-            }
             val (badgeW,badgeH)=flagSlotSize(badge)
             row.addView(badge,LinearLayout.LayoutParams(badgeW,badgeH))
             row.addView(LinearLayout(requireContext()).apply {

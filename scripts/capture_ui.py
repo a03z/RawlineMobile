@@ -55,7 +55,9 @@ def tap_text(text):
     raise RuntimeError(f'UI control missing: {text}')
 
 def confirm_import_group(new=False):
-    assert 'Add to an existing group' in screen_xml(), 'Import destination screen is missing'
+    # Profiles are imported straight into the current group since the direct import; older builds still ask where.
+    if 'Add to an existing group' not in screen_xml():
+        return
     capture('36-import-destination')
     if not new:
         tap_text('Add to an existing group')

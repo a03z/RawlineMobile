@@ -1175,6 +1175,27 @@ class MobileHomeFragment : ToolbarFragment() {
                     if(landscape) side.addView(View(requireContext()),LinearLayout.LayoutParams(-1,0,1f))
                     side.addView(header, LinearLayout.LayoutParams(-1, -2).apply { topMargin=dp(10) })
                 }
+                // With the switches the state line and the check-and-speed line are one row, without a second half-empty line:
+                // the state and the server on the left, the check and the speed on the right.
+                val status=statusRow
+                val stateLine=power
+                if(homeSwitchesOn() && status!=null && stateLine!=null && stateLine.tag!=SWITCH_CELL) {
+                    (stateLine.parent as? ViewGroup)?.removeView(stateLine)
+                    val check=status.childrenList().firstOrNull { it!==sheetDown && it!==sheetUp }
+                    status.removeAllViews()
+                    stateLine.tag=SWITCH_CELL;stateLine.gravity=Gravity.START or Gravity.CENTER_VERTICAL;stateLine.setPadding(0,0,dp(8),0)
+                    androidx.core.widget.TextViewCompat.setAutoSizeTextTypeUniformWithConfiguration(stateLine,9,13,1,android.util.TypedValue.COMPLEX_UNIT_SP)
+                    status.addView(stateLine,LinearLayout.LayoutParams(0,-1,1f))
+                    val speeds=LinearLayout(requireContext()).apply { gravity=Gravity.END;listOfNotNull(sheetDown,sheetUp).forEach { addView(it,LinearLayout.LayoutParams(dp(78),dp(20))) } }
+                    status.addView(LinearLayout(requireContext()).apply {
+                        orientation=LinearLayout.VERTICAL;gravity=Gravity.END or Gravity.CENTER_VERTICAL
+                        check?.let { addView(it,LinearLayout.LayoutParams(dp(156),dp(22))); currentCheck?.gravity=Gravity.END or Gravity.CENTER_VERTICAL }
+                        addView(speeds,LinearLayout.LayoutParams(-2,-2))
+                    },LinearLayout.LayoutParams(-2,-1))
+                    // Only the speed hides while disconnected; the state stays readable.
+                    sheetSpeed=speeds
+                    status.layoutParams=status.layoutParams.apply { height=dp(46) }
+                }
                 // The parts chosen in the editor move from above the list into its own scroll, in their order; the others
                 // stay on the screen. What belongs to no part (the check line, the geo notice) goes with the list.
                 val listHolder=if(byGroups) serverDropArea else serverScroll

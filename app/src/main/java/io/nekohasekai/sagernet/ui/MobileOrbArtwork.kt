@@ -172,6 +172,12 @@ class MobileOrbArtwork(context: Context, private val idleText: String) : MobileP
             paint.textSize = 16f * density; paint.color = ink; paint.isFakeBoldText = true
             canvas.drawText(if (workersText.isEmpty()) elapsedText else "$elapsedText   $workersText", cx, top + 25f * density, paint)
             paint.isFakeBoldText = false
+            // The server in use under the time, when the button leaves room for it.
+            if (serverText.isNotEmpty() && top + 44f * density <= bounds.bottom) {
+                paint.textSize = 12f * density; paint.color = MobilePalette.muted
+                val line = android.text.TextUtils.ellipsize(serverText, android.text.TextPaint(paint), bounds.width() * .9f, android.text.TextUtils.TruncateAt.END).toString()
+                canvas.drawText(line, cx, top + 44f * density, paint)
+            }
         } else if (workersText.isNotEmpty()) {
             paint.textSize = 13f * density; paint.color = MobilePalette.muted
             canvas.drawText(workersText, cx, top + 22f * density, paint)

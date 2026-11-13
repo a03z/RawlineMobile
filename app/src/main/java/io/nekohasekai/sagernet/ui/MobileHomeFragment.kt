@@ -43,8 +43,10 @@ import kotlinx.coroutines.launch
 import app.rawline.mobile.ktx.snackbar
 import kotlinx.coroutines.withContext
 
-/** Mobile dashboard backed by the existing Room repositories and subscription queue. */
+/** Marks the state cell standing in a removed mode switch's place. */
+private const val SWITCH_CELL = "switchCell"
 
+/** Mobile dashboard backed by the existing Room repositories and subscription queue. */
 class MobileHomeFragment : ToolbarFragment() {
     private var nativeConnection:app.rawline.mobile.bg.carrier.NativeConnectionStatus.Snapshot?=null
     private var nativeTest:app.rawline.mobile.bg.carrier.NativeConnectionStatus.Snapshot?=null
@@ -804,7 +806,8 @@ class MobileHomeFragment : ToolbarFragment() {
             val column = content ?: return@launch
             groups.forEach { (group, _) -> knownGroups.add(group.id) }
             val tilesBottom=tilesAtBottom()
-            val tilesKey="${extendedTiles()}:$tilesBottom:$byGroups:${homeSwitchesOn()}:${controlAtBottom()}:${chipAtBottom()}:${chipNearList()}:${MobileHomeLayout.extendedChip}"
+            val tilesKey="${extendedTiles()}:$tilesBottom:$byGroups:${homeSwitchesOn()}:${controlAtBottom()}:${chipAtBottom()}:${chipNearList()}:${MobileHomeLayout.extendedChip}:"+
+                "${MobileHomeLayout.scrollTogether}:${MobileHomeLayout.compactControl}:${MobileHomeLayout.compactTiles}:${MobileHomeLayout.hiddenSwitch}:${MobileHomeLayout.hiddenTiles}"
             // A moved tile bar rebuilds the screen even when the server list is the same.
             val unchanged=withContext(Dispatchers.Default) { previousStructure == structure } && renderedGroupId==focusedGroup && chromeKey?.endsWith(":$tilesKey")!=false
             if (unchanged) {
@@ -839,18 +842,19 @@ class MobileHomeFragment : ToolbarFragment() {
                 openSwipe=null
                 val header = LinearLayout(requireContext()).apply { gravity = Gravity.CENTER_VERTICAL }
                 fun headerIcon(icon: Int, description: String, callback: (View) -> Unit) = ImageButton(requireContext()).apply {
-                    setImageResource(icon); imageTintList=android.content.res.ColorStateList.valueOf(foregroundColor); background = tile(); setPadding(dp(12),dp(12),dp(12),dp(12))
+                    setImageResource(icon); imageTintList=android.content.res.ColorStateList.valueOf(foregroundColor); background = tile(); (if(MobileHomeLayout.compactTiles) dp(10) else dp(12)).let { setPadding(it,it,it,it) }
                     contentDescription = description; androidx.appcompat.widget.TooltipCompat.setTooltipText(this,description); setOnClickListener { callback(it) }; MobileFeedback.apply(this)
                 }
                 val extended=extendedTiles()
                 updatesTile=null;updateBanner=null;homeTitle=null;modeSwitches=emptyMap();groupChip=null
                 val settingsTile=headerIcon(R.drawable.ic_mobile_settings, getString(R.string.qmobile_settings)) { host().displayFragmentWithId(R.id.nav_settings) }
                 val addTile=headerIcon(R.drawable.ic_mobile_add, getString(R.string.qmobile_add)) { addMenu(it) }
-                val quick = if(extended) listOf(
-                    headerIcon(R.drawable.ic_mobile_tun, getString(R.string.service_mode)) { modeMenu(it) },
-                    headerIcon(R.drawable.ic_mobile_route, getString(R.string.route_profile_quick_switch)) { routingMenu(it) },
-                    headerIcon(R.drawable.ic_mobile_subscriptions, getString(R.string.qmobile_manage_groups)) { subscriptionsMenu(it) },
-                    headerIcon(R.drawable.ic_mobile_update, getString(R.string.qmobile_updates)) { updatesMenu(it) }.also { updatesTile=it;updateUpdatesBadge() },
+                val hiddenTiles=MobileHomeLayout.hiddenTiles
+                val quick = if(extended) listOfNotNull(
+                    if("mode" in hiddenTiles) null else headerIcon(R.drawable.ic_mobile_tun, getString(R.string.service_mode)) { modeMenu(it) },
+                    if("route" in hiddenTiles) null else headerIcon(R.drawable.ic_mobile_route, getString(R.string.route_profile_quick_switch)) { routingMenu(it) },
+                    if("groups" in hiddenTiles) null else headerIcon(R.drawable.ic_mobile_subscriptions, getString(R.string.qmobile_manage_groups)) { subscriptionsMenu(it) },
+                    if("updates" in hiddenTiles) null else headerIcon(R.drawable.ic_mobile_update, getString(R.string.qmobile_updates)) { updatesMenu(it) }.also { updatesTile=it;updateUpdatesBadge() },
                 ) else emptyList()
                 // The new style has no tile bar: a corner menu reaches the same four menus, adding sits with the subscriptions.
                 val quickMenu=if(MobileStyle.new && !extended) headerIcon(R.drawable.ic_mobile_more, getString(R.string.qmobile_quick_menu)) { anchor ->
@@ -869,7 +873,7 @@ class MobileHomeFragment : ToolbarFragment() {
                 }.also { updatesTile=it;updateUpdatesBadge() } else null
                 val tiles = if(quickMenu!=null) listOf(quickMenu, settingsTile) else if(extended) listOf(settingsTile) + quick + (if(MobileStyle.new) emptyList() else listOf(addTile)) else listOf(settingsTile, addTile)
                 tiles.forEachIndexed { index, button ->
-                    header.addView(button, LinearLayout.LayoutParams(0, dp(48), 1f).apply {
+                    header.addView(button, LinearLayout.LayoutParams(0, dp(MobileHomeLayout.tileSize()), 1f).apply {
                         if (index < tiles.lastIndex && extended) marginEnd = dp(8)
                     })
                     // Standard: the two tiles sit in the corners.
@@ -899,7 +903,7 @@ class MobileHomeFragment : ToolbarFragment() {
                 header.gravity = Gravity.CENTER
                 header.addOnLayoutChangeListener { _, left, _, right, _, oldLeft, _, oldRight, _ ->
                     if (right - left != oldRight - oldLeft) {
-                        val size = minOf(dp(48), ((right - left - dp(8) * (tiles.size - 1)) / tiles.size).coerceAtLeast(1))
+                        val size = minOf(dp(MobileHomeLayout.tileSize()), ((right - left - dp(8) * (tiles.size - 1)) / tiles.size).coerceAtLeast(1))
                         tiles.forEach { button ->
                             button.layoutParams = (button.layoutParams as LinearLayout.LayoutParams).apply {
                                 width = size; height = size; weight = 0f
@@ -935,7 +939,9 @@ class MobileHomeFragment : ToolbarFragment() {
                     val rows=LinearLayout(requireContext()).apply { orientation=LinearLayout.VERTICAL }
                     // Side by side in one row: the server list keeps the room the button took.
                     val pair=LinearLayout(requireContext()).apply { isBaselineAligned=false;if(landscape) orientation=LinearLayout.VERTICAL }
-                    val switches=listOf(Key.MODE_VPN to R.string.service_mode_vpn,Key.MODE_PROXY to R.string.service_mode_proxy).mapIndexed { index,(mode,label) ->
+                    val hiddenSwitch=MobileHomeLayout.hiddenSwitch
+                    val switchHeight=dp(if(MobileHomeLayout.compactControl) 44 else 52)
+                    val switches=listOf(Key.MODE_VPN to R.string.service_mode_vpn,Key.MODE_PROXY to R.string.service_mode_proxy).filter { it.first!=hiddenSwitch }.mapIndexed { index,(mode,label) ->
                         // The switch only shows the state of the service, so a declined VPN request leaves it off.
                         val switch=androidx.appcompat.widget.SwitchCompat(requireContext()).apply {
                             isClickable=false;isFocusable=false
@@ -950,7 +956,7 @@ class MobileHomeFragment : ToolbarFragment() {
                             jumpDrawablesToCurrentState()
                         }
                         pair.addView(LinearLayout(requireContext()).apply {
-                            gravity=Gravity.CENTER_VERTICAL;minimumHeight=dp(52);setPadding(dp(14),dp(2),dp(8),dp(2));background=tile();isFocusable=true
+                            gravity=Gravity.CENTER_VERTICAL;minimumHeight=switchHeight;setPadding(dp(14),dp(2),dp(8),dp(2));background=tile();isFocusable=true
                             addView(text(getString(label),14f).apply { setPadding(0,dp(4),dp(6),dp(4)) },LinearLayout.LayoutParams(0,-2,1f))
                             addView(switch)
                             setOnClickListener { pickMode(mode) }
@@ -961,8 +967,16 @@ class MobileHomeFragment : ToolbarFragment() {
                     rows.addView(pair,LinearLayout.LayoutParams(-1,-2))
                     modeSwitches=switches.toMap()
                     power=text("",13f,muted).apply { gravity=Gravity.CENTER;maxLines=2;ellipsize=android.text.TextUtils.TruncateAt.END }
+                    if(switches.size==1) {
+                        // The removed switch's half shows the state and the server in use, so no gap is left.
+                        power?.let { cell ->
+                            cell.tag=SWITCH_CELL;cell.gravity=Gravity.START or Gravity.CENTER_VERTICAL;cell.setPadding(dp(14),dp(4),dp(10),dp(4));cell.background=tile();cell.minimumHeight=switchHeight
+                            androidx.core.widget.TextViewCompat.setAutoSizeTextTypeUniformWithConfiguration(cell,9,13,1,android.util.TypedValue.COMPLEX_UNIT_SP)
+                            pair.addView(cell,if(landscape) LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(6) } else LinearLayout.LayoutParams(0,-1,1f).apply { marginStart=dp(8) })
+                        }
+                    }
                     // Docked at the bottom, the state and the server in use sit above the switches, read first.
-                    if(dockBottom) rows.addView(power,0,LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(6) })
+                    else if(dockBottom) rows.addView(power,0,LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(6) })
                     else rows.addView(power,LinearLayout.LayoutParams(-1,-2))
                     controlParent.addView(rows,LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(if(dockBottom) 2 else 10) })
                 } else {
@@ -993,12 +1007,14 @@ class MobileHomeFragment : ToolbarFragment() {
                 }
                 if(MobileStyle.new) {
                     // A smaller button right under the subscription: the servers and the subscription's actions keep the screen.
-                    centre.addView(power, FrameLayout.LayoutParams(dp(190), dp(190), Gravity.TOP or Gravity.CENTER_HORIZONTAL))
-                    if(dockBottom) centre.background=MobileDockGlass(MobilePalette.cardDp*resources.displayMetrics.density,MobileOrbArtwork.centerY(dp(190)),MobileOrbArtwork.radius(dp(190))*1.26f,dp(104).toFloat())
-                    controlParent.addView(centre, LinearLayout.LayoutParams(-1, dp(if(dockBottom) 194 else 190)).apply { topMargin=dp(4) })
+                    val orb=MobileHomeLayout.orbSize(true)
+                    centre.addView(power, FrameLayout.LayoutParams(dp(orb), dp(orb), Gravity.TOP or Gravity.CENTER_HORIZONTAL))
+                    if(dockBottom) centre.background=MobileDockGlass(MobilePalette.cardDp*resources.displayMetrics.density,MobileOrbArtwork.centerY(dp(orb)),MobileOrbArtwork.radius(dp(orb))*1.26f,dp(104*orb/190).toFloat())
+                    controlParent.addView(centre, LinearLayout.LayoutParams(-1, dp(if(dockBottom) orb+4 else orb)).apply { topMargin=dp(4) })
                 } else {
-                centre.addView(power, FrameLayout.LayoutParams(dp(188), dp(188), Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { topMargin=dp(8) })
-                controlParent.addView(centre, LinearLayout.LayoutParams(-1, dp(206)))
+                val orb=MobileHomeLayout.orbSize(false)
+                centre.addView(power, FrameLayout.LayoutParams(dp(orb), dp(orb), Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { topMargin=dp(8) })
+                controlParent.addView(centre, LinearLayout.LayoutParams(-1, dp(orb+18)))
                 }
                 }
                 if(MobileStyle.new) {
@@ -1159,6 +1175,22 @@ class MobileHomeFragment : ToolbarFragment() {
                     if(landscape) side.addView(View(requireContext()),LinearLayout.LayoutParams(-1,0,1f))
                     side.addView(header, LinearLayout.LayoutParams(-1, -2).apply { topMargin=dp(10) })
                 }
+                // Scrolling with the list: what stands above it moves into the list's own scroll; the rows stay where they were.
+                val listHolder=if(byGroups) serverDropArea else serverScroll
+                val listIndex=listHolder?.let { column.indexOfChild(it) } ?: -1
+                if(MobileHomeLayout.scrollTogether && !landscape && listIndex>0) {
+                    val head=LinearLayout(requireContext()).apply { orientation=LinearLayout.VERTICAL }
+                    (0 until listIndex).map { column.getChildAt(it) }.forEach { child ->
+                        val params=child.layoutParams;column.removeView(child);head.addView(child,params)
+                    }
+                    val scrolled=LinearLayout(requireContext()).apply { orientation=LinearLayout.VERTICAL }
+                    scrolled.addView(head,LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(8) })
+                    // The subscription's own heading goes with it, above its servers.
+                    serverHeader?.let { heading -> (heading.parent as? ViewGroup)?.removeView(heading);scrolled.addView(heading,LinearLayout.LayoutParams(-1,-2)) }
+                    serverScroll.removeView(serverColumn)
+                    scrolled.addView(serverColumn,LinearLayout.LayoutParams(-1,-2))
+                    serverScroll.addView(scrolled,FrameLayout.LayoutParams(-1,-2))
+                }
             }
             pickerGroups=groups.map { it.first }
             groupChip?.text=pickerGroups.firstOrNull { it.id==focusedGroup }?.displayName().orEmpty()
@@ -1172,9 +1204,10 @@ class MobileHomeFragment : ToolbarFragment() {
                 risenGroup=focusedGroup
             }
             val serverScroll=serverScrollView ?: return@launch
-            val anchor=serverColumn.childrenList().firstOrNull { it.bottom > serverScroll.scrollY }
+            // Rows sit lower in the scroll when the parts above the list scroll with it.
+            val anchor=serverColumn.childrenList().firstOrNull { it.bottom+serverColumn.top > serverScroll.scrollY }
             val anchorId=nextGroupViews.entries.firstOrNull { it.value.second === anchor }?.key
-            val anchorOffset=(anchor?.top ?: 0)-serverScroll.scrollY
+            val anchorOffset=(anchor?.top ?: 0)+serverColumn.top-serverScroll.scrollY
             val groupDrag=groupReorder ?: MobileReorder(if(byGroups) groupStrip!! else serverColumn,if(byGroups) groupStripScroll!! else serverScroll,
                 { reorderActive(it) },{ saveReorder(null,it) },
                 { first,second -> (first in pinnedGroups())==(second in pinnedGroups()) },
@@ -1424,7 +1457,7 @@ class MobileHomeFragment : ToolbarFragment() {
                     serverScroll.viewTreeObserver.removeOnPreDrawListener(this)
                     val retained=anchorId?.let { nextGroupViews[it]?.second }
                     if(byGroups) serverScroll.scrollTo(0,restorePosition)
-                    else if(retained != null) serverScroll.scrollTo(0,(retained.top-anchorOffset).coerceAtLeast(0))
+                    else if(retained != null) serverScroll.scrollTo(0,(retained.top+serverColumn.top-anchorOffset).coerceAtLeast(0))
                     pendingMovedProfile?.let { nextProfileRows[it] }?.let { row ->
                         pendingMovedProfile=null
                         row.post { row.requestRectangleOnScreen(android.graphics.Rect(0,0,row.width,row.height),false) }
@@ -1525,7 +1558,8 @@ class MobileHomeFragment : ToolbarFragment() {
             }
         }
         power?.apply {
-            textSize=13f;gravity=Gravity.CENTER;setPadding(0,if(background is MobilePowerArtwork) dp(75) else dp(8),0,0)
+            // The cell in a removed switch's place keeps its own alignment.
+            if(tag!=SWITCH_CELL) { textSize=13f;gravity=Gravity.CENTER;setPadding(0,if(background is MobilePowerArtwork) dp(75*MobileHomeLayout.orbSize(false)/188) else dp(8),0,0) }
             val seconds=((android.os.SystemClock.elapsedRealtime()-DataStore.mobileConnectedAt)/1000).coerceAtLeast(0)
             if(background !is MobilePowerArtwork) {
                 val elapsed=String.format(java.util.Locale.ROOT,"%02d:%02d:%02d",seconds/3600,seconds/60%60,seconds%60)
@@ -1542,15 +1576,20 @@ class MobileHomeFragment : ToolbarFragment() {
                 elapsedText=String.format(java.util.Locale.ROOT,"%02d:%02d:%02d",seconds/3600,seconds/60%60,seconds%60)
                 // Running workers out of those started, as the original WDTT/qWDTT/CSQTT apps show them.
                 workersText=snapshot?.takeIf { it.total>0 && !testing }?.let { "${it.active}/${it.total}" }.orEmpty()
+                serverText=if(state.connected) runningServerName() else ""
             }
         }
     }
     private var runningServer: Pair<Long,String>?=null
-    /** The server in use under the state line: its name, looked up once per selection. */
+    /** The server in use under the state line, "[subscription] server" as on the desktop, looked up once per selection. */
     private fun runningServerName(): String {
         val id=DataStore.currentProfile.takeIf { it>0 } ?: DataStore.selectedProxy
         runningServer?.takeIf { it.first==id }?.let { return it.second }
-        val name=runCatching { app.rawline.mobile.database.SagerDatabase.proxyDao.getById(id)?.displayName() }.getOrNull().orEmpty()
+        val name=runCatching {
+            val profile=app.rawline.mobile.database.SagerDatabase.proxyDao.getById(id) ?: return@runCatching ""
+            val group=app.rawline.mobile.database.SagerDatabase.groupDao.getById(profile.groupId)?.displayName().orEmpty()
+            (if(group.isNotEmpty()) "[$group] " else "")+profile.displayName()
+        }.getOrNull().orEmpty()
         runningServer=id to name
         return name
     }

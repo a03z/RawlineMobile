@@ -17,4 +17,19 @@
     <string name="qmobile_route_profile_add">Добавить профиль</string>
     <string name="qmobile_route_manage">Управление профилями</string>
     <string name="qmobile_layout_control">Управление подключением</string>
+    <string name="qmobile_layout_tutorial">Обучение</string>
+    <string name="qmobile_layout_tutorial_skip">Пропустить</string>
+    <string name="qmobile_layout_tutorial_next">Далее</string>
+    <string name="qmobile_layout_tutorial_done">Готово</string>
+    <string name="qmobile_layout_step_drag">Зажмите и тяните, чтобы переместить</string>
+    <string name="qmobile_layout_step_double">Два касания меняют вид</string>
+    <string name="qmobile_layout_step_badges">Кнопки на блоке: вид, размер, объединение</string>
+    <string name="qmobile_layout_step_remove">Минус убирает, плюс возвращает</string>
+    <string name="qmobile_layout_step_scroll">Листать верх вместе со списком</string>
+    <string name="qmobile_layout_swap">Сменить вид</string>
+    <string name="qmobile_layout_size">Сменить размер</string>
+    <string name="qmobile_layout_merge">Объединить или разделить</string>
+    <string name="qmobile_layout_scroll">Листать вместе со списком</string>
+    <string name="qmobile_layout_remove">Убрать</string>
+    <string name="qmobile_layout_restore">Вернуть</string>
 </resources>

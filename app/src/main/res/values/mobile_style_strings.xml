@@ -26,8 +26,9 @@
     <string name="qmobile_layout_step_drag">Hold and drag to move</string>
     <string name="qmobile_layout_step_double">Tap twice to change the look</string>
     <string name="qmobile_layout_step_badges">Buttons on a block: type, size, merge</string>
+    <string name="qmobile_layout_step_pinch">Pinch a block to make it smaller or larger</string>
     <string name="qmobile_layout_step_remove">Minus removes, plus brings back</string>
-    <string name="qmobile_layout_step_scroll">Scroll the top together with the list</string>
+    <string name="qmobile_layout_step_scroll">The arrows button makes a block scroll with the list</string>
     <string name="qmobile_layout_swap">Change type</string>
     <string name="qmobile_layout_size">Change size</string>
     <string name="qmobile_layout_merge">Merge or split</string>

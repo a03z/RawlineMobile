@@ -807,7 +807,7 @@ class MobileHomeFragment : ToolbarFragment() {
             groups.forEach { (group, _) -> knownGroups.add(group.id) }
             val tilesBottom=tilesAtBottom()
             val tilesKey="${extendedTiles()}:$tilesBottom:$byGroups:${homeSwitchesOn()}:${controlAtBottom()}:${chipAtBottom()}:${chipNearList()}:${MobileHomeLayout.extendedChip}:"+
-                "${MobileHomeLayout.scrollTogether}:${MobileHomeLayout.compactControl}:${MobileHomeLayout.compactTiles}:${MobileHomeLayout.hiddenSwitch}:${MobileHomeLayout.hiddenTiles}"
+                "${MobileHomeLayout.scrollParts}:${MobileHomeLayout.compactControl}:${MobileHomeLayout.compactTiles}:${MobileHomeLayout.hiddenSwitch}:${MobileHomeLayout.hiddenTiles}"
             // A moved tile bar rebuilds the screen even when the server list is the same.
             val unchanged=withContext(Dispatchers.Default) { previousStructure == structure } && renderedGroupId==focusedGroup && chromeKey?.endsWith(":$tilesKey")!=false
             if (unchanged) {
@@ -840,7 +840,7 @@ class MobileHomeFragment : ToolbarFragment() {
                     column.addView(body,LinearLayout.LayoutParams(0,-1,1f).apply { marginStart=dp(12) })
                 }
                 openSwipe=null
-                val header = LinearLayout(requireContext()).apply { gravity = Gravity.CENTER_VERTICAL }
+                val header = LinearLayout(requireContext()).apply { gravity = Gravity.CENTER_VERTICAL; setTag(R.id.home_part,"tiles") }
                 fun headerIcon(icon: Int, description: String, callback: (View) -> Unit) = ImageButton(requireContext()).apply {
                     setImageResource(icon); imageTintList=android.content.res.ColorStateList.valueOf(foregroundColor); background = tile(); (if(MobileHomeLayout.compactTiles) dp(10) else dp(12)).let { setPadding(it,it,it,it) }
                     contentDescription = description; androidx.appcompat.widget.TooltipCompat.setTooltipText(this,description); setOnClickListener { callback(it) }; MobileFeedback.apply(this)
@@ -915,7 +915,7 @@ class MobileHomeFragment : ToolbarFragment() {
                 // The subscription in use, as one card with a list behind it, and adding beside it.
                 val chipBottom=chipAtBottom() && !landscape
                 val chipRow=if(MobileStyle.new) LinearLayout(requireContext()).apply {
-                    gravity=Gravity.CENTER_VERTICAL
+                    gravity=Gravity.CENTER_VERTICAL;setTag(R.id.home_part,"chip")
                     groupChip=text("",16f).apply {
                         setTypeface(typeface,Typeface.BOLD);maxLines=1;ellipsize=android.text.TextUtils.TruncateAt.END;gravity=Gravity.CENTER_VERTICAL
                         setPadding(dp(16),0,dp(12),0);background=tile();isFocusable=true
@@ -930,13 +930,13 @@ class MobileHomeFragment : ToolbarFragment() {
                 } else null
                 val chipNear=chipNearList()
                 if(!chipBottom && !chipNear) chipRow?.let { side.addView(it,LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(14) }) }
-                val centre = FrameLayout(requireContext())
+                val centre = FrameLayout(requireContext()).apply { setTag(R.id.home_part,"control") }
                 var statusRow: LinearLayout?=null
                 val dockBottom=controlAtBottom() && !landscape
                 val controlParent=if(dockBottom) LinearLayout(requireContext()).apply { orientation=LinearLayout.VERTICAL } else side
                 var dockLeft: FrameLayout?=null
                 if(homeSwitchesOn()) {
-                    val rows=LinearLayout(requireContext()).apply { orientation=LinearLayout.VERTICAL }
+                    val rows=LinearLayout(requireContext()).apply { orientation=LinearLayout.VERTICAL;setTag(R.id.home_part,"control") }
                     // Side by side in one row: the server list keeps the room the button took.
                     val pair=LinearLayout(requireContext()).apply { isBaselineAligned=false;if(landscape) orientation=LinearLayout.VERTICAL }
                     val hiddenSwitch=MobileHomeLayout.hiddenSwitch
@@ -1034,7 +1034,7 @@ class MobileHomeFragment : ToolbarFragment() {
                     } else {
                     // Speed changes every second: in fixed boxes that repaints two labels, not the layout of the whole screen.
                     statusRow=LinearLayout(requireContext()).apply {
-                        gravity=Gravity.CENTER_VERTICAL;setPadding(dp(10),0,dp(6),0)
+                        gravity=Gravity.CENTER_VERTICAL;setPadding(dp(10),0,dp(6),0);setTag(R.id.home_part,"control")
                         for(label in listOf(sheetDown,sheetUp)) { label?.gravity=Gravity.END or Gravity.CENTER_VERTICAL;addView(label,LinearLayout.LayoutParams(dp(84),dp(24))) }
                     }
                     sheetSpeed=statusRow
@@ -1175,12 +1175,14 @@ class MobileHomeFragment : ToolbarFragment() {
                     if(landscape) side.addView(View(requireContext()),LinearLayout.LayoutParams(-1,0,1f))
                     side.addView(header, LinearLayout.LayoutParams(-1, -2).apply { topMargin=dp(10) })
                 }
-                // Scrolling with the list: what stands above it moves into the list's own scroll; the rows stay where they were.
+                // The parts chosen in the editor move from above the list into its own scroll, in their order; the others
+                // stay on the screen. What belongs to no part (the check line, the geo notice) goes with the list.
                 val listHolder=if(byGroups) serverDropArea else serverScroll
                 val listIndex=listHolder?.let { column.indexOfChild(it) } ?: -1
-                if(MobileHomeLayout.scrollTogether && !landscape && listIndex>0) {
+                val scrollParts=MobileHomeLayout.scrollParts
+                if(scrollParts.isNotEmpty() && !landscape && listIndex>0) {
                     val head=LinearLayout(requireContext()).apply { orientation=LinearLayout.VERTICAL }
-                    (0 until listIndex).map { column.getChildAt(it) }.forEach { child ->
+                    (0 until listIndex).map { column.getChildAt(it) }.filter { (it.getTag(R.id.home_part) as? String).let { part -> part==null || part in scrollParts } }.forEach { child ->
                         val params=child.layoutParams;column.removeView(child);head.addView(child,params)
                     }
                     val scrolled=LinearLayout(requireContext()).apply { orientation=LinearLayout.VERTICAL }

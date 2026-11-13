@@ -4,4 +4,5 @@
     <item name="inset_margin_base" type="id" />
     <item name="action_previous_server" type="id" />
     <item name="action_next_server" type="id" />
+    <item name="home_part" type="id" />
 </resources>

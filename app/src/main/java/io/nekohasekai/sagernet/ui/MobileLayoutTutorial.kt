@@ -15,17 +15,20 @@ import android.view.animation.LinearInterpolator
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.core.content.ContextCompat
 import androidx.core.graphics.ColorUtils
 import app.rawline.mobile.R
+import java.util.Locale
 
 /**
- * The layout editor's tutorial: each gesture played by a finger on a small home screen, one short line under it.
- * It lies over the editor, dimmed but see-through; skipped or finished, [onClose] runs.
+ * The layout editor's tutorial: each gesture played by a finger on a small home screen drawn with the app's own
+ * tiles, button, switches and servers, one short line under it. It lies over the editor, dimmed but see-through;
+ * skipped or finished, [onClose] runs.
  */
 class MobileLayoutTutorial(context: Context, private val onClose: () -> Unit) : FrameLayout(context) {
     private enum class Step(val caption: Int) {
-        DRAG(R.string.qmobile_layout_step_drag), DOUBLE(R.string.qmobile_layout_step_double), BADGES(R.string.qmobile_layout_step_badges),
-        REMOVE(R.string.qmobile_layout_step_remove), SCROLL(R.string.qmobile_layout_step_scroll)
+        DRAG(R.string.qmobile_layout_step_drag), DOUBLE(R.string.qmobile_layout_step_double), PINCH(R.string.qmobile_layout_step_pinch),
+        BADGES(R.string.qmobile_layout_step_badges), REMOVE(R.string.qmobile_layout_step_remove), SCROLL(R.string.qmobile_layout_step_scroll)
     }
 
     private fun dp(n: Float) = n * resources.displayMetrics.density
@@ -33,30 +36,32 @@ class MobileLayoutTutorial(context: Context, private val onClose: () -> Unit) : 
     private val demo = Demo(context)
     private val caption = TextView(context).apply {
         setTextColor(Color.WHITE); textSize = 18f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER
-        setPadding(dp(24f).toInt(), dp(16f).toInt(), dp(24f).toInt(), dp(8f).toInt())
+        setPadding(dp(24f).toInt(), dp(18f).toInt(), dp(24f).toInt(), dp(8f).toInt())
     }
     private val dots = LinearLayout(context).apply { gravity = Gravity.CENTER }
     private val next = TextView(context)
 
     init {
-        setBackgroundColor(Color.argb(185, 0, 0, 0))
+        setBackgroundColor(Color.argb(200, 0, 0, 0))
         isClickable = true; isFocusable = true
         alpha = 0f; animate().alpha(1f).setDuration(220).start()
         val column = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL }
-        val width = minOf(dp(300f).toInt(), resources.displayMetrics.widthPixels - dp(64f).toInt())
-        column.addView(demo, LinearLayout.LayoutParams(width, (width * 1.15f).toInt()))
+        val metrics = resources.displayMetrics
+        val width = minOf(dp(320f).toInt(), metrics.widthPixels - dp(48f).toInt(), ((metrics.heightPixels - dp(260f)) / 1.2f).toInt())
+        column.addView(demo, LinearLayout.LayoutParams(width, (width * 1.2f).toInt()))
         column.addView(caption, LinearLayout.LayoutParams(-1, -2))
-        column.addView(dots, LinearLayout.LayoutParams(-1, dp(24f).toInt()))
-        val buttons = LinearLayout(context).apply { gravity = Gravity.CENTER_VERTICAL; setPadding(dp(24f).toInt(), dp(12f).toInt(), dp(24f).toInt(), 0) }
+        column.addView(dots, LinearLayout.LayoutParams(-1, dp(22f).toInt()))
+        val buttons = LinearLayout(context).apply { gravity = Gravity.CENTER_VERTICAL; setPadding(dp(32f).toInt(), dp(14f).toInt(), dp(32f).toInt(), 0) }
         buttons.addView(TextView(context).apply {
             text = context.getString(R.string.qmobile_layout_tutorial_skip); textSize = 15f
-            setTextColor(ColorUtils.setAlphaComponent(Color.WHITE, 190)); setPadding(dp(8f).toInt(), dp(12f).toInt(), dp(8f).toInt(), dp(12f).toInt())
+            setTextColor(ColorUtils.setAlphaComponent(Color.WHITE, 200)); setPadding(dp(8f).toInt(), dp(12f).toInt(), dp(8f).toInt(), dp(12f).toInt())
             setOnClickListener { close() }
         }, LinearLayout.LayoutParams(0, -2, 1f))
+        val accent = MobilePalette.accent(context)
         next.apply {
-            textSize = 15f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.WHITE); gravity = Gravity.CENTER
-            setPadding(dp(22f).toInt(), dp(11f).toInt(), dp(22f).toInt(), dp(11f).toInt())
-            background = android.graphics.drawable.GradientDrawable().apply { setColor(MobilePalette.accent(context)); cornerRadius = dp(22f) }
+            textSize = 15f; typeface = Typeface.DEFAULT_BOLD; setTextColor(contrastOn(accent)); gravity = Gravity.CENTER
+            setPadding(dp(26f).toInt(), dp(11f).toInt(), dp(26f).toInt(), dp(11f).toInt())
+            background = android.graphics.drawable.GradientDrawable().apply { setColor(accent); cornerRadius = dp(22f) }
             setOnClickListener { if (step == Step.values().lastIndex) close() else show(step + 1) }
         }
         buttons.addView(next, LinearLayout.LayoutParams(-2, -2))
@@ -95,16 +100,19 @@ class MobileLayoutTutorial(context: Context, private val onClose: () -> Unit) : 
     /** A small home screen and a finger playing [step] over and over. */
     private inner class Demo(context: Context) : View(context) {
         var step = Step.DRAG
-            set(value) { field = value; t = 0f; invalidate() }
+            set(value) { field = value; invalidate() }
         private var t = 0f
         private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
         private val dash = DashPathEffect(floatArrayOf(dp(6f), dp(4f)), 0f)
         private val box = RectF()
         private val accent = MobilePalette.accent(context)
+        private val orb = MobileOrbArtwork(context, context.getString(R.string.qmobile_orb_idle))
+        private val flags = listOf("de", "fi", "nl", "se", "us", "jp", "gb")
         private val clock = ValueAnimator.ofFloat(0f, 1f).apply {
-            duration = 2800; repeatCount = ValueAnimator.INFINITE; interpolator = LinearInterpolator()
+            duration = 3000; repeatCount = ValueAnimator.INFINITE; interpolator = LinearInterpolator()
             addUpdateListener { t = it.animatedValue as Float; invalidate() }
         }
+        private lateinit var c: Canvas
 
         override fun onAttachedToWindow() { super.onAttachedToWindow(); clock.start() }
         fun stop() = clock.cancel()
@@ -112,130 +120,188 @@ class MobileLayoutTutorial(context: Context, private val onClose: () -> Unit) : 
         private fun span(from: Float, to: Float) = ((t - from) / (to - from)).coerceIn(0f, 1f)
         private fun ease(x: Float) = x * x * (3 - 2 * x)
         private fun lerp(a: Float, b: Float, x: Float) = a + (b - a) * x
+        private fun pulse(at: Float) = span(at, at + .05f) * (1 - span(at + .05f, at + .1f))
 
-        private fun block(left: Float, top: Float, right: Float, bottom: Float, fill: Int, outline: Boolean = true, alpha: Int = 255) {
+        /** A surface of the app's own colour; [fade] multiplies its own alpha, so see-through colours stay see-through. */
+        private fun surface(left: Float, top: Float, right: Float, bottom: Float, color: Int = MobilePalette.surface, fade: Float = 1f, radius: Float = dp(10f)) {
             box.set(left, top, right, bottom)
-            paint.style = Paint.Style.FILL; paint.color = ColorUtils.setAlphaComponent(fill, alpha); paint.pathEffect = null
-            canvas?.drawRoundRect(box, dp(10f), dp(10f), paint)
-            if (outline) {
-                paint.style = Paint.Style.STROKE; paint.strokeWidth = dp(1.6f); paint.pathEffect = dash
-                paint.color = ColorUtils.setAlphaComponent(accent, (alpha * (.45f + .55f * kotlin.math.abs(kotlin.math.sin(t * 6.283f * 2)))).toInt())
-                canvas?.drawRoundRect(box, dp(10f), dp(10f), paint)
-                paint.pathEffect = null
-            }
+            paint.style = Paint.Style.FILL; paint.pathEffect = null
+            paint.color = ColorUtils.setAlphaComponent(color, (Color.alpha(color) * fade).toInt())
+            c.drawRoundRect(box, radius, radius, paint)
+            paint.style = Paint.Style.STROKE; paint.strokeWidth = dp(1f)
+            paint.color = ColorUtils.setAlphaComponent(MobilePalette.outline, (Color.alpha(MobilePalette.outline) * fade).toInt())
+            c.drawRoundRect(box, radius, radius, paint)
         }
 
-        private fun badge(cx: Float, cy: Float, minus: Boolean = false, pressed: Boolean = false) {
-            paint.style = Paint.Style.FILL; paint.color = if (minus) Color.rgb(220, 66, 61) else accent
-            canvas?.drawCircle(cx, cy, dp(if (pressed) 8f else 9f), paint)
-            paint.color = Color.WHITE; paint.strokeWidth = dp(1.8f); paint.style = Paint.Style.STROKE
-            canvas?.drawLine(cx - dp(4f), cy, cx + dp(4f), cy, paint)
-            if (!minus) canvas?.drawLine(cx, cy - dp(4f), cx, cy + dp(4f), paint)
+        private fun outline(left: Float, top: Float, right: Float, bottom: Float) {
+            box.set(left, top, right, bottom)
+            paint.style = Paint.Style.STROKE; paint.strokeWidth = dp(1.6f); paint.pathEffect = dash
+            paint.color = ColorUtils.setAlphaComponent(MobilePalette.text, (120 + 135 * kotlin.math.abs(kotlin.math.sin(t * 6.283f * 2))).toInt())
+            c.drawRoundRect(box, dp(12f), dp(12f), paint)
+            paint.pathEffect = null
+        }
+
+        private fun icon(res: Int, cx: Float, cy: Float, size: Float, color: Int, fade: Float = 1f) {
+            val drawable = ContextCompat.getDrawable(context, res)?.mutate() ?: return
+            drawable.setTint(color); drawable.alpha = (255 * fade).toInt()
+            drawable.setBounds((cx - size / 2).toInt(), (cy - size / 2).toInt(), (cx + size / 2).toInt(), (cy + size / 2).toInt())
+            drawable.draw(c)
+        }
+
+        private fun badge(res: Int, cx: Float, cy: Float, fill: Int, pressed: Float = 0f) {
+            paint.style = Paint.Style.FILL; paint.color = fill
+            c.drawCircle(cx, cy, dp(10f) * (1 - .12f * pressed), paint)
+            icon(res, cx, cy, dp(13f), contrastOn(fill))
+        }
+
+        private fun text(value: String, x: Float, y: Float, size: Float, color: Int = MobilePalette.text, bold: Boolean = false) {
+            paint.style = Paint.Style.FILL; paint.color = color; paint.textSize = size; paint.typeface = if (bold) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
+            paint.textAlign = Paint.Align.LEFT
+            c.drawText(value, x, y, paint)
         }
 
         private fun finger(x: Float, y: Float, press: Float, visible: Float) {
             if (visible <= 0f) return
             paint.style = Paint.Style.FILL
-            paint.color = ColorUtils.setAlphaComponent(Color.WHITE, (90 * visible * press).toInt())
-            canvas?.drawCircle(x, y, dp(26f), paint)
-            paint.color = ColorUtils.setAlphaComponent(Color.WHITE, (230 * visible).toInt())
-            canvas?.drawCircle(x, y, dp(lerp(14f, 11f, press)), paint)
+            paint.color = ColorUtils.setAlphaComponent(Color.WHITE, (80 * visible * press).toInt())
+            c.drawCircle(x, y, dp(24f), paint)
+            paint.color = ColorUtils.setAlphaComponent(Color.BLACK, (60 * visible).toInt())
+            c.drawCircle(x, y + dp(2f), dp(13f), paint)
+            paint.color = ColorUtils.setAlphaComponent(Color.WHITE, (235 * visible).toInt())
+            c.drawCircle(x, y, dp(lerp(13f, 10f, press)), paint)
         }
 
-        private var canvas: Canvas? = null
-
-        override fun onDraw(c: Canvas) {
-            canvas = c
+        override fun onDraw(canvas: Canvas) {
+            c = canvas
             val w = width.toFloat(); val h = height.toFloat()
-            val pad = dp(14f)
+            val pad = dp(12f)
             box.set(0f, 0f, w, h)
             paint.style = Paint.Style.FILL; paint.pathEffect = null; paint.color = MobilePalette.background
-            c.drawRoundRect(box, dp(22f), dp(22f), paint)
-            val surface = MobilePalette.surface
-            val tilesTop = pad; val tilesBottom = pad + dp(36f)
-            val controlTop = tilesBottom + dp(10f); val controlBottom = controlTop + dp(96f)
-            val listTop = controlBottom + dp(12f)
-            fun rows(offset: Float) {
-                var y = listTop + offset
-                while (y < h - pad) {
-                    if (y + dp(30f) > listTop - dp(1f)) block(pad, y, w - pad, y + dp(30f), surface, outline = false, alpha = 200)
-                    y += dp(38f)
+            canvas.drawRoundRect(box, dp(22f), dp(22f), paint)
+            canvas.save(); canvas.clipRect(0f, 0f, w, h)
+            val tile = (w - 2 * pad - dp(6f) * 4) / 5
+            val tilesTop = pad
+            fun tiles(y: Float, removed: Float = 0f, minus: Boolean = false) {
+                val icons = listOf(R.drawable.ic_mobile_settings, R.drawable.ic_mobile_tun, R.drawable.ic_mobile_route, R.drawable.ic_mobile_subscriptions, R.drawable.ic_mobile_update)
+                icons.forEachIndexed { i, res ->
+                    val left = pad + i * (tile + dp(6f))
+                    val fade = if (i == 3) 1 - .7f * removed else 1f
+                    surface(left, y, left + tile, y + tile, fade = fade)
+                    icon(res, left + tile / 2, y + tile / 2, tile * .45f, MobilePalette.text, fade)
+                    if (minus && i == 3) badge(if (removed > .5f) R.drawable.ic_mobile_add else R.drawable.ic_layout_remove, left + tile - dp(8f), y + dp(8f),
+                        if (removed > .5f) accent else Color.rgb(220, 66, 61))
                 }
             }
-            fun tiles(offset: Float = 0f, removed: Float = 0f) {
-                val size = (w - 2 * pad - dp(8f) * 4) / 5
-                for (i in 0 until 5) {
-                    val left = pad + i * (size + dp(8f))
-                    if (i == 3 && removed > 0f) {
-                        paint.style = Paint.Style.STROKE; paint.strokeWidth = dp(1.6f); paint.pathEffect = dash; paint.color = ColorUtils.setAlphaComponent(Color.WHITE, (160 * removed).toInt())
-                        box.set(left, tilesTop + offset, left + size, tilesTop + offset + dp(36f)); c.drawRoundRect(box, dp(9f), dp(9f), paint); paint.pathEffect = null
-                        block(left, tilesTop + offset, left + size, tilesTop + offset + dp(36f), surface, outline = false, alpha = (255 * (1 - removed)).toInt())
-                    } else block(left, tilesTop + offset, left + size, tilesTop + offset + dp(36f), surface, outline = false)
+            val chipTop = tilesTop + tile + dp(8f)
+            fun chip(y: Float) {
+                surface(pad, y, w - pad - dp(40f), y + dp(34f))
+                text(context.getString(R.string.subscription), pad + dp(12f), y + dp(22f), dp(13f), bold = true)
+                surface(w - pad - dp(34f), y, w - pad, y + dp(34f))
+                icon(R.drawable.ic_mobile_add, w - pad - dp(17f), y + dp(17f), dp(16f), MobilePalette.text)
+            }
+            fun rows(top: Float) {
+                var y = top
+                var i = 0
+                while (y < h) {
+                    surface(pad, y, w - pad, y + dp(34f))
+                    MobileCountryFlags.bitmap(context, flags[i % flags.size])?.let { flag ->
+                        box.set(pad + dp(10f), y + dp(10f), pad + dp(32f), y + dp(24f))
+                        c.drawBitmap(flag, null, box, paint)
+                    }
+                    text(Locale("", flags[i % flags.size]).displayCountry, pad + dp(42f), y + dp(22f), dp(12f))
+                    y += dp(40f); i++
                 }
             }
-            fun orb(cx: Float, cy: Float, r: Float, alpha: Int = 255) {
-                paint.style = Paint.Style.FILL; paint.color = ColorUtils.setAlphaComponent(surface, alpha); c.drawCircle(cx, cy, r, paint)
-                paint.style = Paint.Style.STROKE; paint.strokeWidth = dp(2f); paint.color = ColorUtils.setAlphaComponent(accent, alpha); c.drawCircle(cx, cy, r * .82f, paint)
+            fun drawOrb(cx: Float, top: Float, size: Float) {
+                orb.setBounds((cx - size / 2).toInt(), top.toInt(), (cx + size / 2).toInt(), (top + size).toInt())
+                orb.draw(c)
             }
-            fun switches(alpha: Int) {
+            fun switches(top: Float, fade: Float) {
                 val mid = w / 2
-                block(pad, controlTop + dp(28f), mid - dp(4f), controlTop + dp(68f), surface, outline = false, alpha = alpha)
-                block(mid + dp(4f), controlTop + dp(28f), w - pad, controlTop + dp(68f), surface, outline = false, alpha = alpha)
-                paint.style = Paint.Style.FILL; paint.color = ColorUtils.setAlphaComponent(accent, alpha)
-                box.set(mid - dp(40f), controlTop + dp(40f), mid - dp(16f), controlTop + dp(56f)); c.drawRoundRect(box, dp(8f), dp(8f), paint)
-                box.set(w - pad - dp(36f), controlTop + dp(40f), w - pad - dp(12f), controlTop + dp(56f)); c.drawRoundRect(box, dp(8f), dp(8f), paint)
+                listOf(R.string.service_mode_vpn to pad, R.string.service_mode_proxy to mid + dp(4f)).forEach { (label, left) ->
+                    val right = if (left == pad) mid - dp(4f) else w - pad
+                    surface(left, top, right, top + dp(36f), fade = fade)
+                    text(context.getString(label), left + dp(10f), top + dp(23f), dp(11f), ColorUtils.setAlphaComponent(MobilePalette.text, (255 * fade).toInt()))
+                    paint.color = ColorUtils.setAlphaComponent(MobilePalette.muted, (255 * fade).toInt()); paint.style = Paint.Style.FILL
+                    box.set(right - dp(34f), top + dp(11f), right - dp(10f), top + dp(25f)); c.drawRoundRect(box, dp(7f), dp(7f), paint)
+                }
             }
-            val cx = w / 2; val cy = (controlTop + controlBottom) / 2
+            val controlTop = chipTop + dp(42f)
+            val orbSize = dp(110f)
+            val controlBottom = controlTop + orbSize + dp(30f)
+            val cx = w / 2
             when (step) {
                 Step.DRAG -> {
-                    tiles(); rows(0f)
-                    val lift = ease(span(.25f, .7f)); val down = lerp(0f, h - pad - controlBottom, lift)
+                    tiles(tilesTop); chip(chipTop); rows(controlTop)
+                    val move = ease(span(.25f, .7f)); val down = lerp(0f, h - controlBottom - pad, move)
                     val held = span(.12f, .25f) * (1 - span(.78f, .88f))
-                    c.save(); c.translate(0f, down); c.scale(1 + .04f * held, 1 + .04f * held, cx, cy)
-                    block(pad, controlTop, w - pad, controlBottom, MobilePalette.background); orb(cx, cy, dp(38f)); c.restore()
-                    finger(cx, cy + down, held, span(.02f, .12f) * (1 - span(.88f, .98f)))
+                    surface(pad - dp(2f), controlTop + down, w - pad + dp(2f), controlBottom + down, MobilePalette.background, radius = dp(12f))
+                    drawOrb(cx, controlTop + dp(26f) + down, orbSize)
+                    outline(pad - dp(4f), controlTop - dp(2f) + down, w - pad + dp(4f), controlBottom + down)
+                    finger(cx, controlTop + dp(26f) + orbSize / 2 + down, held, span(.02f, .12f) * (1 - span(.88f, .98f)))
                 }
                 Step.DOUBLE -> {
-                    tiles(); rows(0f)
-                    val morph = ease(span(.48f, .62f))
-                    block(pad, controlTop, w - pad, controlBottom, MobilePalette.background)
-                    orb(cx, cy, dp(38f), (255 * (1 - morph)).toInt()); switches((255 * morph).toInt())
-                    val tap = span(.2f, .26f) * (1 - span(.26f, .32f)) + span(.36f, .42f) * (1 - span(.42f, .48f))
-                    finger(cx, cy, tap, span(.05f, .15f) * (1 - span(.85f, .95f)))
+                    tiles(tilesTop); chip(chipTop)
+                    val morph = ease(span(.48f, .6f))
+                    val bottom = lerp(controlBottom, controlTop + dp(80f), morph)
+                    rows(bottom + dp(8f))
+                    outline(pad - dp(4f), controlTop - dp(2f), w - pad + dp(4f), bottom)
+                    if (morph < 1f) { c.saveLayerAlpha(0f, 0f, w, h, (255 * (1 - morph)).toInt()); drawOrb(cx, controlTop + dp(26f), orbSize); c.restore() }
+                    switches(controlTop + dp(30f), morph)
+                    val tap = pulse(.2f) + pulse(.34f)
+                    finger(cx, controlTop + dp(26f) + orbSize / 2, tap, span(.05f, .15f) * (1 - span(.85f, .95f)))
+                }
+                Step.PINCH -> {
+                    tiles(tilesTop); chip(chipTop)
+                    val squeeze = ease(span(.3f, .65f))
+                    val size = lerp(orbSize, orbSize * .72f, squeeze)
+                    val bottom = controlTop + size + dp(30f)
+                    rows(bottom + dp(8f))
+                    outline(pad - dp(4f), controlTop - dp(2f), w - pad + dp(4f), bottom)
+                    drawOrb(cx, controlTop + dp(26f), size)
+                    val gap = lerp(dp(70f), dp(26f), ease(span(.25f, .65f)))
+                    val cy = controlTop + dp(26f) + size / 2
+                    val visible = span(.08f, .2f) * (1 - span(.8f, .9f))
+                    finger(cx - gap, cy - gap * .5f, .6f, visible); finger(cx + gap, cy + gap * .5f, .6f, visible)
                 }
                 Step.BADGES -> {
-                    tiles(); rows(0f)
-                    val small = ease(span(.55f, .7f))
-                    val bottom = lerp(controlBottom, controlBottom - dp(24f), small)
-                    block(pad, controlTop, w - pad, bottom, MobilePalette.background)
-                    orb(cx, (controlTop + bottom) / 2, lerp(dp(38f), dp(28f), small))
-                    val bx = w - pad - dp(8f); val by = controlTop + dp(2f)
-                    badge(bx - dp(26f), by); badge(bx, by)
-                    val press = span(.4f, .48f) * (1 - span(.48f, .55f))
-                    finger(bx, by, press, span(.1f, .25f) * (1 - span(.85f, .95f)))
+                    tiles(tilesTop); chip(chipTop)
+                    val small = ease(span(.5f, .62f))
+                    val size = lerp(orbSize, orbSize * .72f, small)
+                    val bottom = controlTop + size + dp(30f)
+                    rows(bottom + dp(8f))
+                    outline(pad - dp(4f), controlTop - dp(2f), w - pad + dp(4f), bottom)
+                    drawOrb(cx, controlTop + dp(26f), size)
+                    val by = controlTop + dp(12f)
+                    badge(R.drawable.ic_layout_scroll, w - pad - dp(64f), by, MobilePalette.well)
+                    badge(R.drawable.ic_layout_swap, w - pad - dp(40f), by, accent)
+                    badge(if (small > .5f) R.drawable.ic_layout_grow else R.drawable.ic_layout_shrink, w - pad - dp(16f), by, accent, pulse(.42f))
+                    finger(w - pad - dp(16f), by, pulse(.42f), span(.1f, .25f) * (1 - span(.85f, .95f)))
                 }
                 Step.REMOVE -> {
                     val gone = ease(span(.3f, .42f)) * (1 - ease(span(.72f, .84f)))
-                    tiles(removed = gone); rows(0f)
-                    block(pad, controlTop, w - pad, controlBottom, MobilePalette.background); orb(cx, cy, dp(38f))
-                    val size = (w - 2 * pad - dp(8f) * 4) / 5
-                    val bx = pad + 3 * (size + dp(8f)) + size; val by = tilesTop
-                    badge(bx, by, minus = gone < .5f)
-                    val press = span(.22f, .3f) * (1 - span(.3f, .36f)) + span(.62f, .7f) * (1 - span(.7f, .76f))
-                    finger(bx, by, press, span(.08f, .2f) * (1 - span(.86f, .96f)))
+                    tiles(tilesTop, gone, minus = true); chip(chipTop); rows(controlBottom + dp(8f))
+                    outline(pad - dp(4f), tilesTop - dp(4f), w - pad + dp(4f), tilesTop + tile + dp(4f))
+                    drawOrb(cx, controlTop + dp(26f), orbSize)
+                    val bx = pad + 3 * (tile + dp(6f)) + tile - dp(8f); val by = tilesTop + dp(8f)
+                    finger(bx, by, pulse(.22f) + pulse(.62f), span(.08f, .2f) * (1 - span(.86f, .96f)))
                 }
                 Step.SCROLL -> {
-                    val shift = -ease(span(.25f, .7f)) * (controlBottom - pad + dp(8f)) * (1 - ease(span(.82f, .95f)))
-                    c.save(); c.clipRect(0f, 0f, w, h)
-                    tiles(shift); block(pad, controlTop + shift, w - pad, controlBottom + shift, MobilePalette.background, outline = false); orb(cx, cy + shift, dp(38f))
-                    var y = listTop + shift
-                    while (y < h - pad) { if (y + dp(30f) > 0) block(pad, y, w - pad, y + dp(30f), surface, outline = false, alpha = 200); y += dp(38f) }
+                    // The scroll button on the block lights up, then the block leaves with the servers.
+                    val lit = span(.2f, .24f)
+                    val shift = -ease(span(.4f, .78f)) * (controlBottom - chipTop) * (1 - ease(span(.88f, .98f)))
+                    tiles(tilesTop); chip(chipTop)
+                    c.save(); c.clipRect(0f, chipTop + dp(40f), w, h)
+                    outline(pad - dp(4f), controlTop - dp(2f) + shift, w - pad + dp(4f), controlBottom + shift)
+                    drawOrb(cx, controlTop + dp(26f) + shift, orbSize)
+                    badge(R.drawable.ic_layout_scroll, w - pad - dp(16f), controlTop + dp(12f) + shift, if (lit > .5f) accent else MobilePalette.well, pulse(.17f))
+                    rows(controlBottom + dp(8f) + shift)
                     c.restore()
-                    val fy = lerp(h * .78f, h * .78f - (controlBottom - pad), ease(span(.25f, .7f)))
-                    finger(cx, fy, span(.18f, .25f) * (1 - span(.7f, .76f)), span(.08f, .18f) * (1 - span(.76f, .86f)))
+                    if (t < .3f) finger(w - pad - dp(16f), controlTop + dp(12f), pulse(.17f), span(.04f, .12f) * (1 - span(.24f, .3f)))
+                    else finger(cx, lerp(h * .85f, h * .85f - (controlBottom - chipTop), ease(span(.4f, .78f))), span(.34f, .4f) * (1 - span(.78f, .82f)), span(.3f, .36f) * (1 - span(.8f, .88f)))
                 }
             }
-            canvas = null
+            canvas.restore()
         }
     }
 }

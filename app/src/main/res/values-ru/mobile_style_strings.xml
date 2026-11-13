@@ -24,8 +24,9 @@
     <string name="qmobile_layout_step_drag">Зажмите и тяните, чтобы переместить</string>
     <string name="qmobile_layout_step_double">Два касания меняют вид</string>
     <string name="qmobile_layout_step_badges">Кнопки на блоке: вид, размер, объединение</string>
+    <string name="qmobile_layout_step_pinch">Сведите или разведите пальцы, чтобы уменьшить или увеличить блок</string>
     <string name="qmobile_layout_step_remove">Минус убирает, плюс возвращает</string>
-    <string name="qmobile_layout_step_scroll">Листать верх вместе со списком</string>
+    <string name="qmobile_layout_step_scroll">Кнопка со стрелками: блок листается вместе со списком</string>
     <string name="qmobile_layout_swap">Сменить вид</string>
     <string name="qmobile_layout_size">Сменить размер</string>
     <string name="qmobile_layout_merge">Объединить или разделить</string>

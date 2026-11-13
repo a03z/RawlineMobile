@@ -59,10 +59,10 @@ object MobileHomeLayout {
     var chipNearList: Boolean
         get() = MobileStyle.new && store.getBoolean("qmobileChipNearList", false)
         set(value) = store.putBoolean("qmobileChipNearList", value)
-    /** The parts above the server list scroll away with it instead of staying on the screen (portrait). */
-    var scrollTogether: Boolean
-        get() = store.getBoolean("qmobileScrollTogether", false)
-        set(value) = store.putBoolean("qmobileScrollTogether", value)
+    /** The parts ("tiles", "chip", "control") above the server list that scroll away with it (portrait); the rest stay on the screen. */
+    var scrollParts: Set<String>
+        get() = store.getString("qmobileScrollParts").orEmpty().split(',').filter { it.isNotEmpty() }.toSet()
+        set(value) = store.putString("qmobileScrollParts", value.sorted().joinToString(","))
     /** A smaller connect button, or lower switches. */
     var compactControl: Boolean
         get() = store.getBoolean("qmobileCompactControl", false)

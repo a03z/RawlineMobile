@@ -34,12 +34,12 @@ object MobileHomeLayout {
     private fun position(bottom: Boolean) = if (bottom) "bottom" else "top"
 
     var tilesBottom: Boolean
-        get() = if (MobileStyle.new) store.getString("qmobileNewTilesPosition") == "bottom"
+        get() = if (MobileStyle.modern) store.getString("qmobileNewTilesPosition") == "bottom"
             else (store.getString("qmobileTilesPosition") ?: position(store.getBoolean("qmobileTilesBottom", false))) == "bottom"
-        set(value) = store.putString(if (MobileStyle.new) "qmobileNewTilesPosition" else "qmobileTilesPosition", position(value))
+        set(value) = store.putString(if (MobileStyle.modern) "qmobileNewTilesPosition" else "qmobileTilesPosition", position(value))
     var extendedTiles: Boolean
-        get() = if (MobileStyle.new) store.getString("qmobileNewTiles") == "on" else store.getString("qmobileHomeTilesMode") != "standard"
-        set(value) = if (MobileStyle.new) store.putString("qmobileNewTiles", if (value) "on" else "off")
+        get() = if (MobileStyle.modern) store.getString("qmobileNewTiles") == "on" else store.getString("qmobileHomeTilesMode") != "standard"
+        set(value) = if (MobileStyle.modern) store.putString("qmobileNewTiles", if (value) "on" else "off")
             else store.putString("qmobileHomeTilesMode", if (value) "extended" else "standard")
     var controlBottom: Boolean
         get() = store.getString("qmobileControlPosition") == "bottom"
@@ -49,15 +49,15 @@ object MobileHomeLayout {
         set(value) = store.putString("qmobileHomeControl", if (value) "switches" else "button")
     /** The classic style has no subscription row. */
     var chipBottom: Boolean
-        get() = MobileStyle.new && store.getString("qmobileChipPosition") == "bottom"
+        get() = MobileStyle.modern && store.getString("qmobileChipPosition") == "bottom"
         set(value) = store.putString("qmobileChipPosition", position(value))
     /** The routing profile beside the subscription, in the new style. */
     var extendedChip: Boolean
-        get() = MobileStyle.new && store.getBoolean("qmobileChipExtended", false)
+        get() = MobileStyle.modern && store.getBoolean("qmobileChipExtended", false)
         set(value) = store.putBoolean("qmobileChipExtended", value)
     /** Between the connection control and the servers, rather than on the control's outer side. */
     var chipNearList: Boolean
-        get() = MobileStyle.new && store.getBoolean("qmobileChipNearList", false)
+        get() = MobileStyle.modern && store.getBoolean("qmobileChipNearList", false)
         set(value) = store.putBoolean("qmobileChipNearList", value)
     /** The parts ("tiles", "chip", "control") above the server list that scroll away with it (portrait); the rest stay on the screen. */
     var scrollParts: Set<String>

@@ -43,6 +43,8 @@ class TrafficLooper(val data: BaseService.Data, private val sc: CoroutineScope) 
     private val tagProfiles = LinkedHashMap<String, List<ProfileTraffic>>()
     private var sessionTx = 0L
     private var sessionRx = 0L
+    private var sessionDirectTx = 0L
+    private var sessionDirectRx = 0L
 
     private data class LoopSnapshot(
         val speed: SpeedDisplayData,
@@ -189,6 +191,15 @@ class TrafficLooper(val data: BaseService.Data, private val sc: CoroutineScope) 
                 item.changed = true
             }
         }
+        // Direct is not one of the proxy tags. The home speed adds it when that reading is enabled,
+        // so its session total has to grow by the same bytes.
+        if (CoreConfig.TAG_DIRECT !in tagProfiles) {
+            val direct = updater.stats[CoreConfig.TAG_DIRECT]
+            if (direct != null) {
+                sessionDirectRx += direct.rx
+                sessionDirectTx += direct.tx
+            }
+        }
         return true
     }
 
@@ -239,6 +250,8 @@ class TrafficLooper(val data: BaseService.Data, private val sc: CoroutineScope) 
                         if (showDirectSpeed) direct?.rxRate ?: 0L else 0L,
                         sessionTx,
                         sessionRx,
+                        if (showDirectSpeed) sessionDirectTx else 0L,
+                        if (showDirectSpeed) sessionDirectRx else 0L,
                     ),
                     trafficUpdates = trafficUpdates,
                 )

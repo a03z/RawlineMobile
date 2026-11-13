@@ -85,7 +85,7 @@ class MobileLayoutEditorActivity : ServerScreenActivity() {
         }
         host = if (landscape) LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; clipChildren = false; clipToPadding = false } else column
         list = serverList()
-        val available = if (MobileStyle.new) Part.values().toList() else listOf(Part.TILES, Part.CONTROL)
+        val available = if (MobileStyle.modern) Part.values().toList() else listOf(Part.TILES, Part.CONTROL)
         available.forEach { parts[it] = frameFor(it); fill(it) }
         arrange()
 
@@ -318,7 +318,7 @@ class MobileLayoutEditorActivity : ServerScreenActivity() {
 
     private fun tiles(items: MutableList<LayoutAction>) = LinearLayout(this).apply {
         gravity = Gravity.CENTER
-        val new = MobileStyle.new
+        val new = MobileStyle.modern
         val size = dp(MobileHomeLayout.tileSize())
         if (MobileHomeLayout.extendedTiles) {
             val hidden = MobileHomeLayout.hiddenTiles
@@ -352,7 +352,7 @@ class MobileLayoutEditorActivity : ServerScreenActivity() {
     private fun check() = ui.text(getString(R.string.qmobile_check_connection), 12f, MobilePalette.muted).apply { gravity = Gravity.CENTER_VERTICAL }
 
     private fun control(items: MutableList<LayoutAction>): View {
-        val new = MobileStyle.new
+        val new = MobileStyle.modern
         val bottom = MobileHomeLayout.controlBottom
         val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         fun status() = box.addView(check().apply { setPadding(dp(10), 0, dp(6), 0) }, LinearLayout.LayoutParams(-1, dp(40)))
@@ -405,7 +405,7 @@ class MobileLayoutEditorActivity : ServerScreenActivity() {
         importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
         addView(LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL; alpha = .55f
-            if (!MobileStyle.new) addView(check(), LinearLayout.LayoutParams(-1, dp(32)))
+            if (!MobileStyle.modern) addView(check(), LinearLayout.LayoutParams(-1, dp(32)))
             for (code in listOf("de", "fi", "nl", "se", "us", "jp", "gb", "ca", "fr", "pl")) addView(LinearLayout(context).apply {
                 gravity = Gravity.CENTER_VERTICAL; setPadding(dp(12), 0, dp(12), 0); background = MobilePalette.rowShape(context)
                 addView(ImageView(context).apply {
@@ -457,7 +457,7 @@ class MobileLayoutEditorActivity : ServerScreenActivity() {
             if (near != MobileHomeLayout.chipNearList) { MobileHomeLayout.chipNearList = near; rearrange() }
         }
         // And the control, dragged past the subscription on its side, goes between it and the edge or the list.
-        if (part == Part.CONTROL && MobileStyle.new && Part.CHIP in parts && bottom == MobileHomeLayout.chipBottom) {
+        if (part == Part.CONTROL && MobileStyle.modern && Part.CHIP in parts && bottom == MobileHomeLayout.chipBottom) {
             val chip = parts.getValue(Part.CHIP)
             val middle = chip.top + chip.height / 2f
             val near = if (bottom) hostY > middle else hostY < middle

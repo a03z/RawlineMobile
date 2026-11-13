@@ -38,7 +38,7 @@ class ProviderRouteActivity : ServerScreenActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        if (!MobileStyle.new) window.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(MobilePalette.background))
+        if (!MobileStyle.modern) window.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(MobilePalette.background))
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(MobilePalette.screen) }
         val toolbar = Toolbar(this).apply {
             title = getString(R.string.provider_route_new); setTitleTextColor(MobilePalette.text)

@@ -37,13 +37,13 @@ class MobileAlertDialogBuilder(context: Context) : MaterialAlertDialogBuilder(
         fun style(dialog: androidx.appcompat.app.AlertDialog) {
             val density = dialog.context.resources.displayMetrics.density
             val surface = GradientDrawable().apply {
-                setColor(if (MobileStyle.new) MobilePalette.frosted else MobilePalette.surface)
+                setColor(if (MobileStyle.modern) MobilePalette.frosted else MobilePalette.surface)
                 cornerRadius = MobilePalette.cardDp * density
                 setStroke(1, MobilePalette.outline)
             }
             dialog.window?.setBackgroundDrawable(InsetDrawable(surface, (24 * density).toInt()))
             dialog.window?.let { MobileScreenMotion.fullFrameRate(it);MobileFocusRing.attach(it) }
-            if (MobileStyle.new) dialog.window?.let { window ->
+            if (MobileStyle.modern) dialog.window?.let { window ->
                 window.setWindowAnimations(app.rawline.mobile.R.style.MobileDialogSoft)
                 window.setDimAmount(MobilePalette.windowDim)
                 if (android.os.Build.VERSION.SDK_INT >= 31) {

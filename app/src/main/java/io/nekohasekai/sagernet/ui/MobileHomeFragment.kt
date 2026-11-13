@@ -538,11 +538,11 @@ class MobileHomeFragment : ToolbarFragment() {
     private var openSwipe: MobileSwipeTile? = null
     private fun dp(n: Int) = (n * resources.displayMetrics.density).toInt()
     private fun tile(selected: Boolean = false): android.graphics.drawable.Drawable {
-        if(MobileStyle.new) return if(selected) MobilePalette.selectedShape(requireContext(),blue) else MobilePalette.rowShape(requireContext())
+        if(MobileStyle.modern) return if(selected) MobilePalette.selectedShape(requireContext(),blue) else MobilePalette.rowShape(requireContext())
         val shape = GradientDrawable().apply {
             setColor(if (selected) androidx.core.graphics.ColorUtils.blendARGB(surface,blue,.12f) else surface)
             cornerRadius=dp(MobilePalette.rowDp).toFloat()
-            if(!MobileStyle.new) setStroke(if(selected) dp(1) else 1, if (selected) blue else MobilePalette.outline)
+            if(!MobileStyle.modern) setStroke(if(selected) dp(1) else 1, if (selected) blue else MobilePalette.outline)
         }
         return shape
     }
@@ -557,7 +557,7 @@ class MobileHomeFragment : ToolbarFragment() {
     private fun iconAction(icon: Int, description: String, color: Int = Color.TRANSPARENT, callback: () -> Unit) = ImageButton(requireContext()).apply {
         setImageResource(icon); imageTintList=android.content.res.ColorStateList.valueOf(foregroundColor); setBackgroundColor(color); setPadding(dp(12),dp(12),dp(12),dp(12))
         contentDescription=description; setOnClickListener { callback() }
-        if(MobileStyle.new && color!=Color.TRANSPARENT) {
+        if(MobileStyle.modern && color!=Color.TRANSPARENT) {
             background=MobilePalette.actionShape(context,color)
             imageTintList=android.content.res.ColorStateList.valueOf(color)
             MobileFeedback.apply(this)
@@ -602,9 +602,9 @@ class MobileHomeFragment : ToolbarFragment() {
                 setImageBitmap(flag);scaleType=ImageView.ScaleType.FIT_XY
                 contentDescription="Flag: ${(geo?.first ?: countryCode).uppercase(java.util.Locale.ROOT).ifEmpty { leadingFlag }}"
                 if(!MobileStyle.pastel) {
-                    background=GradientDrawable().apply { setColor(toolbarColor);cornerRadius=dp(if(MobileStyle.new) 10 else 7).toFloat() }
+                    background=GradientDrawable().apply { setColor(toolbarColor);cornerRadius=dp(if(MobileStyle.modern) 10 else 7).toFloat() }
                     clipToOutline=true
-                    if(MobileStyle.new) foreground=GradientDrawable().apply { cornerRadius=dp(10).toFloat();setStroke(dp(1).coerceAtLeast(1),androidx.core.graphics.ColorUtils.setAlphaComponent(MobilePalette.muted,if(MobilePalette.light) 70 else 110)) }
+                    if(MobileStyle.modern) foreground=GradientDrawable().apply { cornerRadius=dp(10).toFloat();setStroke(dp(1).coerceAtLeast(1),androidx.core.graphics.ColorUtils.setAlphaComponent(MobilePalette.muted,if(MobilePalette.light) 70 else 110)) }
                 }
             } else {
                 tag="globe"
@@ -617,7 +617,7 @@ class MobileHomeFragment : ToolbarFragment() {
                 if(MobileStyle.pastel) {
                     background=pastelWell()
                 } else {
-                    background=GradientDrawable().apply { setColor(toolbarColor);cornerRadius=dp(if(MobileStyle.new) 10 else 7).toFloat() }
+                    background=GradientDrawable().apply { setColor(toolbarColor);cornerRadius=dp(if(MobileStyle.modern) 10 else 7).toFloat() }
                 }
                 clipToOutline=true
             }
@@ -806,7 +806,7 @@ class MobileHomeFragment : ToolbarFragment() {
         scroll.setOnDragListener { _,event ->
             val state=event.localState as? MobileReorder ?: return@setOnDragListener false
             when(event.action) {
-                DragEvent.ACTION_DRAG_STARTED -> if(state.movable && (DataStore.mobileListMode=="groups" || MobileStyle.new)) {
+                DragEvent.ACTION_DRAG_STARTED -> if(state.movable && (DataStore.mobileListMode=="groups" || MobileStyle.modern)) {
                     activeProfileDrag=state
                     revealGroupTabs(true)
                     groupDragPreview.start(renderedGroupId,serverScrollView?.scrollY ?: 0)
@@ -942,7 +942,7 @@ class MobileHomeFragment : ToolbarFragment() {
         val collapsedSnapshot=collapsed.toSet()
         val pageSnapshot=profilePages.toMap()
         val previousStructure=renderedStructure
-        val byGroups=DataStore.mobileListMode=="groups" || MobileStyle.new
+        val byGroups=DataStore.mobileListMode=="groups" || MobileStyle.modern
         load = viewLifecycleOwner.lifecycleScope.launch {
             var completed=false
             val nextLatencyViews=latencyViews.toMutableMap()
@@ -971,6 +971,7 @@ class MobileHomeFragment : ToolbarFragment() {
                 }
                 Triple(groups,keys,windows)
             }
+            groups.forEach { (_, profiles) -> profiles.forEach { rememberHeroServer(it) } }
             if((reordering && previewGroup==null) || (previewGroup!=null && previewGroup!=groupDragPreview.previewGroupId)) return@launch
             val column = content ?: return@launch
             groups.forEach { (group, _) -> knownGroups.add(group.id) }
@@ -1035,8 +1036,8 @@ class MobileHomeFragment : ToolbarFragment() {
                     if("updates" in hiddenTiles) null else headerIcon(R.drawable.ic_mobile_update, getString(R.string.qmobile_updates)) { updatesMenu(it) }.also { updatesTile=it;updateUpdatesBadge() },
                 ) else emptyList()
                 // The new style has no tile bar: a corner menu reaches the same four menus, adding sits with the subscriptions.
-                val quickMenu=if(MobileStyle.new && !extended && !MobileStyle.pastel) headerIcon(R.drawable.ic_mobile_more, getString(R.string.qmobile_quick_menu)) { showQuickMenu(it) }.also { updatesTile=it;updateUpdatesBadge() } else null
-                val tiles = if(quickMenu!=null) listOf(quickMenu, settingsTile) else if(extended) listOf(settingsTile) + quick + (if(MobileStyle.new) emptyList() else listOf(addTile)) else listOf(settingsTile, addTile)
+                val quickMenu=if(MobileStyle.modern && !extended && !MobileStyle.pastel) headerIcon(R.drawable.ic_mobile_more, getString(R.string.qmobile_quick_menu)) { showQuickMenu(it) }.also { updatesTile=it;updateUpdatesBadge() } else null
+                val tiles = if(quickMenu!=null) listOf(quickMenu, settingsTile) else if(extended) listOf(settingsTile) + quick + (if(MobileStyle.modern) emptyList() else listOf(addTile)) else listOf(settingsTile, addTile)
                 if(MobileStyle.pastel && !extended) {
                     val menu=headerIcon(R.drawable.ic_mobile_more, getString(R.string.qmobile_quick_menu)) { showQuickMenu(it) }
                     val names=LinearLayout(requireContext()).apply { orientation=LinearLayout.VERTICAL; gravity=Gravity.CENTER_HORIZONTAL }
@@ -1060,7 +1061,7 @@ class MobileHomeFragment : ToolbarFragment() {
                     if (!extended && index == 0) header.addView(FrameLayout(requireContext()).apply {
                         homeTitle=text(getString(R.string.app_name),18f).apply { setTypeface(typeface,Typeface.BOLD); gravity=Gravity.CENTER; setPadding(0,0,0,0); maxLines=1 }
                         addView(homeTitle,FrameLayout.LayoutParams(-2,-2,Gravity.CENTER))
-                        if(!extended && !MobileStyle.new) updateBanner = text("", 12f, blue).apply {
+                        if(!extended && !MobileStyle.modern) updateBanner = text("", 12f, blue).apply {
                             gravity = Gravity.CENTER
                             minHeight = dp(48)
                             maxLines = 1
@@ -1077,7 +1078,7 @@ class MobileHomeFragment : ToolbarFragment() {
                             // Set this after the background, whose inset padding replaces view padding.
                             setPadding(dp(12), dp(6), dp(12), dp(6))
                         }
-                        if(!extended && !MobileStyle.new) { addView(updateBanner, FrameLayout.LayoutParams(-2, dp(48), Gravity.CENTER)); updateReleaseBanner() }
+                        if(!extended && !MobileStyle.modern) { addView(updateBanner, FrameLayout.LayoutParams(-2, dp(48), Gravity.CENTER)); updateReleaseBanner() }
                     }, LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginStart = dp(6); marginEnd = dp(6) })
                 }
                 header.gravity = if(MobileStyle.pastel && !extended) Gravity.CENTER_VERTICAL else Gravity.CENTER
@@ -1094,7 +1095,7 @@ class MobileHomeFragment : ToolbarFragment() {
                 if(!tilesBottom) side.addView(header, LinearLayout.LayoutParams(-1, -2))
                 // The subscription in use, as one card with a list behind it, and adding beside it.
                 val chipBottom=chipAtBottom() && !landscape
-                val chipRow=if(MobileStyle.new) LinearLayout(requireContext()).apply {
+                val chipRow=if(MobileStyle.modern) LinearLayout(requireContext()).apply {
                     gravity=Gravity.CENTER_VERTICAL; setTag(R.id.home_part,"chip")
                     if(MobileStyle.pastel) clipChildren=false
                     groupChip=text("",16f).apply {
@@ -1139,7 +1140,7 @@ class MobileHomeFragment : ToolbarFragment() {
                 val dockBottom=controlAtBottom() && !landscape
                 val controlParent=if(dockBottom) LinearLayout(requireContext()).apply { orientation=LinearLayout.VERTICAL; if(MobileStyle.pastel) clipChildren=false } else side
                 var dockLeft: FrameLayout?=null
-                if(homeSwitchesOn()) {
+                if(homeSwitchesOn() && !MobileStyle.pastel) {
                     val rows=LinearLayout(requireContext()).apply { orientation=LinearLayout.VERTICAL;setTag(R.id.home_part,"control") }
                     // Side by side in one row: the server list keeps the room the button took.
                     val pair=LinearLayout(requireContext()).apply { isBaselineAligned=false;if(landscape) orientation=LinearLayout.VERTICAL }
@@ -1151,11 +1152,11 @@ class MobileHomeFragment : ToolbarFragment() {
                             isClickable=false;isFocusable=false
                             // The style's own drawables, set here: taken from the theme while the screen is rebuilt for
                             // a new look, the switch could show the stock one until its state next changed.
-                            setThumbResource(if(MobileStyle.new) R.drawable.mobile_switch_thumb_drop else R.drawable.mobile_switch_thumb)
-                            setTrackResource(if(MobileStyle.new) R.drawable.mobile_switch_track_new else R.drawable.mobile_switch_track)
+                            setThumbResource(if(MobileStyle.modern) R.drawable.mobile_switch_thumb_drop else R.drawable.mobile_switch_thumb)
+                            setTrackResource(if(MobileStyle.modern) R.drawable.mobile_switch_track_new else R.drawable.mobile_switch_track)
                             thumbTintList=androidx.core.content.ContextCompat.getColorStateList(requireContext(),
-                                if(MobileStyle.new) R.color.mobile_switch_thumb_alpha else R.color.mobile_switch_thumb_tint)
-                            if(MobileStyle.new) thumbTintMode=android.graphics.PorterDuff.Mode.MULTIPLY
+                                if(MobileStyle.modern) R.color.mobile_switch_thumb_alpha else R.color.mobile_switch_thumb_tint)
+                            if(MobileStyle.modern) thumbTintMode=android.graphics.PorterDuff.Mode.MULTIPLY
                             trackTintList=null
                             jumpDrawablesToCurrentState()
                         }
@@ -1184,7 +1185,8 @@ class MobileHomeFragment : ToolbarFragment() {
                     else rows.addView(power,LinearLayout.LayoutParams(-1,-2))
                     controlParent.addView(rows,LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(if(dockBottom) 2 else 10) })
                 } else {
-                power = action("") { if(!powerCovered()) host().toggleService() }.apply {
+                val pastelSwitches=MobileStyle.pastel && homeSwitchesOn()
+                if(!pastelSwitches) power = action("") { if(!powerCovered()) host().toggleService() }.apply {
                     contentDescription = getString(R.string.qmobile_connect)
                     background = when {
                         MobileStyle.pastel -> MobilePastelArtwork(requireContext(), getString(R.string.qmobile_orb_idle))
@@ -1197,7 +1199,7 @@ class MobileHomeFragment : ToolbarFragment() {
                     setOnTouchListener { _, event ->
                         val artwork=background as? MobilePowerArtwork
                         val target=when(event.actionMasked) {
-                            android.view.MotionEvent.ACTION_DOWN -> if(MobileStyle.new) .92f else .94f
+                            android.view.MotionEvent.ACTION_DOWN -> if(MobileStyle.modern) .92f else .94f
                             android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL -> 1f
                             else -> null
                         }
@@ -1213,22 +1215,55 @@ class MobileHomeFragment : ToolbarFragment() {
                         false
                     }
                 }
-                if(MobileStyle.new) {
+                if(MobileStyle.modern) {
                     if(MobileStyle.pastel) {
-                        centre.addView(power, FrameLayout.LayoutParams(dp(190), dp(190), Gravity.TOP or Gravity.CENTER_HORIZONTAL))
-                        power?.let { it.layoutParams=FrameLayout.LayoutParams(-1,dp(200),Gravity.CENTER) }
-                        centre.clipChildren=false
-                        val hero=LinearLayout(requireContext()).apply {
-                            orientation=LinearLayout.VERTICAL; gravity=Gravity.CENTER_HORIZONTAL
-                            background=PastelHeroPaper(); clipToOutline=true; pastelLift()
-                            setPadding(dp(16),dp(12),dp(16),dp(16))
+                        val hero=PastelHeroCard(requireContext()).apply {
+                            setPadding(dp(16),dp(12),dp(16),dp(16)); pastelLift()
                         }
-                        hero.addView(centre,LinearLayout.LayoutParams(-1,dp(200)))
+                        if(homeSwitchesOn()) {
+                            val hiddenSwitch=MobileHomeLayout.hiddenSwitch
+                            val modes=listOf(Key.MODE_VPN to R.string.service_mode_vpn, Key.MODE_PROXY to R.string.service_mode_proxy).filter { it.first!=hiddenSwitch }
+                            val switchRow=LinearLayout(requireContext()).apply {
+                                isBaselineAligned=false; clipChildren=false
+                                if(landscape) orientation=LinearLayout.VERTICAL
+                            }
+                            val bound=mutableMapOf<String, androidx.appcompat.widget.SwitchCompat>()
+                            modes.forEachIndexed { index, (mode, label) ->
+                                val caption=text(getString(R.string.qmobile_mode_off),12f,muted).apply { setPadding(0,dp(2),0,0); maxLines=1 }
+                                pastelModeCaption[mode]=caption
+                                val toggle=pastelSwitch()
+                                bound[mode]=toggle
+                                switchRow.addView(LinearLayout(requireContext()).apply {
+                                    gravity=Gravity.CENTER_VERTICAL
+                                    background=pastelPaper(22); clipToOutline=true; pastelLift()
+                                    setPadding(dp(14),dp(12),dp(12),dp(12)); isFocusable=true
+                                    setOnClickListener { pickMode(mode) }
+                                    MobileFeedback.apply(this)
+                                    addView(LinearLayout(requireContext()).apply {
+                                        orientation=LinearLayout.VERTICAL
+                                        addView(text(getString(label),15f).apply { setTypeface(typeface,Typeface.BOLD); setPadding(0,0,0,0); maxLines=1 })
+                                        addView(caption)
+                                    }, LinearLayout.LayoutParams(0,-2,1f))
+                                    addView(toggle)
+                                }, LinearLayout.LayoutParams(if(landscape) -1 else 0, -2, if(landscape) 0f else 1f).apply {
+                                    if(index>0) { if(landscape) topMargin=dp(8) else marginStart=dp(8) }
+                                })
+                            }
+                            modeSwitches=bound
+                            hero.addView(switchRow, LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(4); bottomMargin=dp(8) })
+                            // updateState refuses to run without this view. It stays out of the card.
+                            power=text("",13f,muted).apply { visibility=View.GONE; tag=SWITCH_CELL; importantForAccessibility=View.IMPORTANT_FOR_ACCESSIBILITY_NO }
+                            hero.addView(power, LinearLayout.LayoutParams(0,0))
+                        } else {
+                            centre.addView(power, FrameLayout.LayoutParams(-1, dp(200), Gravity.CENTER))
+                            centre.clipChildren=false
+                            hero.addView(centre,LinearLayout.LayoutParams(-1,dp(200)))
+                        }
                         val dot=View(requireContext()).apply {
                             background=GradientDrawable().apply { shape=GradientDrawable.OVAL; setColor(Color.rgb(0x34,0xC7,0x59)) }
                             visibility=View.GONE
                         }
-                        val status=text(getString(R.string.qmobile_orb_idle),16f,muted).apply { setPadding(dp(8),0,0,0); gravity=Gravity.CENTER_VERTICAL }
+                        val status=text(getString(R.string.qmobile_orb_idle),16f,muted).apply { setPadding(dp(8),0,0,0); gravity=Gravity.CENTER_VERTICAL; maxLines=1; ellipsize=android.text.TextUtils.TruncateAt.END }
                         val statusRowPastel=LinearLayout(requireContext()).apply {
                             gravity=Gravity.CENTER
                             addView(dot,LinearLayout.LayoutParams(dp(8),dp(8)))
@@ -1239,15 +1274,18 @@ class MobileHomeFragment : ToolbarFragment() {
                         hero.addView(statusRowPastel,LinearLayout.LayoutParams(-2,-2))
                         hero.addView(elapsed,LinearLayout.LayoutParams(-2,-2))
                         val flagSlot=FrameLayout(requireContext())
-                        val name=text("",16f).apply { setTypeface(typeface,Typeface.BOLD); setPadding(dp(8),0,dp(4),0); gravity=Gravity.CENTER_VERTICAL }
+                        val name=text("",16f).apply {
+                            setTypeface(typeface,Typeface.BOLD); setPadding(dp(8),0,dp(4),0); gravity=Gravity.CENTER_VERTICAL
+                            maxLines=1; ellipsize=android.text.TextUtils.TruncateAt.END
+                        }
                         val line=LinearLayout(requireContext()).apply {
-                            gravity=Gravity.CENTER; visibility=View.GONE
+                            gravity=Gravity.CENTER_VERTICAL; visibility=View.GONE
                             setPadding(0,dp(8),0,0)
                             addView(flagSlot,LinearLayout.LayoutParams(dp(28),dp(18)))
-                            addView(name)
+                            addView(name,LinearLayout.LayoutParams(0,-2,1f))
                         }
                         pastelFlagSlot=flagSlot; pastelServerName=name; pastelServerLine=line
-                        hero.addView(line,LinearLayout.LayoutParams(-2,-2))
+                        hero.addView(line,LinearLayout.LayoutParams(-1,-2))
                         pastelHero=hero
                         controlParent.addView(hero,LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(16) })
                         val pair=LinearLayout(requireContext()).apply { isBaselineAligned=false; clipChildren=false; if(landscape) orientation=LinearLayout.VERTICAL }
@@ -1276,7 +1314,7 @@ class MobileHomeFragment : ToolbarFragment() {
                 controlParent.addView(centre, LinearLayout.LayoutParams(-1, dp(orb+18)))
                 }
                 }
-                if(MobileStyle.new) {
+                if(MobileStyle.modern) {
                     if(pastelHero!=null) {
                         val block=LinearLayout(requireContext()).apply { orientation=LinearLayout.VERTICAL; gravity=Gravity.CENTER_HORIZONTAL }
                         block.addView(View(requireContext()).apply { setBackgroundColor(MobilePalette.outline) },LinearLayout.LayoutParams(-1,maxOf(1,dp(1))).apply { topMargin=dp(12); bottomMargin=dp(10) })
@@ -1337,7 +1375,7 @@ class MobileHomeFragment : ToolbarFragment() {
                     subscriptionTop=null
                 } else if (hasServers) {
                     val above=FrameLayout(requireContext())
-                    if(!MobileStyle.new) above.addView(MobileSeasonalView(requireContext()),FrameLayout.LayoutParams(-1,dp(64)))
+                    if(!MobileStyle.modern) above.addView(MobileSeasonalView(requireContext()),FrameLayout.LayoutParams(-1,dp(64)))
                     currentCheck=text(currentPing ?: getString(R.string.qmobile_check_connection),12f,muted).apply {
                         // Text taller than its box gets a scroll bar on some phones, so it always fits.
                         maxLines=2;includeFontPadding=false;setPadding(dp(2),0,dp(2),0);gravity=Gravity.BOTTOM
@@ -1345,7 +1383,7 @@ class MobileHomeFragment : ToolbarFragment() {
                         tag=MobileFeedback.NONE
                         setOnClickListener { checkCurrentConnection() }
                     }
-                    above.addView(currentCheck,FrameLayout.LayoutParams(-2,-2,if(MobileStyle.new) Gravity.START or Gravity.CENTER_VERTICAL else Gravity.START or Gravity.BOTTOM).apply { if(!MobileStyle.new) bottomMargin=dp(6) })
+                    above.addView(currentCheck,FrameLayout.LayoutParams(-2,-2,if(MobileStyle.modern) Gravity.START or Gravity.CENTER_VERTICAL else Gravity.START or Gravity.BOTTOM).apply { if(!MobileStyle.modern) bottomMargin=dp(6) })
                     subscriptionTop=above
                     above.layoutParams=LinearLayout.LayoutParams(-1,dp(64))
                     updateState()
@@ -1376,7 +1414,7 @@ class MobileHomeFragment : ToolbarFragment() {
                 if(!byGroups) body.addView(geoBanner,LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(6) })
                 updateGeoStatus()
                 val serverPanel=if(byGroups) LinearLayout(requireContext()).apply {
-                    orientation=LinearLayout.VERTICAL;if(!MobileStyle.new) background=tile();clipToOutline=true
+                    orientation=LinearLayout.VERTICAL;if(!MobileStyle.modern) background=tile();clipToOutline=true
                     if(MobileStyle.pastel) {
                         background=pastelPaper(28); pastelLift(); setPadding(dp(8),dp(8),dp(8),dp(10))
                     }
@@ -1385,7 +1423,7 @@ class MobileHomeFragment : ToolbarFragment() {
                     val area=FrameLayout(requireContext()).also { serverDropArea=it; if(MobileStyle.pastel) it.clipChildren=false }
                     area.addView(serverPanel,FrameLayout.LayoutParams(-1,-2))
                     body.addView(area,LinearLayout.LayoutParams(-1,0,1f).apply { if(MobileStyle.pastel) topMargin=dp(12) })
-                    val tabs=LinearLayout(requireContext()).apply { gravity=Gravity.CENTER_VERTICAL;if(MobileStyle.new) setPadding(0,dp(6),0,0) }
+                    val tabs=LinearLayout(requireContext()).apply { gravity=Gravity.CENTER_VERTICAL;if(MobileStyle.modern) setPadding(0,dp(6),0,0) }
                     fun indicator(left: Boolean)=ImageView(requireContext()).apply {
                         setImageResource(R.drawable.ic_mobile_chevron)
                         imageTintList=android.content.res.ColorStateList.valueOf(blue)
@@ -1420,8 +1458,8 @@ class MobileHomeFragment : ToolbarFragment() {
                     tabs.addView(stripScroll,LinearLayout.LayoutParams(0,dp(54),1f))
                     tabs.addView(groupRightIndicator,LinearLayout.LayoutParams(dp(14),dp(20)))
                     // The new style opens these only while a server is being dragged to another subscription.
-                    groupTabs=if(MobileStyle.new) tabs else null
-                    serverPanel.addView(tabs,LinearLayout.LayoutParams(-1,if(MobileStyle.new) 0 else dp(54)))
+                    groupTabs=if(MobileStyle.modern) tabs else null
+                    serverPanel.addView(tabs,LinearLayout.LayoutParams(-1,if(MobileStyle.modern) 0 else dp(54)))
                     serverPanel.addView(geoBanner,LinearLayout.LayoutParams(-1,-2).apply { setMargins(dp(5),dp(4),dp(5),0) })
                 }
                 val serverColumn=LinearLayout(requireContext()).apply { orientation=LinearLayout.VERTICAL }
@@ -1429,8 +1467,8 @@ class MobileHomeFragment : ToolbarFragment() {
                     isVerticalScrollBarEnabled=false; isHorizontalScrollBarEnabled=false
                     clipToPadding=byGroups
                     // Rows melt away at the edges of the list instead of being cut off.
-                    if(MobileStyle.new) { isVerticalFadingEdgeEnabled=true;setFadingEdgeLength(dp(20)) }
-                    if(byGroups && !MobileStyle.new) setPadding(0,dp(8),0,0)
+                    if(MobileStyle.modern) { isVerticalFadingEdgeEnabled=true;setFadingEdgeLength(dp(20)) }
+                    if(byGroups && !MobileStyle.modern) setPadding(0,dp(8),0,0)
                     addView(serverColumn,FrameLayout.LayoutParams(-1,-2))
                     setOnScrollChangeListener { _, _, y, _, _ ->
                         MobileOrbArtwork.pauseWhileScrolling()
@@ -1504,7 +1542,7 @@ class MobileHomeFragment : ToolbarFragment() {
             pickerGroups=groups.map { it.first }
             groupChip?.text=pickerGroups.firstOrNull { it.id==focusedGroup }?.displayName().orEmpty()
             val serverColumn=serverRows ?: return@launch
-            if(MobileStyle.new && byGroups && risenGroup!=focusedGroup) {
+            if(MobileStyle.modern && byGroups && risenGroup!=focusedGroup) {
                 // Only a change of subscription rises; the first render is simply there.
                 if(risenGroup!=Long.MIN_VALUE) {
                     serverColumn.alpha=0f; serverColumn.translationY=dp(14).toFloat()
@@ -1602,7 +1640,7 @@ class MobileHomeFragment : ToolbarFragment() {
                     if(!group.subOptions.allowCollapse) return@setOnClickListener
                     if (!collapsed.add(group.id)) collapsed.remove(group.id)
                     requireContext().getSharedPreferences("dashboard",Context.MODE_PRIVATE).edit().putStringSet("collapsedGroups",collapsed.map { it.toString() }.toSet()).apply()
-                    arrow.animate().rotation(if(group.id in collapsed) 0f else 90f).setDuration(if(MobileStyle.new) 240 else 120).start()
+                    arrow.animate().rotation(if(group.id in collapsed) 0f else 90f).setDuration(if(MobileStyle.modern) 240 else 120).start()
                     refresh()
                 }
                 if(byGroups) {
@@ -1625,6 +1663,12 @@ class MobileHomeFragment : ToolbarFragment() {
                 title.addView(heading,LinearLayout.LayoutParams(0,-2,1f))
                 if(MobileStyle.pastel && byGroups) {
                     title.addView(pastelRoundButton(R.drawable.ic_mobile_add, getString(R.string.qmobile_add)) { addMenu(it) }, LinearLayout.LayoutParams(dp(36), dp(36)).apply { marginEnd=dp(2) })
+                    if(group.isSubscription) title.addView(pastelRoundButton(R.drawable.ic_mobile_refresh, getString(R.string.qmobile_refresh)) {
+                        SubscriptionClient.refreshGroup(group.id, false)
+                    }.apply {
+                        isEnabled=!SubscriptionClient.states.value.containsKey(group.id)
+                        nextRefreshButtons[group.id]=this
+                    }, LinearLayout.LayoutParams(dp(36), dp(36)).apply { marginEnd=dp(2) })
                     if(profiles.isNotEmpty()) {
                         title.addView(pastelRoundButton(R.drawable.ic_mobile_test, getString(R.string.qmobile_test_ping)) {
                             testMenu(profiles.map { it.id }.toLongArray(), group.displayName(), group.id, true)
@@ -1716,8 +1760,8 @@ class MobileHomeFragment : ToolbarFragment() {
                     val (badgeW,badgeH)=flagSlotSize(badge)
                     row.addView(badge,LinearLayout.LayoutParams(badgeW,badgeH).apply { marginStart=dp(if(MobileStyle.pastel) 6 else 10) })
                     val labels = LinearLayout(requireContext()).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(10), dp(6), dp(6), dp(6)) }
-                    labels.addView(text(if(flagLength>0) displayName.substring(flagLength).trimStart() else displayName, 15f).apply { setTypeface(typeface,Typeface.BOLD); includeFontPadding=!MobileStyle.new; setPadding(0,0,0,dp(if(MobileStyle.new) 3 else 2)); maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END })
-                    val detail=text(profile.displayProtocol(), 12f, muted).apply { includeFontPadding=!MobileStyle.new; setPadding(0,0,0,0); maxLines=1; tag=profile.displayProtocol() }
+                    labels.addView(text(if(flagLength>0) displayName.substring(flagLength).trimStart() else displayName, 15f).apply { setTypeface(typeface,Typeface.BOLD); includeFontPadding=!MobileStyle.modern; setPadding(0,0,0,dp(if(MobileStyle.modern) 3 else 2)); maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END })
+                    val detail=text(profile.displayProtocol(), 12f, muted).apply { includeFontPadding=!MobileStyle.modern; setPadding(0,0,0,0); maxLines=1; tag=profile.displayProtocol() }
                     if(MobileStyle.pastel) pastelDetails[profile.id]=detail
                     labels.addView(detail)
                     row.addView(labels, LinearLayout.LayoutParams(0, -2, 1f))
@@ -1891,15 +1935,25 @@ class MobileHomeFragment : ToolbarFragment() {
             pastelModeCaption[mode]?.text=getString(if(on) R.string.qmobile_mode_on else R.string.qmobile_mode_off)
         }
         pastelServerLine?.let { line ->
-            val raw=if(state.connected) runningServerName() else ""
+            if(!state.connected) {
+                line.visibility=View.GONE
+                line.tag=null
+                return@let
+            }
+            val server=heroServer()
+            val raw=server?.displayName.orEmpty()
+            val country=server?.let { heroCountry(it.id, it.country) }
             val leading=if(raw.isEmpty()) "" else MobileCountryFlags.leading(raw)
             val name=if(leading.isNotEmpty()) raw.substring(leading.length).trimStart() else raw
-            line.visibility=if(name.isEmpty() && raw.isEmpty()) View.GONE else View.VISIBLE
-            if(pastelServerName?.text?.toString()!=name) {
-                pastelServerName?.text=name.ifEmpty { raw }
+            val shown=name.ifEmpty { raw }
+            line.visibility=if(shown.isEmpty()) View.GONE else View.VISIBLE
+            val key="${server?.id}|$shown|${country.orEmpty()}|$leading"
+            if(line.tag!=key) {
+                line.tag=key
+                pastelServerName?.text=shown
                 pastelFlagSlot?.removeAllViews()
                 if(raw.isNotEmpty()) {
-                    val badge=flagBadge(raw)
+                    val badge=flagBadge(raw, country)
                     val (w,h)=flagSlotSize(badge)
                     pastelFlagSlot?.layoutParams=LinearLayout.LayoutParams(w,h)
                     pastelFlagSlot?.addView(badge,FrameLayout.LayoutParams(-1,-1))
@@ -1928,13 +1982,13 @@ class MobileHomeFragment : ToolbarFragment() {
         power?.setTextColor(muted)
         (power?.background as? MobilePowerArtwork)?.connected=state.connected
         (power?.background as? MobilePowerArtwork)?.connecting=state==app.rawline.mobile.bg.BaseService.State.Connecting
-        currentCheck?.visibility=if(state.connected) View.VISIBLE else if(MobileStyle.new) View.INVISIBLE else View.GONE
+        currentCheck?.visibility=if(state.connected) View.VISIBLE else if(MobileStyle.modern) View.INVISIBLE else View.GONE
         val button=power
         if(!state.connected || pulseTarget!==button) {
             powerPulse?.cancel();powerPulse=null;pulseTarget=null
             button?.scaleX=1f;button?.scaleY=1f
         }
-        if(state.connected && button!=null && powerPulse==null && !MobileStyle.new && modeSwitches.isEmpty()) {
+        if(state.connected && button!=null && powerPulse==null && !MobileStyle.modern && modeSwitches.isEmpty()) {
             pulseTarget=button
             powerPulse=android.animation.ObjectAnimator.ofPropertyValuesHolder(button,
                 android.animation.PropertyValuesHolder.ofFloat(View.SCALE_X,.995f,1.015f),
@@ -1979,6 +2033,24 @@ class MobileHomeFragment : ToolbarFragment() {
         }
     }
     private var runningServer: Pair<Long,String>?=null
+    private data class HeroServer(val id: Long, val displayName: String, val country: String?)
+    private var heroServerCache: HeroServer?=null
+    /** The connected Pastel row uses the profile name, not the "[group] name" line the other styles show. */
+    private fun rememberHeroServer(profile: ProxyEntity) {
+        val active=DataStore.currentProfile.takeIf { it>0 } ?: DataStore.selectedProxy
+        if(profile.id!=active) return
+        heroServerCache=HeroServer(profile.id, profile.displayName().trim(), profile.testCountry)
+    }
+    private fun heroServer(): HeroServer? {
+        val id=DataStore.currentProfile.takeIf { it>0 } ?: DataStore.selectedProxy
+        heroServerCache?.takeIf { it.id==id }?.let { return it }
+        val profile=runCatching { SagerDatabase.proxyDao.getById(id) }.getOrNull() ?: return null
+        return HeroServer(id, profile.displayName().trim(), profile.testCountry).also { heroServerCache=it }
+    }
+    private fun heroCountry(id: Long, stored: String?): String? {
+        val live=TestSessionClient.state.value.rows[id]?.country?.takeIf { it.length==2 }
+        return live ?: stored?.takeIf { it.isNotEmpty() }
+    }
     /** The server in use under the state line, "[subscription] server" as on the desktop, looked up once per selection. */
     private fun runningServerName(): String {
         val id=DataStore.currentProfile.takeIf { it>0 } ?: DataStore.selectedProxy
@@ -2079,7 +2151,7 @@ class MobileHomeFragment : ToolbarFragment() {
                 indeterminateTintList=android.content.res.ColorStateList.valueOf(blue)
             },FrameLayout.LayoutParams(dp(20),dp(20),Gravity.CENTER))
             else holder.addView(text(if(mark.unavailable) getString(R.string.qmobile_unavailable) else if(mark.latency>0) "${mark.latency} ms" else "",12f,if(mark.unavailable) muted else ProxyEntity.latencyColor(mark.latency)).apply {
-                gravity=Gravity.CENTER;setPadding(0,0,0,0);includeFontPadding=!MobileStyle.new
+                gravity=Gravity.CENTER;setPadding(0,0,0,0);includeFontPadding=!MobileStyle.modern
                 if(previous=="busy") { alpha=0f;animate().alpha(1f).setDuration(120).start() }
             },FrameLayout.LayoutParams(-1,-1))
         }
@@ -2113,9 +2185,9 @@ class MobileHomeFragment : ToolbarFragment() {
     }
     private fun pinnedGroups() = DataStore.mobilePinnedGroups.split(',').mapNotNull { it.toLongOrNull() }.toSet()
     private fun shareChoice(swipe:MobileSwipeTile,label:String,icon:Int,callback:()->Unit):View {
-        val ink=if(MobileStyle.new) foregroundColor else Color.WHITE
+        val ink=if(MobileStyle.modern) foregroundColor else Color.WHITE
         return LinearLayout(requireContext()).apply {
-            orientation=LinearLayout.VERTICAL;gravity=Gravity.CENTER;isFocusable=true;contentDescription=label;if(MobileStyle.new) background=MobilePalette.actionShape(context,Color.rgb(105,93,176)) else setBackgroundColor(Color.rgb(105,93,176))
+            orientation=LinearLayout.VERTICAL;gravity=Gravity.CENTER;isFocusable=true;contentDescription=label;if(MobileStyle.modern) background=MobilePalette.actionShape(context,Color.rgb(105,93,176)) else setBackgroundColor(Color.rgb(105,93,176))
             setOnClickListener { swipe.closeActions();callback() }
             addView(ImageView(requireContext()).apply { setImageResource(icon);imageTintList=android.content.res.ColorStateList.valueOf(ink);importantForAccessibility=View.IMPORTANT_FOR_ACCESSIBILITY_NO },LinearLayout.LayoutParams(dp(23),dp(23)))
             addView(text(label,10f,ink).apply { setPadding(0,dp(4),0,0);maxLines=1;includeFontPadding=false;gravity=Gravity.CENTER;importantForAccessibility=View.IMPORTANT_FOR_ACCESSIBILITY_NO })
@@ -2210,51 +2282,83 @@ class MobileHomeFragment : ToolbarFragment() {
         }, LinearLayout.LayoutParams(dp(36),dp(36)))
         heading.addView(actions, FrameLayout.LayoutParams(-2,-2,Gravity.END or Gravity.CENTER_VERTICAL).apply { marginEnd=dp(2) })
         body.addView(heading, LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(8) })
-        val selected=DataStore.selectedProxy
-        if(profiles.isEmpty()) body.addView(text(getString(R.string.qmobile_empty),14f,muted).apply { gravity=Gravity.CENTER })
-        profiles.forEach { profile ->
-            val raw=profile.displayName().trim()
-            val leading=MobileCountryFlags.leading(raw)
-            val name=if(leading.isNotEmpty()) raw.substring(leading.length).trimStart() else raw
-            val picked=profile.id==selected
-            val row=LinearLayout(requireContext()).apply {
-                gravity=Gravity.CENTER_VERTICAL; minimumHeight=dp(64); isFocusable=true
-                setPadding(dp(12),dp(8),dp(12),dp(8))
-                background=GradientDrawable().apply {
-                    setColor(if(picked && MobilePalette.light) Color.rgb(0xF0,0xEB,0xFF) else rowColor)
-                    cornerRadius=dp(16).toFloat()
-                    if(picked) setStroke(dp(1).coerceAtLeast(1), lilac)
-                }
-                contentDescription=name.ifEmpty { raw }
-                setOnClickListener {
-                    DataStore.selectedProxy=profile.id
-                    if(DataStore.serviceState.canStop) SagerNet.reloadService()
-                    sheet.dismiss()
-                    refresh()
-                }
-                MobileFeedback.apply(this)
+        val rows=LinearLayout(requireContext()).apply { orientation=LinearLayout.VERTICAL }
+        val pager=LinearLayout(requireContext()).apply { gravity=Gravity.CENTER_VERTICAL; visibility=View.GONE }
+        body.addView(rows, LinearLayout.LayoutParams(-1,-2))
+        body.addView(pager, LinearLayout.LayoutParams(-1,-2))
+        // The home list already pages at 100. The sheet follows that, starting on the selected server.
+        var page: Int?=null
+        fun showPage() {
+            rows.removeAllViews()
+            clearDrawerPings()
+            if(profiles.isEmpty()) {
+                rows.addView(text(getString(R.string.qmobile_empty),14f,muted).apply { gravity=Gravity.CENTER })
+                pager.visibility=View.GONE
+                return
             }
-            val badge=flagBadge(raw, profile.testCountry)
-            val (badgeW,badgeH)=flagSlotSize(badge)
-            row.addView(badge,LinearLayout.LayoutParams(badgeW,badgeH))
-            row.addView(LinearLayout(requireContext()).apply {
-                orientation=LinearLayout.VERTICAL
-                setPadding(dp(10),0,dp(8),0)
-                addView(text(name.ifEmpty { raw },15f).apply {
-                    setTypeface(typeface,Typeface.BOLD); setPadding(0,0,0,0); maxLines=1
-                    ellipsize=android.text.TextUtils.TruncateAt.END
-                })
-                addView(text(profile.displayProtocol(),12f,muted).apply { setPadding(0,dp(2),0,0); maxLines=1 })
-            }, LinearLayout.LayoutParams(0,-2,1f))
-            val readout=pastelPingReadout()
-            readout.first.tag=profile.latency
-            drawerPingChips[profile.id]=readout.first
-            drawerPings[profile.id]=readout.second
-            drawerSpins[profile.id]=readout.third
-            row.addView(readout.first, LinearLayout.LayoutParams(-2,dp(26)).apply { marginEnd=dp(16) })
-            row.addView(PastelChoice(requireContext()).apply { isSelected=picked; isClickable=false }, LinearLayout.LayoutParams(dp(22),dp(22)))
-            body.addView(row,LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(8) })
+            val selected=DataStore.selectedProxy
+            val window=MobileProfilePaging.window(profiles.map { it.id }, page, selected)
+            page=window.page
+            profiles.subList(window.start, window.end).forEach { profile ->
+                val raw=profile.displayName().trim()
+                val leading=MobileCountryFlags.leading(raw)
+                val name=if(leading.isNotEmpty()) raw.substring(leading.length).trimStart() else raw
+                val picked=profile.id==selected
+                val row=LinearLayout(requireContext()).apply {
+                    gravity=Gravity.CENTER_VERTICAL; minimumHeight=dp(64); isFocusable=true
+                    setPadding(dp(12),dp(8),dp(12),dp(8))
+                    background=GradientDrawable().apply {
+                        setColor(if(picked && MobilePalette.light) Color.rgb(0xF0,0xEB,0xFF) else rowColor)
+                        cornerRadius=dp(16).toFloat()
+                        if(picked) setStroke(dp(1).coerceAtLeast(1), lilac)
+                    }
+                    contentDescription=name.ifEmpty { raw }
+                    setOnClickListener {
+                        DataStore.selectedProxy=profile.id
+                        if(DataStore.serviceState.canStop) SagerNet.reloadService()
+                        sheet.dismiss()
+                        refresh()
+                    }
+                    MobileFeedback.apply(this)
+                }
+                val badge=flagBadge(raw, profile.testCountry)
+                val (badgeW,badgeH)=flagSlotSize(badge)
+                row.addView(badge,LinearLayout.LayoutParams(badgeW,badgeH))
+                row.addView(LinearLayout(requireContext()).apply {
+                    orientation=LinearLayout.VERTICAL
+                    setPadding(dp(10),0,dp(8),0)
+                    addView(text(name.ifEmpty { raw },15f).apply {
+                        setTypeface(typeface,Typeface.BOLD); setPadding(0,0,0,0); maxLines=1
+                        ellipsize=android.text.TextUtils.TruncateAt.END
+                    })
+                    addView(text(profile.displayProtocol(),12f,muted).apply { setPadding(0,dp(2),0,0); maxLines=1 })
+                }, LinearLayout.LayoutParams(0,-2,1f))
+                val readout=pastelPingReadout()
+                readout.first.tag=profile.latency
+                drawerPingChips[profile.id]=readout.first
+                drawerPings[profile.id]=readout.second
+                drawerSpins[profile.id]=readout.third
+                row.addView(readout.first, LinearLayout.LayoutParams(-2,dp(26)).apply { marginEnd=dp(16) })
+                row.addView(PastelChoice(requireContext()).apply { isSelected=picked; isClickable=false }, LinearLayout.LayoutParams(dp(22),dp(22)))
+                rows.addView(row,LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(8) })
+            }
+            pager.removeAllViews()
+            if(profiles.size<=MobileProfilePaging.PAGE_SIZE) {
+                pager.visibility=View.GONE
+            } else {
+                pager.visibility=View.VISIBLE
+                fun pageButton(label:Int, target:Int, enabled:Boolean)=action(getString(label)) {
+                    page=target; showPage()
+                }.apply { isEnabled=enabled; alpha=if(enabled) 1f else .4f; setPadding(dp(8),dp(12),dp(8),dp(12)) }
+                pager.addView(pageButton(R.string.dashboard_previous_servers, window.page-1, window.hasPrevious), LinearLayout.LayoutParams(-2,-2))
+                pager.addView(text(getString(R.string.dashboard_server_page, window.start+1, window.end, window.total),12f,muted).apply {
+                    gravity=Gravity.CENTER; setPadding(dp(4),dp(12),dp(4),dp(12))
+                }, LinearLayout.LayoutParams(0,-2,1f))
+                pager.addView(pageButton(R.string.dashboard_next_servers, window.page+1, window.hasNext), LinearLayout.LayoutParams(-2,-2))
+            }
+            updateLatencies()
         }
+        showPage()
         sheet.setContentView(androidx.core.widget.NestedScrollView(requireContext()).apply {
             isNestedScrollingEnabled=true
             addView(body,FrameLayout.LayoutParams(-1,-2))
@@ -2323,7 +2427,7 @@ class MobileHomeFragment : ToolbarFragment() {
         entry(getString(if(pinned) R.string.qmobile_unpin else R.string.qmobile_pin),R.drawable.ic_mobile_pin) { val ids=pinnedGroups().toMutableSet();if(pinned) ids.remove(group.id) else ids.add(group.id);DataStore.mobilePinnedGroups=ids.joinToString(",");refresh() }
         entry(getString(R.string.qmobile_delete),R.drawable.ic_mobile_delete) {
             viewLifecycleOwner.lifecycleScope.launch {
-                val previous=if(DataStore.mobileListMode=="groups" || MobileStyle.new) groupAfterRemoval(renderedGroupOrder,group.id) else 0L
+                val previous=if(DataStore.mobileListMode=="groups" || MobileStyle.modern) groupAfterRemoval(renderedGroupOrder,group.id) else 0L
                 val deleted=withContext(Dispatchers.IO) { GroupRepo.delete(group.id,previous) }
                 if(!deleted) Toast.makeText(requireContext(),R.string.qmobile_delete_failed,Toast.LENGTH_LONG).show()
             }

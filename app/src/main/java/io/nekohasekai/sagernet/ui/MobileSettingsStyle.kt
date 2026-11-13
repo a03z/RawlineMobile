@@ -99,8 +99,8 @@ object MobileSettingsStyle {
                 view.minimumHeight=0
                 view.setPadding(view.paddingLeft,(4*density).toInt(),view.paddingRight,(2*density).toInt())
             } else {
-                view.minimumHeight=((if(MobileStyle.new) 56 else 48)*density).toInt()
-                view.setPaddingRelative(((if(MobileStyle.new) 14 else 12)*density).toInt(),(8*density).toInt(),(12*density).toInt(),(8*density).toInt())
+                view.minimumHeight=((if(MobileStyle.modern) 56 else 48)*density).toInt()
+                view.setPaddingRelative(((if(MobileStyle.modern) 14 else 12)*density).toInt(),(8*density).toInt(),(12*density).toInt(),(8*density).toInt())
             }
             val oldCopy=view.findViewWithTag<View>("socks-copy")
             (oldCopy?.parent as? android.view.ViewGroup)?.removeView(oldCopy)
@@ -121,10 +121,10 @@ object MobileSettingsStyle {
                     },android.view.ViewGroup.LayoutParams((40*density).toInt(),(40*density).toInt()))
                 }
             }
-            view.background=if(MobileStyle.new && !category && !warning) MobilePalette.rowShape(root.context) else android.graphics.drawable.GradientDrawable().apply {
+            view.background=if(MobileStyle.modern && !category && !warning) MobilePalette.rowShape(root.context) else android.graphics.drawable.GradientDrawable().apply {
                 setColor(if(category || warning) background else surface)
                 cornerRadius=MobilePalette.rowDp*density
-                if(!category && !warning && !MobileStyle.new) setStroke(1,MobilePalette.outline)
+                if(!category && !warning && !MobileStyle.modern) setStroke(1,MobilePalette.outline)
             }
             // The installed version is set apart from the update actions by a line above it.
             if(preference?.key == "updateCurrentVersion") view.background=android.graphics.drawable.LayerDrawable(arrayOf(view.background,
@@ -137,18 +137,18 @@ object MobileSettingsStyle {
                 visibility=if(preference?.icon!=null) View.VISIBLE else View.GONE
                 imageTintList=if(preference?.key == "vkRelayAccount" && preference.icon is androidx.core.graphics.drawable.RoundedBitmapDrawable) null
                     // A solid mark would stand out among the outlined icons.
-                    else android.content.res.ColorStateList.valueOf(if(MobileStyle.new && preference?.key?.startsWith("qmobileVk")==true) androidx.core.graphics.ColorUtils.blendARGB(MobilePalette.text,MobilePalette.muted,.5f) else accent)
+                    else android.content.res.ColorStateList.valueOf(if(MobileStyle.modern && preference?.key?.startsWith("qmobileVk")==true) androidx.core.graphics.ColorUtils.blendARGB(MobilePalette.text,MobilePalette.muted,.5f) else accent)
                 // The new style sets each icon in its own small plate.
-                if(MobileStyle.new) {
+                if(MobileStyle.modern) {
                     layoutParams=layoutParams.apply { width=(38*density).toInt(); height=(38*density).toInt() }
                     setPadding((8*density).toInt(),(8*density).toInt(),(8*density).toInt(),(8*density).toInt())
                     this.background=android.graphics.drawable.GradientDrawable().apply { setColor(MobilePalette.well); cornerRadius=12*density }
                 }
             }
             view.findViewById<TextView>(android.R.id.title)?.apply {
-                setTextColor(dimmedWhenDisabled(if(category) (if(MobileStyle.new) muted else accent) else textColor))
-                textSize=if(MobileStyle.new && category) 14f else 16f
-                setTypeface(typeface,if(category || MobileStyle.new) Typeface.BOLD else Typeface.NORMAL)
+                setTextColor(dimmedWhenDisabled(if(category) (if(MobileStyle.modern) muted else accent) else textColor))
+                textSize=if(MobileStyle.modern && category) 14f else 16f
+                setTypeface(typeface,if(category || MobileStyle.modern) Typeface.BOLD else Typeface.NORMAL)
                 isSingleLine=false;maxLines=Int.MAX_VALUE;ellipsize=null
             }
             view.findViewById<TextView>(android.R.id.summary)?.apply { setTextColor(dimmedWhenDisabled(muted));textSize=13f }

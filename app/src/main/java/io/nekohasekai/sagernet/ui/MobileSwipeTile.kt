@@ -46,7 +46,7 @@ class MobileSwipeTile(context:Context, private val row:View, private val makeAct
     }
     private fun addActions(actions: List<View>) {
         actions.forEachIndexed { index, action ->
-            if (index > 0 && !MobileStyle.new) left.addView(View(context).apply { setBackgroundColor(android.graphics.Color.WHITE) }, LinearLayout.LayoutParams(resources.displayMetrics.density.toInt().coerceAtLeast(1), -1))
+            if (index > 0 && !MobileStyle.modern) left.addView(View(context).apply { setBackgroundColor(android.graphics.Color.WHITE) }, LinearLayout.LayoutParams(resources.displayMetrics.density.toInt().coerceAtLeast(1), -1))
             left.addView(action, LinearLayout.LayoutParams(0, -1, 1f))
         }
     }
@@ -80,7 +80,7 @@ class MobileSwipeTile(context:Context, private val row:View, private val makeAct
         settling?.cancel()
         val animation=ValueAnimator.ofFloat(row.translationX,target)
         settling=animation
-        animation.duration=if(MobileStyle.new) 280 else 160
+        animation.duration=if(MobileStyle.modern) 280 else 160
         animation.interpolator=android.view.animation.PathInterpolator(.2f,0f,.15f,1f)
         animation.addUpdateListener {
             row.translationX=it.animatedValue as Float

@@ -286,7 +286,7 @@ class UiTourTest {
             }
             Thread.sleep(700)
             check(MobileHomeLayout.controlSwitches) { "a double tap did not switch the connection control" }
-            if (MobileStyle.new) {
+            if (MobileStyle.modern) {
                 // The subscription goes from above the control to between it and the list.
                 val chip = frameOf(R.string.qmobile_layout_chip)
                 val under = frameOf(R.string.qmobile_layout_control).bottom.toFloat()

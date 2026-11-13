@@ -18,6 +18,7 @@ import android.graphics.drawable.Drawable
 import android.os.Build
 import android.os.SystemClock
 import android.view.View
+import android.widget.LinearLayout
 import androidx.core.content.res.ResourcesCompat
 import androidx.core.graphics.ColorUtils
 import app.rawline.mobile.R
@@ -140,21 +141,68 @@ class MobilePastelArtwork(context: Context, @Suppress("unused") private val idle
     }
 }
 
-/** The hero card: solid paper, with slow waves drifting across the lower half. */
+/** The hero card. Waves advance only while this view is on screen and its window has focus. */
+class PastelHeroCard(context: Context) : LinearLayout(context) {
+    private val paper = PastelHeroPaper()
+
+    init {
+        orientation = VERTICAL
+        gravity = android.view.Gravity.CENTER_HORIZONTAL
+        background = paper
+        clipToOutline = true
+    }
+
+    private fun sync() {
+        paper.setActive(isShown && hasWindowFocus())
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        sync()
+    }
+
+    override fun onDetachedFromWindow() {
+        paper.setActive(false)
+        super.onDetachedFromWindow()
+    }
+
+    override fun onWindowFocusChanged(hasWindowFocus: Boolean) {
+        super.onWindowFocusChanged(hasWindowFocus)
+        sync()
+    }
+
+    override fun onVisibilityAggregated(isVisible: Boolean) {
+        super.onVisibilityAggregated(isVisible)
+        sync()
+    }
+}
+
+/** Solid paper, with slow waves drifting across the lower half. */
 class PastelHeroPaper : Drawable() {
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val path = Path()
     private val density get() = android.content.res.Resources.getSystem().displayMetrics.density
     private var phase = 0f
     private var posted = false
+    private var active = false
     private val tick = Runnable {
         posted = false
+        if (!active) return@Runnable
         phase += 0.04f
         invalidateSelf()
     }
 
+    fun setActive(next: Boolean) {
+        if (active == next) return
+        active = next
+        if (next) arm() else {
+            unscheduleSelf(tick)
+            posted = false
+        }
+    }
+
     private fun arm() {
-        if (posted || callback == null) return
+        if (!active || posted || callback == null) return
         if (Build.VERSION.SDK_INT >= 26 && !ValueAnimator.areAnimatorsEnabled()) return
         posted = true
         scheduleSelf(tick, SystemClock.uptimeMillis() + 32L)
@@ -195,7 +243,7 @@ class PastelHeroPaper : Drawable() {
         wave(.58f, .07f, Color.argb(if (light) 40 else 32, 186, 170, 240), 0f)
         wave(.70f, .05f, Color.argb(if (light) 30 else 24, 150, 180, 245), 1.5f)
         wave(.82f, .06f, Color.argb(if (light) 24 else 18, 255, 186, 170), 2.8f)
-        arm()
+        if (active) arm()
     }
 
     override fun getOutline(outline: Outline) {
@@ -279,10 +327,10 @@ class PastelSpeedWave(context: Context, private val tint: Int) : View(context) {
     private var phase = 0f
     private val tick: Runnable = object : Runnable {
         override fun run() {
-            if (!connected) return
+            if (!moving()) return
             phase += 0.08f
             invalidate()
-            postDelayed(this, if (hasWindowFocus()) 32L else 90L)
+            postDelayed(this, 32L)
         }
     }
     var connected = false
@@ -290,15 +338,30 @@ class PastelSpeedWave(context: Context, private val tint: Int) : View(context) {
             if (field == value) return
             field = value
             removeCallbacks(tick)
-            if (value) post(tick) else invalidate()
+            if (value) kick() else invalidate()
         }
+
+    /** The wave holds still while the card is covered or the app is in the background. */
+    private fun moving() = connected && isShown && hasWindowFocus()
+
+    private fun kick() {
+        removeCallbacks(tick)
+        if (moving()) post(tick)
+    }
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
-        if (connected) {
-            removeCallbacks(tick)
-            post(tick)
-        }
+        kick()
+    }
+
+    override fun onWindowFocusChanged(hasWindowFocus: Boolean) {
+        super.onWindowFocusChanged(hasWindowFocus)
+        kick()
+    }
+
+    override fun onVisibilityAggregated(isVisible: Boolean) {
+        super.onVisibilityAggregated(isVisible)
+        kick()
     }
 
     override fun onDetachedFromWindow() {

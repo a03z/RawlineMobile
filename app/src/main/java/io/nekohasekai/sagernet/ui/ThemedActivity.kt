@@ -37,7 +37,7 @@ abstract class ThemedActivity : AppCompatActivity, androidx.preference.Preferenc
 
     /** The new style's icons live in res/drawable-mcc999: only its screens ask for that country code, notifications and widgets never do. */
     override fun attachBaseContext(newBase: android.content.Context) {
-        super.attachBaseContext(if (MobileStyle.new) newBase.createConfigurationContext(Configuration(newBase.resources.configuration).apply { mcc = 999 }) else newBase)
+        super.attachBaseContext(if (MobileStyle.modern) newBase.createConfigurationContext(Configuration(newBase.resources.configuration).apply { mcc = 999 }) else newBase)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -54,7 +54,7 @@ abstract class ThemedActivity : AppCompatActivity, androidx.preference.Preferenc
         MobileFocusRing.attach(window)
         if (!isDialog) MobileScreenMotion.open(this)
         if (!isDialog) MobileScreenMotion.fadeAfterRecreate(this)
-        if (MobileStyle.new && !isDialog) window.setBackgroundDrawable(MobileHomeBackdrop())
+        if (MobileStyle.modern && !isDialog) window.setBackgroundDrawable(MobileHomeBackdrop())
 
         supportFragmentManager.registerFragmentLifecycleCallbacks(object : androidx.fragment.app.FragmentManager.FragmentLifecycleCallbacks() {
             override fun onFragmentViewCreated(manager: androidx.fragment.app.FragmentManager, fragment: androidx.fragment.app.Fragment, view: android.view.View, state: Bundle?) {
@@ -147,7 +147,7 @@ abstract class ThemedActivity : AppCompatActivity, androidx.preference.Preferenc
         setActionTextColor(MobilePalette.accent(this@ThemedActivity))
         view.backgroundTintList=null
         view.background=android.graphics.drawable.GradientDrawable().apply {
-            setColor(if(MobileStyle.new) MobilePalette.frosted else MobilePalette.surface)
+            setColor(if(MobileStyle.modern) MobilePalette.frosted else MobilePalette.surface)
             cornerRadius=MobilePalette.cardDp*density
             setStroke(1,MobilePalette.outline)
         }

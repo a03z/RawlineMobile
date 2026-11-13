@@ -11,7 +11,7 @@ object MobileFeedback {
     const val NONE = "mobileFeedbackNone"
     /** The new style, on the first touch of a window: whatever control lies under the finger presses like glass, set up here once. */
     fun onTouchDown(root: View, event: android.view.MotionEvent) {
-        if(!MobileStyle.new || event.actionMasked!=android.view.MotionEvent.ACTION_DOWN) return
+        if(!MobileStyle.modern || event.actionMasked!=android.view.MotionEvent.ACTION_DOWN) return
         val target=controlAt(root,event.x,event.y) ?: return
         // The connect button presses and animates by itself; a ripple around it would hide it from the home screen.
         if(target.background is MobilePowerArtwork || target.tag==NONE) return
@@ -35,7 +35,7 @@ object MobileFeedback {
             if(circle) shape=GradientDrawable.OVAL
             else cornerRadius=radius*view.resources.displayMetrics.density
         }
-        val colour=if(MobilePalette.light && !white) Color.argb(28,0,0,0) else Color.argb(if(MobileStyle.new) 56 else 35,255,255,255)
+        val colour=if(MobilePalette.light && !white) Color.argb(28,0,0,0) else Color.argb(if(MobileStyle.modern) 56 else 35,255,255,255)
         view.background=RippleDrawable(ColorStateList.valueOf(colour),view.background,mask)
     }
 }

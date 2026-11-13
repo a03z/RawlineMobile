@@ -86,7 +86,7 @@ open class DeployEditorFragment : Fragment() {
         val tile=LinearLayout(requireContext()).apply {
             orientation=LinearLayout.HORIZONTAL;gravity=android.view.Gravity.CENTER_VERTICAL
             setPadding(dp(12),dp(8),dp(12),dp(8));minimumHeight=dp(48)
-            background=if(MobileStyle.new) MobilePalette.rowShape(context) else android.graphics.drawable.GradientDrawable().apply {
+            background=if(MobileStyle.modern) MobilePalette.rowShape(context) else android.graphics.drawable.GradientDrawable().apply {
                 setColor(MobilePalette.surface);cornerRadius=dp(MobilePalette.rowDp).toFloat();setStroke(1,MobilePalette.outline)
             }
             isFocusable=true;contentDescription=listOfNotNull(title,subtitle).joinToString(". ")
@@ -106,7 +106,7 @@ open class DeployEditorFragment : Fragment() {
             val delete=ImageButton(requireContext()).apply {
                 setImageResource(R.drawable.ic_mobile_delete)
                 val red=android.graphics.Color.rgb(220,66,61)
-                if(MobileStyle.new) {
+                if(MobileStyle.modern) {
                     imageTintList=android.content.res.ColorStateList.valueOf(red)
                     background=MobilePalette.actionShape(context,red);MobileFeedback.apply(this)
                     setPadding(dp(20),dp(12),dp(20),dp(12))
@@ -126,7 +126,7 @@ open class DeployEditorFragment : Fragment() {
                 // In the new style the glass is the row's alone: a second layer here would show through it.
                 background=android.graphics.drawable.GradientDrawable().apply {
                     cornerRadius=dp(MobilePalette.rowDp).toFloat()
-                    if(MobileStyle.new) setColor(android.graphics.Color.TRANSPARENT) else { setColor(MobilePalette.surface);setStroke(1,MobilePalette.outline) }
+                    if(MobileStyle.modern) setColor(android.graphics.Color.TRANSPARENT) else { setColor(MobilePalette.surface);setStroke(1,MobilePalette.outline) }
                 }
                 clipToOutline=true
                 onOpened={ opened -> openSwipe?.takeIf { it!==opened }?.closeActions();openSwipe=opened }
@@ -155,7 +155,7 @@ open class DeployEditorFragment : Fragment() {
             strokeColor=android.content.res.ColorStateList.valueOf(MobilePalette.outline)
             if(icon!=0) { setIconResource(icon);iconSize=dp(22);iconPadding=dp(12);iconGravity=MaterialButton.ICON_GRAVITY_START }
             setOnClickListener { click() }
-            if(MobileStyle.new) glassButton(this,false)
+            if(MobileStyle.modern) glassButton(this,false)
         }
         parent.addView(b,(if(pair) LinearLayout.LayoutParams(0,-2,1f) else LinearLayout.LayoutParams(-1,-2)).apply {
             topMargin=if(parent===body) 0 else dp(4)
@@ -207,7 +207,7 @@ open class DeployEditorFragment : Fragment() {
         heading(parent,title)
         row(parent) { r ->
             for((value,label) in options) button(r,label,pair=true) { s[key]=value;refreshSaveAction();build() }.apply {
-                if(MobileStyle.new) glassButton(this,s[key]==value)
+                if(MobileStyle.modern) glassButton(this,s[key]==value)
                 else { strokeWidth=dp(1);strokeColor=android.content.res.ColorStateList.valueOf(if(s[key]==value) MobilePalette.accent(requireContext()) else MobilePalette.muted) }
             }
         }
@@ -294,13 +294,13 @@ open class DeployEditorFragment : Fragment() {
         }
         if(s.kind!="csqtt") { heading(access,"Вход на сервер"); row(access) { r ->
             for((value,label) in listOf("password" to "Пароль","key" to "SSH-ключ")) button(r,label,pair=true) { s["auth"]=value;build() }.apply {
-                if(MobileStyle.new) glassButton(this,s["auth"]==value)
+                if(MobileStyle.modern) glassButton(this,s["auth"]==value)
                 else { strokeWidth=dp(1);strokeColor=android.content.res.ColorStateList.valueOf(if(s["auth"]==value) MobilePalette.accent(requireContext()) else MobilePalette.muted) }
             }
         } }
         if(s["auth"]=="key") {
             button(access,if(s["key"].isBlank()) "Загрузить ключ" else "Сменить ключ",R.drawable.ic_baseline_vpn_key_24) { host.pickKey() }.apply {
-                if(!MobileStyle.new) {
+                if(!MobileStyle.modern) {
                     strokeWidth=dp(1);strokeColor=android.content.res.ColorStateList.valueOf(MobilePalette.accent(requireContext()))
                     backgroundTintList=android.content.res.ColorStateList.valueOf(MobilePalette.background)
                 }

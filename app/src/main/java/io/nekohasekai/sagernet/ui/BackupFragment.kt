@@ -107,16 +107,16 @@ class BackupFragment : Fragment(R.layout.layout_backup) {
         (view as? androidx.core.widget.NestedScrollView)?.isVerticalScrollBarEnabled=false
         fun style(node: View) {
             node.isVerticalScrollBarEnabled=false
-            if(MobileStyle.new && node is android.widget.ImageView) node.imageTintList=android.content.res.ColorStateList.valueOf(androidx.core.graphics.ColorUtils.blendARGB(MobilePalette.text,MobilePalette.muted,.5f))
+            if(MobileStyle.modern && node is android.widget.ImageView) node.imageTintList=android.content.res.ColorStateList.valueOf(androidx.core.graphics.ColorUtils.blendARGB(MobilePalette.text,MobilePalette.muted,.5f))
             if(node is com.google.android.material.card.MaterialCardView) {
                 // A translucent card and button would double up: the glass goes on the row inside.
-                if(MobileStyle.new) { node.setCardBackgroundColor(android.graphics.Color.TRANSPARENT); node.strokeWidth=0; node.getChildAt(0)?.background=MobilePalette.rowShape(requireContext()) }
+                if(MobileStyle.modern) { node.setCardBackgroundColor(android.graphics.Color.TRANSPARENT); node.strokeWidth=0; node.getChildAt(0)?.background=MobilePalette.rowShape(requireContext()) }
                 else node.setCardBackgroundColor(MobilePalette.surface)
             }
             if(node is com.google.android.material.switchmaterial.SwitchMaterial) {
                 node.setTextColor(MobilePalette.text)
             } else if(node is com.google.android.material.button.MaterialButton) {
-                if(MobileStyle.new) {
+                if(MobileStyle.modern) {
                     // The button's own layers show through the glass: only the row's surface and press remain.
                     node.rippleColor=null;node.stateListAnimator=null;node.elevation=0f;node.outlineProvider=null;node.backgroundTintList=null
                     MobileFeedback.apply(node)

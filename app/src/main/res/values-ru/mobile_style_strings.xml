@@ -7,12 +7,8 @@
     <string name="qmobile_orb_idle">Нажмите для подключения</string>
     <string name="qmobile_client">VPN-клиент</string>
     <string name="qmobile_servers">Серверы</string>
-    <string name="qmobile_mode_tun">TUN</string>
-    <string name="qmobile_proxy">Системный прокси</string>
     <string name="qmobile_mode_on">Включено</string>
     <string name="qmobile_mode_off">Выключено</string>
-    <string name="qmobile_collapse">Свернуть</string>
-    <string name="qmobile_expand">Развернуть</string>
     <string name="qmobile_upload">Отдача</string>
     <string name="qmobile_download">Загрузка</string>
     <string name="qmobile_traffic_total">Всего %1$s</string>

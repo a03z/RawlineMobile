@@ -45,7 +45,7 @@ internal class MobileReorder(
         }
     }
     // In the new style a held row gives way instead of growing, so its glass is never cut by the list's edge.
-    private val heldScale get() = if(MobileStyle.new) .98f else 1.025f
+    private val heldScale get() = if(MobileStyle.modern) .98f else 1.025f
     private val horizontal get() = container.orientation == LinearLayout.HORIZONTAL
     private var pointer=0f
     private var pendingMove=false

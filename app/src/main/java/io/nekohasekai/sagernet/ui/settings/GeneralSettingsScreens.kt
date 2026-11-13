@@ -134,7 +134,7 @@ class AppearanceSettingsFragment : SettingsScreenFragment(R.xml.settings_appeara
         pref<SimpleMenuPreference>("qmobileUiStyle").setOnPreferenceChangeListener { _, _ -> applyThemeInstantly(); true }
         // The new style is black or white with one look: accent colours, seasonal art and a bottom tile bar mean nothing there.
         // Pastel keeps that structure, and uses the light/dark/OLED list so night is not forced to black.
-        val modern = app.rawline.mobile.ui.MobileStyle.new
+        val modern = app.rawline.mobile.ui.MobileStyle.modern
         val pastel = app.rawline.mobile.ui.MobileStyle.pastel
         listOf(Key.APP_THEME, "seasonal_decoration", "qmobileListMode").forEach { pref<Preference>(it).isVisible = !modern }
         pref<Preference>("qmobileEditLayout").setOnPreferenceClickListener {
@@ -167,8 +167,7 @@ class AppearanceSettingsFragment : SettingsScreenFragment(R.xml.settings_appeara
 
     /** Night without the OLED flag is Dark. New has no separate Dark row, so its night stays OLED. */
     private fun showSurfaceChoice(preference: SimpleMenuPreference) {
-        val pastel = app.rawline.mobile.ui.MobileStyle.pastel
-        val modern = app.rawline.mobile.ui.MobileStyle.new && !pastel
+        val modern = app.rawline.mobile.ui.MobileStyle.new
         if (modern) {
             preference.setEntries(R.array.qmobile_surface_themes_new)
             preference.setEntryValues(R.array.qmobile_surface_values_new)

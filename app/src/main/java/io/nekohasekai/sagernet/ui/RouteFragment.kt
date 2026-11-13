@@ -614,7 +614,7 @@ class RouteFragment : ToolbarFragment(R.layout.layout_route), Toolbar.OnMenuItem
             val context = itemView.context
             // The same row as everywhere else in the app, the chosen profile marked as the chosen server is.
             val card = binding.root
-            if (MobileStyle.new) {
+            if (MobileStyle.modern) {
                 card.setCardBackgroundColor(android.graphics.Color.TRANSPARENT); card.strokeWidth = 0; card.cardElevation = 0f
                 card.radius = MobilePalette.rowDp * context.resources.displayMetrics.density
                 card.getChildAt(0).background = if (current) MobilePalette.selectedShape(context) else MobilePalette.rowShape(context)

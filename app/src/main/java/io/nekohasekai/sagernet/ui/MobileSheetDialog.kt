@@ -11,7 +11,7 @@ class MobileSheetDialog(context: Context) : BottomSheetDialog(context) {
     private var dragHandle: View? = null
 
     fun dragOnlyFrom(handle: View) {
-        if (MobileStyle.new) return // the new style's sheets drag from anywhere; their lists scroll through nested scrolling
+        if (MobileStyle.modern) return // the new style's sheets drag from anywhere; their lists scroll through nested scrolling
         dragHandle = handle
         behavior.isDraggable = false
     }
@@ -41,7 +41,7 @@ class MobileSheetDialog(context: Context) : BottomSheetDialog(context) {
     override fun onStart() {
         super.onStart()
         window?.let { MobileScreenMotion.fullFrameRate(it);MobileFocusRing.attach(it) }
-        if (MobileStyle.new) {
+        if (MobileStyle.modern) {
             // Open or closed, nothing in between: a half-open sheet is what felt like it stopped short.
             behavior.skipCollapsed = true
             behavior.state = com.google.android.material.bottomsheet.BottomSheetBehavior.STATE_EXPANDED
@@ -49,10 +49,10 @@ class MobileSheetDialog(context: Context) : BottomSheetDialog(context) {
         }
         findViewById<android.view.View>(com.google.android.material.R.id.design_bottom_sheet)?.apply {
             background=GradientDrawable().apply {
-                setColor(if (MobileStyle.new) MobilePalette.frosted else MobilePalette.surface);cornerRadius=MobilePalette.cardDp*resources.displayMetrics.density
+                setColor(if (MobileStyle.modern) MobilePalette.frosted else MobilePalette.surface);cornerRadius=MobilePalette.cardDp*resources.displayMetrics.density
             }
             clipToOutline=true
-            if (MobileStyle.new) {
+            if (MobileStyle.modern) {
                 // Rounded on top only: the lower edge lies below the screen, with no line along it.
                 val radius=MobilePalette.cardDp*resources.displayMetrics.density
                 val frost=android.graphics.drawable.InsetDrawable(GradientDrawable().apply {
@@ -64,17 +64,17 @@ class MobileSheetDialog(context: Context) : BottomSheetDialog(context) {
                 }
             }
         }
-        if (MobileStyle.new) window?.let { window ->
+        if (MobileStyle.modern) window?.let { window ->
             window.setDimAmount(MobilePalette.windowDim)
             // Under the sheet: the theme's coloured bar would show as a stripe along the bottom.
             window.navigationBarColor=if (MobileStyle.pastel) MobilePalette.frosted else MobilePalette.background
             if (android.os.Build.VERSION.SDK_INT >= 29) window.isNavigationBarContrastEnforced=false
         }
-        if (MobileStyle.new && android.os.Build.VERSION.SDK_INT >= 31) window?.let { window ->
+        if (MobileStyle.modern && android.os.Build.VERSION.SDK_INT >= 31) window?.let { window ->
             window.addFlags(android.view.WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
             window.attributes = window.attributes.apply { blurBehindRadius = (MobilePalette.BLUR_DP * context.resources.displayMetrics.density).toInt() }
         }
-        window?.setWindowAnimations(if (MobileStyle.new) app.rawline.mobile.R.style.MobileSheetSoft else app.rawline.mobile.R.style.MobileSheetFast)
+        window?.setWindowAnimations(if (MobileStyle.modern) app.rawline.mobile.R.style.MobileSheetSoft else app.rawline.mobile.R.style.MobileSheetFast)
     }
 
     companion object {

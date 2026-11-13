@@ -51,7 +51,7 @@ object MobileScreenMotion {
         if (nextAnim !in listOf(R.anim.settings_enter, R.anim.settings_exit, R.anim.settings_pop_enter, R.anim.settings_pop_exit)) return null
         view.translationX = 0f
         val fade = ObjectAnimator.ofFloat(view, View.ALPHA, if (incoming) 0f else 1f, if (incoming) 1f else 0f)
-        if (!MobileStyle.new) return fade.apply { duration = 90 }
+        if (!MobileStyle.modern) return fade.apply { duration = 90 }
         fade.duration = if (incoming) 180 else 120
         val rise = view.resources.displayMetrics.density * 12
         MobileOrbArtwork.frozen = true
@@ -69,10 +69,10 @@ object MobileScreenMotion {
 
     @Suppress("DEPRECATION")
     fun open(activity: Activity) {
-        val enter = if (MobileStyle.new) R.anim.screen_soft_enter else R.anim.settings_enter
-        val exit = if (MobileStyle.new) R.anim.screen_soft_exit else R.anim.settings_exit
-        val popEnter = if (MobileStyle.new) R.anim.screen_soft_pop_enter else R.anim.settings_pop_enter
-        val popExit = if (MobileStyle.new) R.anim.screen_soft_pop_exit else R.anim.settings_pop_exit
+        val enter = if (MobileStyle.modern) R.anim.screen_soft_enter else R.anim.settings_enter
+        val exit = if (MobileStyle.modern) R.anim.screen_soft_exit else R.anim.settings_exit
+        val popEnter = if (MobileStyle.modern) R.anim.screen_soft_pop_enter else R.anim.settings_pop_enter
+        val popExit = if (MobileStyle.modern) R.anim.screen_soft_pop_exit else R.anim.settings_pop_exit
         if (Build.VERSION.SDK_INT >= 34) {
             activity.overrideActivityTransition(Activity.OVERRIDE_TRANSITION_OPEN, enter, exit)
             activity.overrideActivityTransition(Activity.OVERRIDE_TRANSITION_CLOSE, popEnter, popExit)
@@ -82,7 +82,7 @@ object MobileScreenMotion {
     @Suppress("DEPRECATION")
     fun close(activity: Activity) {
         if (Build.VERSION.SDK_INT >= 34) return
-        if (MobileStyle.new) activity.overridePendingTransition(R.anim.screen_soft_pop_enter, R.anim.screen_soft_pop_exit)
+        if (MobileStyle.modern) activity.overridePendingTransition(R.anim.screen_soft_pop_enter, R.anim.screen_soft_pop_exit)
         else activity.overridePendingTransition(R.anim.settings_pop_enter, R.anim.settings_pop_exit)
     }
 }

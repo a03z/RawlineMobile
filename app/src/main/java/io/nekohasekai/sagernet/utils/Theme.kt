@@ -59,9 +59,9 @@ object Theme {
     }
 
     private fun applyStyleShapes(context: Context) {
-        context.theme.applyStyle(if (MobileStyle.new) R.style.MobileStyleNew else R.style.MobileStyleClassic, true)
+        context.theme.applyStyle(if (MobileStyle.modern) R.style.MobileStyleNew else R.style.MobileStyleClassic, true)
         // Not forced: only where no surface style has set them already.
-        if (MobileStyle.new) context.theme.applyStyle(if (MobilePalette.light) R.style.MobileWellNewWhite else R.style.MobileWellNewOled, false)
+        if (MobileStyle.modern) context.theme.applyStyle(if (MobilePalette.light) R.style.MobileWellNewWhite else R.style.MobileWellNewOled, false)
     }
 
     fun applyDialog(context: Context) {
@@ -85,7 +85,7 @@ object Theme {
             context.theme.applyStyle(R.style.Theme_SagerNet_Amoled, true)
             // White falls back to Black at night, whose app bar (colorPrimary) is dark grey; OLED makes it black.
             // Not under Monet, so the Monet colours are not flattened to black
-            if ((DataStore.appTheme == WHITE || MobileStyle.new) && !usingMonetTheme()) {
+            if ((DataStore.appTheme == WHITE || MobileStyle.modern) && !usingMonetTheme()) {
                 context.theme.applyStyle(R.style.Theme_SagerNet_Amoled_White, true)
             }
         }
@@ -93,7 +93,7 @@ object Theme {
 
     // Whether system dynamic colour (Monet) is in effect; it disables every White-theme adjustment
     fun usingMonetTheme(): Boolean {
-        return !MobileStyle.new && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && DataStore.useSystemTheme
+        return !MobileStyle.modern && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && DataStore.useSystemTheme
     }
 
     fun getTheme(): Int {

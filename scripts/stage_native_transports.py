@@ -204,8 +204,9 @@ for item in mrtt['archives']:
     print('Verified MRTT transport:', item['abi'])
 
 # AIVPN and S3 Bypass: this archive adds libaivpn.so and replaces the transports archive's libs3bypass.so.
-aivpn = lock.get('aivpn')
-if aivpn:
+assert 'aivpn' in lock, 'Build and pin AIVPN before packaging this version'
+aivpn = lock['aivpn']
+if True:
     source_paths = {p.relative_to(root).as_posix() for p in [*(root / 'carriers/aivpn').glob('*'), *(root / 'carriers/s3bypass').glob('*.go')]}
     source_paths.add('scripts/build_aivpn.sh')
     assert source_paths == set(aivpn['inputs']), 'Rebuild AIVPN after adding or removing source files'

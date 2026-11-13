@@ -1,6 +1,7 @@
 package app.rawline.mobile.outbound.types
 import app.rawline.mobile.outbound.*
 import app.rawline.mobile.outbound.json.*
+import app.rawline.mobile.outbound.link.Base64Strict
 import app.rawline.mobile.bg.carrier.*
 
 /**

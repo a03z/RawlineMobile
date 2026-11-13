@@ -123,6 +123,10 @@ class AutoSelectorPlan internal constructor() {
     var groups: List<SelectorGroup> = emptyList()
         internal set
 
+    /** Under the priority strategy: each planned member's tier, [AutoSelector.tiers].size for those matching none. */
+    var tierOf: Map<Long, Int> = emptyMap()
+        internal set
+
     internal var memberById: Map<Long, SelectorMember> = emptyMap()
     internal var memberGroups: Map<Long, SelectorGroup> = emptyMap()
 
@@ -231,9 +235,32 @@ class AutoSelectorPlanner @JvmOverloads constructor(
 
         var ordered = orderMembers(members, selector.pool, selector, tracked, now)
         plan.truncated = ordered.size > selector.poolCap
-        if (plan.truncated) ordered = ordered.take(selector.poolCap)
-        plan.pool = ordered
-        plan.build = ordered.take(selector.buildLimit)
+        if (selector.prioritized()) {
+            // The core reads this order as its ranking prior, and capByTier keeps it.
+            val noTier = selector.tiers.size
+            val patterns = selector.tiers.map { tier ->
+                tier.nameFilter.trim().takeIf { it.isNotEmpty() }?.let {
+                    try { Pattern.compile(it, Pattern.CASE_INSENSITIVE or Pattern.UNICODE_CASE) } catch (e: PatternSyntaxException) { INVALID }
+                }
+            }
+            plan.tierOf = members.associateWith { id ->
+                val group = tracked.groupOf[id]?.id
+                val name = tracked.byId[id]?.outbound?.displayName().orEmpty()
+                // First match wins; an invalid pattern matches nothing.
+                selector.tiers.indices.firstOrNull { i ->
+                    val tier = selector.tiers[i]
+                    (tier.gid < 0 || tier.gid == group) && patterns[i].let { it == null || (it !== INVALID && it.matcher(name).find()) }
+                } ?: noTier
+            }
+            ordered = ordered.sortedBy { plan.tierOf[it] ?: noTier }
+            ordered = capByTier(ordered, selector.poolCap, plan.tierOf, noTier)
+            plan.pool = ordered
+            plan.build = capByTier(ordered, selector.buildLimit, plan.tierOf, noTier)
+        } else {
+            if (plan.truncated) ordered = ordered.take(selector.poolCap)
+            plan.pool = ordered
+            plan.build = ordered.take(selector.buildLimit)
+        }
         if (ordered.size > selector.buildLimit) {
             plan.needsRanking = plan.build.any { effectiveLatency(tracked.byId[it], selector, now) == 0 }
         }
@@ -417,6 +444,27 @@ class AutoSelectorPlanner @JvmOverloads constructor(
     }
 
     // orderMembers (cpp:200-222): the persisted pool is the core's ranking prior; newcomers follow by latency.
+    /** capByTier (AutoSelectorPlan.cpp): cuts a tier-sorted list to [limit] without crowding out a tier: each one first gets a fair share, the rest goes in tier order. */
+    private fun capByTier(ordered: List<Long>, limit: Int, tierOf: Map<Long, Int>, noTier: Int): List<Long> {
+        if (ordered.size <= limit) return ordered
+        val byTier = List(noTier + 1) { ArrayList<Long>() }
+        for (id in ordered) byTier[tierOf[id] ?: noTier].add(id)
+        val reserve = maxOf(1, limit / (2 * byTier.count { it.isNotEmpty() }))
+        val quota = IntArray(byTier.size) { minOf(byTier[it].size, reserve) }
+        var given = quota.sum()
+        if (given > limit) {
+            // More tiers than slots: one each, in tier order.
+            given = 0
+            for (i in byTier.indices) { quota[i] = if (byTier[i].isNotEmpty() && given < limit) 1 else 0; given += quota[i] }
+        }
+        for (i in byTier.indices) {
+            if (given >= limit) break
+            val extra = minOf(byTier[i].size - quota[i], limit - given)
+            quota[i] += extra; given += extra
+        }
+        return byTier.indices.flatMap { byTier[it].take(quota[it]) }
+    }
+
     private fun orderMembers(
         members: List<Long>, persistedPool: List<Long>, selector: AutoSelector, tracked: Tracked, now: Long,
     ): List<Long> {
@@ -456,6 +504,9 @@ class AutoSelectorPlanner @JvmOverloads constructor(
     }
 
     companion object {
+        /** Stands for a tier pattern that does not compile. */
+        private val INVALID: Pattern = Pattern.compile("")
+
         /** hasFreshResult (cpp:41-48): a stored result inside the trust window; rows without a timestamp are stale. */
         @JvmStatic
         fun hasFreshResult(member: SelectorMember?, selector: AutoSelector, now: Long): Boolean {

@@ -805,6 +805,7 @@ class ConfigGenerator @JvmOverloads constructor(
         val warm = JsonArray()
         var pinnedTag = ""
         val memberTags = JsonArray()
+        val tierTags = List(if (selector.prioritized()) selector.tiers.size else 0) { JsonArray() }
         val members = LinkedHashMap<String, Long>()
         for ((idx, planned) in plannedMembers.withIndex()) {
             val bridges = planned.bridges
@@ -832,6 +833,8 @@ class ConfigGenerator @JvmOverloads constructor(
             }
             val member = planned.member
             memberTags.add(tag)
+            // Members matching no tier stay unlisted: the core ranks them after the last tier.
+            plan.tierOf[member.id]?.let { tier -> tierTags.getOrNull(tier)?.add(tag) }
             members[tag] = member.id
             if (member.id == selector.pinnedID) pinnedTag = tag
             if (member.latency != 0 && member.latencyAt > 0 && selector.resultValidityMins > 0) {
@@ -862,6 +865,13 @@ class ConfigGenerator @JvmOverloads constructor(
             "dial_retries" to selector.dialRetries,
             "interrupt_exist_connections" to selector.interruptOnSwitch,
         )
+        if (selector.prioritized()) {
+            group["strategy"] = "priority"
+            group["tiers"] = JsonArray().also { array -> tierTags.forEach(array::add) }
+            group["failback_checks"] = selector.failbackChecks
+            group["failback_delay"] = "${selector.failbackDelaySec}s"
+            if (selector.failbackInterrupt) group["failback_interrupt"] = true
+        }
         if (warm.isNotEmpty()) group["warm"] = warm
         if (pinnedTag.isNotEmpty()) group["pinned"] = pinnedTag
         if (selector.maxRTTms > 0) group["max_rtt"] = "${selector.maxRTTms}ms"

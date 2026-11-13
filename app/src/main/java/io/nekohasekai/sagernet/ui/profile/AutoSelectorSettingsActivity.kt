@@ -50,6 +50,7 @@ class AutoSelectorSettingsActivity : BindingSettingsActivity<AutoSelector>() {
         /** "Servers from": the checked group ids as a string set; [AutoSelector.gids] is not a binding. */
         const val KEY_GIDS = "gids"
         const val KEY_PINNED = "autoselPinned"
+        const val KEY_STAGED = "autoselStaged"
         const val KEY_PLAN = "autoselPlan"
         const val KEY_ADVANCED = "autoselAdvanced"
         const val KEY_BALANCE_HINT = "autoselBalanceHint"
@@ -136,11 +137,20 @@ class AutoSelectorSettingsActivity : BindingSettingsActivity<AutoSelector>() {
     override fun AutoSelector.init() {
         pbm.writeToCacheAll(this)
         DataStore.profileCacheStore.putStringSet(KEY_GIDS, gids.mapTo(LinkedHashSet()) { it.toString() })
+        DataStore.profileCacheStore.putBoolean(KEY_STAGED, prioritized())
+    }
+
+    /** The priority strategy over the tracked groups in their saved order; tiers with name patterns (set on the desktop) stay. */
+    private fun AutoSelector.applyStaged() {
+        val staged = DataStore.profileCacheStore.getBoolean(KEY_STAGED, false)
+        strategy = if (staged) "priority" else "latency"
+        if (staged && tiers.all { it.nameFilter.isBlank() }) tiers = gids.mapTo(ArrayList()) { AutoSelector.Tier(it) }
     }
 
     override fun AutoSelector.serialize() {
         pbm.fromCacheAll(this)
         gids = checkedGroups(gids)
+        applyStaged()
         nameFilter = nameFilter.trim()
         nameExclude = nameExclude.trim()
         countryFilter = countryFilter.trim()
@@ -168,6 +178,7 @@ class AutoSelectorSettingsActivity : BindingSettingsActivity<AutoSelector>() {
         copy.parseFromJson(ensureEditingOutbound().exportToJson())
         pbm.fromCacheAll(copy)
         copy.gids = checkedGroups(copy.gids)
+        copy.applyStaged()
         copy.nameFilter = copy.nameFilter.trim()
         copy.countryFilter = copy.countryFilter.trim()
         copy.testURL = copy.testURL.trim()

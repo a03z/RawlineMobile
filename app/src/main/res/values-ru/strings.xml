@@ -373,6 +373,8 @@
     <string name="autosel_balance_interval_tip">Как долго селектор остаётся на одном профиле перед переходом к следующему готовому.</string>
     <string name="autosel_balance_mode">Режим</string>
     <string name="autosel_balance_tip">По умолчанию выкл.: один профиль несёт всё, остальные в резерве. Включите, чтобы распределять трафик между подтверждённо рабочими профилями.</string>
+    <string name="autosel_staged">Поэтапно по группам</string>
+    <string name="autosel_staged_tip">Сначала профили первой группы, пока хоть один из них работает; к следующей группе — только когда отказали все, с возвратом, когда прежняя восстановится.</string>
     <string name="autosel_bench_interval">Полный проход каждые</string>
     <string name="autosel_bench_interval_tip">Сколько занимает один проход по всем работающим профилям. Проверки распределяются равномерно, поэтому большой пул никогда не вызывает всплеск трафика.</string>
     <string name="autosel_build_limit">Запускать лучших</string>

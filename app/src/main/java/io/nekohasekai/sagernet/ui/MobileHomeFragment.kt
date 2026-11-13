@@ -1350,6 +1350,8 @@ class MobileHomeFragment : ToolbarFragment() {
                     val latency=FrameLayout(requireContext()).apply { tag=profile.latency }
                     nextLatencyViews[profile.id]=latency
                     row.addView(latency,LinearLayout.LayoutParams(dp(62),dp(32)))
+                    // The selector's panel also has a button of its own; the swipe action stays.
+                    if(profile.type=="autoselector") row.addView(ImageView(requireContext()).apply { setImageResource(R.drawable.ic_baseline_show_chart_24); imageTintList=android.content.res.ColorStateList.valueOf(muted); setPadding(dp(6),dp(6),dp(6),dp(6)); contentDescription=getString(R.string.autosel_stats_title); setOnClickListener { startActivity(AutoSelectorStatusActivity.intent(requireContext(),profile.id)) } },LinearLayout.LayoutParams(dp(32),dp(32)))
                     if(!group.isSubscription || !group.subOptions.hideServerSettings) row.addView(ImageView(requireContext()).apply { setImageResource(R.drawable.ic_mobile_chevron); setPadding(dp(6),dp(6),dp(6),dp(6)); contentDescription=getString(R.string.qmobile_edit); setOnClickListener { startActivity(profile.profileSettingsIntent(requireContext(),group.isSubscription)) } },LinearLayout.LayoutParams(dp(32),dp(32)))
                     val swipe = MobileSwipeTile(requireContext(), row, { listOfNotNull(
                         // ThroneForAndroid's selector panel: each member's checks, and a member picked by hand.

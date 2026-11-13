@@ -1333,6 +1333,8 @@
     <string name="autosel_name_filter_empty">Every profile in the group</string>
     <string name="autosel_balance">Share traffic between the best profiles</string>
     <string name="autosel_balance_tip">Off by default: one profile carries everything and the rest stand by. Turn on to spread traffic over the profiles that are confirmed working.</string>
+    <string name="autosel_staged">Group by group, in order</string>
+    <string name="autosel_staged_tip">Use the first group while any of its profiles works; move to the next group only when all of them fail, and come back once the earlier group recovers.</string>
     <string name="autosel_pinned">Preferred profile</string>
     <string name="autosel_pinned_summary">%s — chosen by you, so the selector stays on it while it works</string>
     <string name="autosel_pinned_missing">a profile that no longer exists</string>

@@ -68,6 +68,22 @@ class AutoSelector : Outbound("autoselector") {
     @JvmField var balanceMode: String = "rotate"
     @JvmField var balanceIntervalSec: Int = 30
 
+    /** "latency", or "priority": the members of the first tier while any of them works, the next tier only after. */
+    @JvmField var strategy: String = "latency"
+
+    /** autoselector.h Tier: a tracked group (-1 any) and/or a name pattern; a member takes the first tier it matches. */
+    class Tier(@JvmField var gid: Long = -1, @JvmField var nameFilter: String = "")
+
+    /** Members matching no tier form an implicit last tier. */
+    @JvmField var tiers: MutableList<Tier> = ArrayList()
+
+    /** Moving back up to a recovered higher tier: checks passed in a row, and seconds since its last failure. */
+    @JvmField var failbackChecks: Int = 3
+    @JvmField var failbackDelaySec: Int = 60
+    @JvmField var failbackInterrupt: Boolean = false
+
+    fun prioritized(): Boolean = strategy == "priority"
+
     /** Ranked member ids of the last client-side sweep, best first. */
     @JvmField var pool: MutableList<Long> = ArrayList()
 
@@ -146,6 +162,12 @@ class AutoSelector : Outbound("autoselector") {
         if (obj.contains("balance")) balance = boolOr(obj["balance"], false)
         if (obj.contains("balance_mode")) balanceMode = obj["balance_mode"] as? String ?: "rotate"
         if (obj.contains("balance_interval_sec")) balanceIntervalSec = intOr(obj["balance_interval_sec"], 30)
+        if (obj.contains("strategy")) strategy = obj["strategy"] as? String ?: "latency"
+        if (obj.contains("tiers")) tiers = obj.array("tiers").filterIsInstance<JsonObject>()
+            .mapTo(ArrayList()) { Tier(longOr(it["gid"], -1), it.string("name_filter")) }
+        if (obj.contains("failback_checks")) failbackChecks = intOr(obj["failback_checks"], 3)
+        if (obj.contains("failback_delay_sec")) failbackDelaySec = intOr(obj["failback_delay_sec"], 60)
+        if (obj.contains("failback_interrupt")) failbackInterrupt = boolOr(obj["failback_interrupt"], false)
         if (obj.contains("pool")) pool = obj.array("pool").mapTo(ArrayList()) { JsonValues.toInteger(it) }
         if (obj.contains("pool_ranked_at")) poolRankedAt = obj.double("pool_ranked_at").toLong()
         if (obj.contains("pinned_id")) pinnedID = longOr(obj["pinned_id"], -1)
@@ -186,6 +208,11 @@ class AutoSelector : Outbound("autoselector") {
         obj["balance"] = balance
         obj["balance_mode"] = balanceMode
         obj["balance_interval_sec"] = balanceIntervalSec
+        obj["strategy"] = strategy
+        obj["tiers"] = JsonArray().also { array -> for (tier in tiers) array.add(jsonObjectOf("gid" to tier.gid, "name_filter" to tier.nameFilter)) }
+        obj["failback_checks"] = failbackChecks
+        obj["failback_delay_sec"] = failbackDelaySec
+        obj["failback_interrupt"] = failbackInterrupt
         obj["pool"] = idArray(pool)
         obj["pool_ranked_at"] = poolRankedAt
         obj["pinned_id"] = pinnedID
@@ -227,6 +254,9 @@ class AutoSelector : Outbound("autoselector") {
         if (dialRetries > 5) dialRetries = 5
         if (balanceIntervalSec < 5) balanceIntervalSec = 5
         if (balanceMode != "connection") balanceMode = "rotate"
+        if (strategy != "priority") strategy = "latency"
+        if (failbackChecks < 1) failbackChecks = 1
+        if (failbackDelaySec < 0) failbackDelaySec = 0
     }
 
     /** autoselector.h:172-179. */

@@ -190,10 +190,13 @@ class VpnService : BaseVpnService(),
     }
 
     fun updateUnderlyingNetwork(builder: Builder? = null) {
-        val networks=SagerNet.underlyingNetwork?.let { arrayOf(it) }
+        val networks = SagerNet.underlyingNetwork?.let { arrayOf(it) }
         if (builder != null) {
             if (networks != null) builder.setUnderlyingNetworks(networks)
-        } else setUnderlyingNetworks(networks)
+        } else {
+            // null once the network is lost: the VPN follows the system default instead of declaring a gone network.
+            setUnderlyingNetworks(networks)
+        }
     }
 
     override fun onRevoke() = stopRunner()

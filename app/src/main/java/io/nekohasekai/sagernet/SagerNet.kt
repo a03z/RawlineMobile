@@ -87,6 +87,11 @@ class SagerNet : Application(),
         }
 
         if (isMainProcess) {
+            // The tun0 guard drops every connection on firmware that never names connection owners: off for everyone once.
+            if (!DataStore.configurationStore.getBoolean("block_unowned_tun_112_migrated", false)) {
+                DataStore.blockUnownedTun = false
+                DataStore.configurationStore.putBoolean("block_unowned_tun_112_migrated", true)
+            }
             if (!DataStore.configurationStore.getBoolean("mobile_gray_300_color_migrated", false)) {
                 DataStore.appTheme = app.rawline.mobile.utils.Theme.GREY
                 DataStore.useSystemTheme = false
@@ -122,8 +127,8 @@ class SagerNet : Application(),
             }
             // The icon pack of the removed custom icon feature; a no-op once it is gone.
             runOnDefaultDispatcher { File(filesDir, "custom_icon").deleteRecursively() }
-            RemoteRouteUpdater.schedule(keepExisting = true)
-            SubscriptionScheduler.schedule(keepExisting = true)
+            RemoteRouteUpdater.schedule()
+            SubscriptionScheduler.schedule()
             Widgets.watchSelection(this)
             app.rawline.mobile.route.ProviderGeoAssets.listen()
         }
@@ -146,9 +151,11 @@ class SagerNet : Application(),
         updateNotificationChannels()
     }
 
+    // Enqueueing (RemoteWorkManagerService) and SystemJobService live in the main process, so the reschedule after a
+    // reboot, force-stop or update (ForceStopRunnable, default process only) must run there too; workers hop to :bg.
     override fun getWorkManagerConfiguration(): WorkConfiguration {
         return WorkConfiguration.Builder()
-            .setDefaultProcessName("${BuildConfig.APPLICATION_ID}:bg")
+            .setDefaultProcessName(BuildConfig.APPLICATION_ID)
             .build()
     }
 
@@ -156,6 +163,9 @@ class SagerNet : Application(),
     companion object {
 
         lateinit var application: SagerNet
+
+        /** False only on the JVM of unit tests, where no Android application runs. */
+        val hasApplication: Boolean get() = ::application.isInitialized
 
         val isTv by lazy {
             uiMode.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION ||
@@ -187,12 +197,19 @@ class SagerNet : Application(),
                 ?.getItemAt(0)?.text?.toString() ?: ""
         }
 
-        fun trySetPrimaryClip(clip: String) = try {
-            clipboard.setPrimaryClip(ClipData.newPlainText(null, clip))
-            true
-        } catch (e: RuntimeException) {
-            Logs.w(e)
-            false
+        /** The clip travels as UTF-16 in one binder transaction, whose buffer (about 1 MB) the process shares. */
+        const val MAX_CLIP_CHARS = 400_000
+
+        /** False when the text is over [MAX_CLIP_CHARS] or the clipboard refused it. */
+        fun trySetPrimaryClip(clip: String): Boolean {
+            if (clip.length > MAX_CLIP_CHARS) return false
+            return try {
+                clipboard.setPrimaryClip(ClipData.newPlainText(null, clip))
+                true
+            } catch (e: RuntimeException) {
+                Logs.w(e)
+                false
+            }
         }
 
         fun updateNotificationChannels() {

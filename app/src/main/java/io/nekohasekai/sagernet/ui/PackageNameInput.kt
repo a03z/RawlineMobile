@@ -2,10 +2,13 @@ package app.rawline.mobile.ui
 
 import android.content.Context
 import android.text.InputType
+import android.view.View
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.Toast
 import app.rawline.mobile.ui.MobileAlertDialogBuilder as MobileAlertDialogBuilder
+
+import com.google.android.material.snackbar.Snackbar
 import app.rawline.mobile.R
 import app.rawline.mobile.ktx.dp2px
 
@@ -16,6 +19,19 @@ import app.rawline.mobile.ktx.dp2px
 object PackageNameInput {
 
     private val PACKAGE_NAME = Regex("^[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z][A-Za-z0-9_]*)*$")
+
+    fun isPackageName(name: String) = PACKAGE_NAME.matches(name)
+
+    /** A clipboard import's names that are no package (a URL, a sentence): the import is refused, not cleaned up. */
+    fun rejectInvalid(view: View, names: List<String>): Boolean {
+        val invalid = names.filterNot(::isPackageName)
+        if (invalid.isEmpty()) return false
+        Snackbar.make(
+            view, view.context.getString(R.string.picker_invalid_package, invalid.take(3).joinToString(", ")),
+            Snackbar.LENGTH_LONG,
+        ).show()
+        return true
+    }
 
     fun show(context: Context, onResult: (List<String>) -> Unit) {
         val input = EditText(context).apply {

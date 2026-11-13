@@ -1,7 +1,10 @@
 package app.rawline.mobile.route
 
+import app.rawline.mobile.R
+import app.rawline.mobile.outbound.config.DnsServers
 import app.rawline.mobile.outbound.json.JsonObject
 import app.rawline.mobile.outbound.json.jsonObjectOf
+import app.rawline.mobile.validation.vtr
 
 /**
  * RouteDns (include/database/entities/RouteProfile.h): the DNS settings a routing profile can take over. Local
@@ -29,12 +32,14 @@ data class RouteDns(
         "fakeip_disable_ipv6" to fakeIpDisableIpv6,
     )
 
-    /** Why the core could not use it; "" when it can. */
-    fun problem(): String = when {
-        remoteDns.isBlank() -> "remote DNS is empty"
-        directDns.isBlank() -> "direct DNS is empty"
-        dnsFinalOut != "remote" && dnsFinalOut != "direct" -> "unknown DNS final outbound \"$dnsFinalOut\""
-        else -> ""
+    /** RouteDns::Problem: why the core could not use it; "" when it can. */
+    fun problem(): String {
+        val remote = DnsServers.parseDnsAddress(remoteDns)
+        if (remote.address == null) return vtr(R.string.validation_route_dns_remote, remoteDns, remote.why)
+        val direct = DnsServers.parseDnsAddress(directDns)
+        if (direct.address == null) return vtr(R.string.validation_route_dns_direct, directDns, direct.why)
+        if (dnsFinalOut != "remote" && dnsFinalOut != "direct") return vtr(R.string.validation_route_dns_final, dnsFinalOut)
+        return ""
     }
 
     companion object {

@@ -91,6 +91,9 @@ open class MobilePowerArtwork(private val accent: Int) : Drawable() {
         set(value) { if(field!=value) { field=value;invalidateSelf() } }
     var workersText = ""
         set(value) { if(field!=value) { field=value;invalidateSelf() } }
+    /** "[subscription] server" in use, drawn while connected when it fits. */
+    var serverText = ""
+        set(value) { if(field!=value) { field=value;invalidateSelf() } }
     var pressScale = 1f
         set(value) { field=value; invalidateSelf() }
     var captionSize = 0f
@@ -139,6 +142,12 @@ open class MobilePowerArtwork(private val accent: Int) : Drawable() {
                 paint.typeface=Typeface.DEFAULT
                 paint.color=MobilePalette.muted
                 canvas.drawText(workersText,cx,cy+(if(connected) r*.58f else r*.39f),paint)
+            } else if(connected && serverText.isNotEmpty()) {
+                paint.typeface=Typeface.DEFAULT
+                paint.color=MobilePalette.muted
+                paint.textSize*=.85f
+                val line=android.text.TextUtils.ellipsize(serverText,android.text.TextPaint(paint),r*1.1f,android.text.TextUtils.TruncateAt.END).toString()
+                canvas.drawText(line,cx,cy+r*.58f,paint)
             }
         }
     }

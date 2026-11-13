@@ -1,5 +1,6 @@
 package app.rawline.mobile.bg.test
 
+import android.database.SQLException
 import android.os.RemoteException
 import app.rawline.mobile.R
 import app.rawline.mobile.SpeedTestSettings
@@ -9,13 +10,14 @@ import app.rawline.mobile.bg.XrayGeoAssets
 import app.rawline.mobile.bg.proto.SpeedTestSnapshot
 import app.rawline.mobile.database.DataStore
 import app.rawline.mobile.database.GroupRepo
-import app.rawline.mobile.database.ServerSortRule
 import app.rawline.mobile.database.GroupSort
 import app.rawline.mobile.database.GroupSortAction
 import app.rawline.mobile.database.GroupSortMethod
+import app.rawline.mobile.database.ServerSortRule
 import app.rawline.mobile.database.ProfileManager
 import app.rawline.mobile.database.ProxyEntity
 import app.rawline.mobile.database.SagerDatabase
+import app.rawline.mobile.database.SortInput
 import app.rawline.mobile.ktx.Logs
 import app.rawline.mobile.ktx.app
 import app.rawline.mobile.ktx.readableMessage
@@ -37,6 +39,7 @@ internal class TestSession(
     val id: Int,
     val spec: TestSpec,
     client: ITestSessionCallback?,
+    /** Gets each URL result once stored (TestRunner's ResultHook). */
     private val onUrlStored: ((ProxyEntity) -> Unit)? = null,
 ) {
 
@@ -131,17 +134,20 @@ internal class TestSession(
         } catch (e: Exception) {
             Logs.w(e)
         } finally {
-            // Every group of the tested profiles that keeps a ping order is sorted, also after a stop: a ping started
-            // on another subscription takes over the unfinished ones of this one, which then was never sorted.
-            try { if(kind==TestSpec.KIND_URL && !spec.testCurrent) {
-                val groups = (ProfileManager.getProfiles(spec.profileIds.toList()).map { it.groupId } + spec.sortGroupId)
-                    .filter { it > 0 }.distinct()
-                for (gid in groups) if (GroupRepo.get(gid)?.subOptions?.effectiveSortRule==ServerSortRule.PING)
-                    GroupSort.sortProfiles(gid,GroupSortAction(GroupSortMethod.BY_LATENCY))
-            } } catch(error: Exception) { Logs.w("Ping sort failed: ${error.readableMessage}") }
+            repositionTested()
             notification.finish(assetProblems)
             notifyClient { it.onDone(id, cancelled) }
         }
+    }
+
+    /** TestRunner.cpp: kept sorts move once the run is over, so rows do not jump while results stream in. */
+    private fun repositionTested() {
+        // the running connection's URL and IP results are shown, never stored
+        if (spec.testCurrent && kind != TestSpec.KIND_SPEED) return
+        val changed = tested.values.groupBy({ it.groupId }, { it.id })
+        GroupSort.repositionLater(changed, SortInput.TEST_RESULT)
+        // A speed test also credits the traffic it moved.
+        if (kind == TestSpec.KIND_SPEED) GroupSort.repositionLater(changed, SortInput.TRAFFIC)
     }
 
     /**
@@ -236,7 +242,14 @@ internal class TestSession(
     private suspend fun autoClearUnavailable(profiles: List<ProxyEntity>) {
         val group = profiles.firstOrNull()?.let { GroupRepo.get(it.groupId) } ?: return
         if (!group.autoClearUnavailable) return
-        val unavailable = ProfileManager.getProfiles(profiles.map { it.id }).filter { it.isUnavailable() }.map { it.id }
+        val unavailable = try {
+            profiles.map { it.id }.chunked(ProfileManager.CHUNK).flatMap { ids ->
+                SagerDatabase.proxyDao.getWithoutData(ids).filter { it.isUnavailable() }.map { it.id }
+            }
+        } catch (e: SQLException) {
+            Logs.w(e)
+            return
+        }
         if (unavailable.isEmpty()) return
         Logs.i("URL test finished, clearing ${unavailable.size} unavailable profiles")
         ProfileManager.batchDeleteProfiles(unavailable, stopRunning = false)
@@ -360,7 +373,8 @@ internal class TestSession(
 
     /** DisplayTypeAndName, as the desktop's result log lines name a profile. */
     private fun nameOf(profileId: Long): String =
-        tested[profileId]?.outbound?.displayTypeAndName() ?: profileId.toString()
+        tested[profileId]?.let { ProxyEntity.parseOutbound(it.type, it.outboundJson).displayTypeAndName() }
+            ?: profileId.toString()
 
     private fun counted(success: Boolean, failure: Boolean) {
         done.incrementAndGet()
@@ -383,6 +397,12 @@ internal class TestSession(
 
     companion object {
         const val TYPE_AUTO_SELECTOR = "autoselector"
+
+        /** ProxyEntity.displayName, parsed without caching it on [profile], which the session keeps until it ends. */
+        fun displayNameOf(profile: ProxyEntity): String {
+            val outbound = ProxyEntity.parseOutbound(profile.type, profile.outboundJson)
+            return outbound.displayName().ifEmpty { outbound.displayType().ifEmpty { profile.type } }
+        }
 
         /** The latency code of a core result: ms, aborted = untested (0), a VPN tunnel that is up, else failed (-1). */
         fun latencyCode(latencyMs: Int, error: String, connectOnly: Boolean): Int = when {

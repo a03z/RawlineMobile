@@ -10,6 +10,7 @@ import app.rawline.mobile.ktx.Logs
 import app.rawline.mobile.ktx.completeWith
 import app.rawline.mobile.ktx.readableMessage
 import app.rawline.mobile.outbound.config.GeneratedConfig
+import app.rawline.mobile.outbound.config.PortLease
 import app.rawline.mobile.outbound.types.Custom
 import app.rawline.core.mobile.Mobile
 import app.rawline.core.mobile.TestRequest
@@ -129,7 +130,9 @@ internal class Excluded(@JvmField val profileId: Long, @JvmField val reason: Str
  * server, and failed results feed auto_clear_unavailable.
  */
 internal suspend fun TestSession.screenXrayFullConfigs(profiles: List<ProxyEntity>): List<Excluded> {
+    // The type first: reading outbound parses the profile and keeps the result on it for the rest of the sweep.
     val originals = profiles.mapNotNull { profile ->
+        if (profile.type != "custom") return@mapNotNull null
         (profile.outbound as? Custom)?.takeIf { it.isXrayFullConfig() }?.let { profile to it }
     }
     if (originals.isEmpty() || cancelled) return emptyList()
@@ -258,45 +261,51 @@ internal abstract class LatencySweep(protected val session: TestSession) {
         batch: List<ProxyEntity>,
         results: Channel<ProbeResult>,
     ) {
-        val generated = try {
-            // A native profile with automatic hashes fetches them from VK while building; a stop must interrupt that.
-            runInterruptible(Dispatchers.IO) { CoreConfigs.buildTest(ids) }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            GeneratedConfig.failure(e.readableMessage)
-        }
-        if (!generated.ok) {
-            val error = generated.error ?: "config generation failed"
-            Logs.w("Failed to build test config for batch: $error")
-            ids.forEach { results.trySend(ProbeResult(it, error = error, measured = false)) }
-            return
-        }
-        for ((id, reason) in generated.skipped) {
-            results.trySend(if (isSkipReason(reason)) ProbeResult(id, error = reason, measured = false) else invalid(id, reason))
-        }
-        session.ensureSharedXrayAssets(generated.xrayConfig)
-        coroutineScope {
-            for (probe in TestProbe.plan(generated)) launch {
-                val failure = TestTags.holding(probe.reportedTags()) {
-                    // Cold native authorization must never consume the ordinary profiles' slots.
-                    probeLanes.run(probe.carrierPlans.isNotEmpty()) { runProbe(probe, batch, results) }
-                } ?: return@launch
-                val profileIds = probe.profileIds
-                if (profileIds.size > 1 && !session.cancelled) {
-                    Logs.w("Test probe of ${profileIds.size} profiles could not start, testing it in halves: $failure")
-                    val half = (profileIds.size + 1) / 2
-                    launch { runBuild(profileIds.subList(0, half), batch, results) }
-                    launch { runBuild(profileIds.subList(half, profileIds.size), batch, results) }
-                } else {
-                    for (id in profileIds) {
-                        val name = batch.firstOrNull { it.id == id }?.displayName().orEmpty()
-                        // A carrier a restart stopped mid-start failed only because of the stop.
-                        val error = if (session.cancelled) ERROR_ABORTED else session.startFailure(name, failure)
-                        results.trySend(ProbeResult(id, error = error, measured = false))
+        // The probe boxes bind the bridge ports late; leased until they and the halves' builds are over.
+        val ports = PortLease()
+        try {
+            val generated = try {
+                // A native profile with automatic hashes fetches them from VK while building; a stop must interrupt that.
+                runInterruptible(Dispatchers.IO) { CoreConfigs.buildTest(ids, ports) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                GeneratedConfig.failure(e.readableMessage)
+            }
+            if (!generated.ok) {
+                val error = generated.error ?: "config generation failed"
+                Logs.w("Failed to build test config for batch: $error")
+                ids.forEach { results.trySend(ProbeResult(it, error = error, measured = false)) }
+                return
+            }
+            for ((id, reason) in generated.skipped) {
+                results.trySend(if (isSkipReason(reason)) ProbeResult(id, error = reason, measured = false) else invalid(id, reason))
+            }
+            session.ensureSharedXrayAssets(generated.xrayConfig)
+            coroutineScope {
+                for (probe in TestProbe.plan(generated)) launch {
+                    val failure = TestTags.holding(probe.reportedTags()) {
+                        // Cold native authorization must never consume the ordinary profiles' slots.
+                        probeLanes.run(probe.carrierPlans.isNotEmpty()) { runProbe(probe, batch, results) }
+                    } ?: return@launch
+                    val profileIds = probe.profileIds
+                    if (profileIds.size > 1 && !session.cancelled) {
+                        Logs.w("Test probe of ${profileIds.size} profiles could not start, testing it in halves: $failure")
+                        val half = (profileIds.size + 1) / 2
+                        launch { runBuild(profileIds.subList(0, half), batch, results) }
+                        launch { runBuild(profileIds.subList(half, profileIds.size), batch, results) }
+                    } else {
+                        for (id in profileIds) {
+                            val name = batch.firstOrNull { it.id == id }?.let { TestSession.displayNameOf(it) }.orEmpty()
+                            // A carrier a restart stopped mid-start failed only because of the stop.
+                            val error = if (session.cancelled) ERROR_ABORTED else session.startFailure(name, failure)
+                            results.trySend(ProbeResult(id, error = error, measured = false))
+                        }
                     }
                 }
             }
+        } finally {
+            ports.close()
         }
     }
 

@@ -15,6 +15,7 @@ import com.google.common.util.concurrent.ListenableFuture
 import app.rawline.mobile.database.DataStore
 import app.rawline.mobile.database.RouteManager
 import app.rawline.mobile.database.RouteRepo
+import app.rawline.mobile.database.RouteRuleEntity
 import app.rawline.mobile.ktx.Logs
 import app.rawline.mobile.ktx.app
 import app.rawline.mobile.ktx.fetchText
@@ -22,6 +23,7 @@ import app.rawline.mobile.ktx.readableMessage
 import app.rawline.mobile.ktx.runOnDefaultDispatcher
 import app.rawline.mobile.ktx.runOnIoDispatcher
 import app.rawline.mobile.route.RouteProfile
+import app.rawline.mobile.route.RouteRule
 import app.rawline.mobile.route.RouteShare
 import app.rawline.mobile.route.RuleSets
 import app.rawline.mobile.route.RuleType
@@ -38,8 +40,7 @@ object RemoteRouteUpdater {
     /** route_auto_update is sign-encoded minutes and only takes effect from 30 (mainwindow_setup.cpp:1095-1096). */
     const val MIN_INTERVAL_MINUTES = 30
 
-    private const val WORK_NAME = "RawlineRemoteRouteUpdater"
-    private const val OLD_WORK_NAME = "RemoteRouteUpdater"
+    private const val WORK_NAME = "RemoteRouteUpdater"
 
     /**
      * RouteUpdate::UpdateProfile (RouteUpdater.cpp:12-51) without saving: fetches [p]'s URL through the rule-set
@@ -55,7 +56,25 @@ object RemoteRouteUpdater {
         } catch (e: Exception) {
             return e.readableMessage
         }
+        refreshRuleSetList()
         return applyContent(p, body, warnings, fetched = true)
+    }
+
+    private const val RULE_SET_LIST_MAX_AGE_MS = 10 * 60 * 1000L
+    private val ruleSetListLock = Any()
+    private var ruleSetListCheckedAt = 0L
+
+    /**
+     * The fetched rules' rule-set names are checked against srslist.h, so a stale copy would drop the rules that name
+     * newly published sets. Refreshed at most once per [RULE_SET_LIST_MAX_AGE_MS] per process; a failure keeps the old copy.
+     */
+    private fun refreshRuleSetList() {
+        synchronized(ruleSetListLock) {
+            val now = System.currentTimeMillis()
+            if (now - ruleSetListCheckedAt < RULE_SET_LIST_MAX_AGE_MS) return
+            ruleSetListCheckedAt = now
+            RouteRepo.refresh()?.let { Logs.w("routeprofiles refresh before a remote route update: $it") }
+        }
     }
 
     /** [fetchInto] and save; returns the error, or null. A saved profile deleted meanwhile is not recreated. */
@@ -68,7 +87,10 @@ object RemoteRouteUpdater {
         return null
     }
 
-    /** UI_update_all_remote_routes (RouteUpdater.cpp:54-78): (updated count, "name: error" failures). */
+    /**
+     * UI_update_all_remote_routes (RouteUpdater.cpp:54-78): (updated count, "name: error" failures). An update that
+     * changed the running routing profile asks for a reload.
+     */
     fun updateAll(onlyAutoUpdate: Boolean): Pair<Int, List<String>> {
         var updated = 0
         val failures = ArrayList<String>()
@@ -77,6 +99,7 @@ object RemoteRouteUpdater {
             if (!p.is_remote || p.remote_url.isBlank()) continue
             if (onlyAutoUpdate && !p.auto_update) continue
             Logs.i("Updating remote routing profile: ${p.name}")
+            val before = if (p.id == RouteManager.runningRouteId()) routeFingerprint(p) else null
             val error = update(p)
             if (error != null) {
                 failures.add("${p.name}: $error")
@@ -84,6 +107,7 @@ object RemoteRouteUpdater {
                 continue
             }
             updated++
+            if (before != null && routeFingerprint(p) != before) SubscriptionQueue.reloadNeeded(-1L)
         }
         Logs.i("Remote routing profiles: $updated updated, ${failures.size} failed")
         return updated to failures
@@ -118,18 +142,42 @@ object RemoteRouteUpdater {
     }
 
     /**
-     * The swap of UpdateProfile: rules, default outbound and an empty name are taken; a fetched `dns` is not, so [p]
-     * keeps its own DNS settings. Rules switched off locally stay off, matched by name.
+     * replaceRules (RouteUpdater.cpp:29-51): [p] takes [fetched]'s rules and default outbound and stops being raw.
+     * Endpoint rules belong to the local profile, so they stay at their index; rules switched off locally stay off,
+     * matched by name. [fetched] is left as it is.
+     */
+    internal fun replaceRules(p: RouteProfile, fetched: RouteProfile) {
+        val endpointRules = ArrayList<Pair<Int, RouteRule>>()
+        val disabledNames = HashSet<String>()
+        p.rules.forEachIndexed { i, rule ->
+            if (rule.type == RuleType.ENDPOINT_PREFERRED_BY.id) endpointRules.add(i to rule)
+            else if (rule.disabled) disabledNames.add(rule.name)
+        }
+        p.is_raw = false
+        p.raw_route = ""
+        val rules = ArrayList<RouteRule>()
+        for (rule in fetched.rules) {
+            if (rule.type == RuleType.ENDPOINT_PREFERRED_BY.id) continue
+            rules.add(rule.copy().also { if (it.name in disabledNames) it.disabled = true })
+        }
+        for ((index, rule) in endpointRules) rules.add(minOf(index, rules.size), rule)
+        p.rules = rules
+        p.default_outbound_id = fetched.default_outbound_id
+    }
+
+    /** routeFingerprint (RouteUpdater.cpp): what a rule swap can change, compared to skip or flag an update. */
+    internal fun routeFingerprint(p: RouteProfile): List<Any> =
+        listOf<Any>(p.default_outbound_id, p.is_raw, p.raw_route) + p.rules.mapIndexed { i, rule -> RouteRuleEntity.of(0L, i, rule) }
+
+    /**
+     * The swap of UpdateProfile: rules, default outbound and an empty name are taken ([replaceRules]); a fetched
+     * `dns` is not, so [p] keeps its own DNS settings.
      */
     private fun applyContent(p: RouteProfile, content: String, warnings: MutableList<String>?, fetched: Boolean): String? {
         val imported = RouteShare.fromShareInput(content, RouteManager.profileIdResolver())
         val remote = imported.profile
             ?: return imported.fatal.ifEmpty { "could not parse a routing profile from the response" }
-        val disabledNames = p.rules.filter { it.disabled && it.type != RuleType.ENDPOINT_PREFERRED_BY.id }
-            .mapTo(HashSet()) { it.name }
-        for (rule in remote.rules) if (rule.name in disabledNames) rule.disabled = true
-        p.rules = remote.rules
-        p.default_outbound_id = remote.default_outbound_id
+        replaceRules(p, remote)
         if (p.name.isBlank() && remote.name.isNotBlank()) p.name = remote.name
         if (fetched) p.remote_last_update = System.currentTimeMillis() / 1000
         warnings?.addAll(imported.warnings)
@@ -138,14 +186,13 @@ object RemoteRouteUpdater {
 
     /**
      * (Re)schedules the periodic update from route_auto_update, or cancels it below [MIN_INTERVAL_MINUTES]. Call it
-     * after the interval changes; [keepExisting] (app start) leaves an already scheduled update alone.
+     * after the interval changes and at app start: UPDATE registers the job again and keeps the current period's start.
      */
-    fun schedule(keepExisting: Boolean = false) {
+    fun schedule() {
         runOnDefaultDispatcher {
             val workManager = RemoteWorkManager.getInstance(app)
             val interval = DataStore.routeAutoUpdate
             try {
-                workManager.cancelUniqueWork(OLD_WORK_NAME).await()
                 if (interval < MIN_INTERVAL_MINUTES) {
                     workManager.cancelUniqueWork(WORK_NAME).await()
                     return@runOnDefaultDispatcher
@@ -165,8 +212,7 @@ object RemoteRouteUpdater {
                             .build()
                     )
                     .build()
-                val policy = if (keepExisting) ExistingPeriodicWorkPolicy.KEEP else ExistingPeriodicWorkPolicy.UPDATE
-                workManager.enqueueUniquePeriodicWork(WORK_NAME, policy, request).await()
+                workManager.enqueueUniquePeriodicWork(WORK_NAME, ExistingPeriodicWorkPolicy.UPDATE, request).await()
             } catch (e: Throwable) {
                 Logs.w("RemoteRouteUpdater: scheduling failed", e)
             }

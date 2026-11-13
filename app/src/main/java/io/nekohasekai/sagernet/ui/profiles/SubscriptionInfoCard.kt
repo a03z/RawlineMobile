@@ -59,15 +59,15 @@ internal class SubscriptionInfoCard(val view: View) {
 
         private fun nowSeconds() = System.currentTimeMillis() / 1000
 
-        /** expiryText (SubscriptionInfoCard.cpp:322-334): the time left, "Expired", "" without an expiry. */
+        /** expiryText (SubscriptionInfoCard.cpp:319-330): the time left, "Expired", "" without an expiry. */
         fun expiryText(context: Context, expire: Long, now: Long = nowSeconds()): String {
             if (expire <= 0) return ""
             val left = expire - now
             val settled = left - COUNTDOWN_GRACE
             return when {
                 left < 0 -> context.getString(R.string.subinfo_expired)
-                settled >= 86400 -> context.getString(R.string.subinfo_days_left, settled / 86400)
-                settled >= 3600 -> context.getString(R.string.subinfo_hours_left, settled / 3600)
+                settled >= 86400 -> context.getString(R.string.subinfo_days_hours_left, settled / 86400, settled % 86400 / 3600)
+                settled >= 3600 -> context.getString(R.string.subinfo_hours_minutes_left, settled / 3600, settled % 3600 / 60)
                 else -> context.getString(R.string.subinfo_minutes_left, maxOf(1L, left / 60))
             }
         }

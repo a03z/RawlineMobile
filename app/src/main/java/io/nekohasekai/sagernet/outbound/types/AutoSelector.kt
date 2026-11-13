@@ -1,5 +1,6 @@
 package app.rawline.mobile.outbound.types
 
+import app.rawline.mobile.R
 import app.rawline.mobile.outbound.BuildContext
 import app.rawline.mobile.outbound.BuildResult
 import app.rawline.mobile.outbound.Outbound
@@ -8,6 +9,11 @@ import app.rawline.mobile.outbound.json.JsonArray
 import app.rawline.mobile.outbound.json.JsonObject
 import app.rawline.mobile.outbound.json.JsonValues
 import app.rawline.mobile.outbound.json.jsonObjectOf
+import app.rawline.mobile.validation.Issue
+import app.rawline.mobile.validation.Severity
+import app.rawline.mobile.validation.Validation
+import app.rawline.mobile.validation.addIssue
+import app.rawline.mobile.validation.vtr
 
 /**
  * autoSelector (include/configs/outbounds/autoselector.h, src/configs/outbounds/autoselector.cpp): a profile the
@@ -62,6 +68,22 @@ class AutoSelector : Outbound("autoselector") {
     @JvmField var balanceMode: String = "rotate"
     @JvmField var balanceIntervalSec: Int = 30
 
+    /** "latency", or "priority": the members of the first tier while any of them works, the next tier only after. */
+    @JvmField var strategy: String = "latency"
+
+    /** autoselector.h Tier: a tracked group (-1 any) and/or a name pattern; a member takes the first tier it matches. */
+    class Tier(@JvmField var gid: Long = -1, @JvmField var nameFilter: String = "")
+
+    /** Members matching no tier form an implicit last tier. */
+    @JvmField var tiers: MutableList<Tier> = ArrayList()
+
+    /** Moving back up to a recovered higher tier: checks passed in a row, and seconds since its last failure. */
+    @JvmField var failbackChecks: Int = 3
+    @JvmField var failbackDelaySec: Int = 60
+    @JvmField var failbackInterrupt: Boolean = false
+
+    fun prioritized(): Boolean = strategy == "priority"
+
     /** Ranked member ids of the last client-side sweep, best first. */
     @JvmField var pool: MutableList<Long> = ArrayList()
 
@@ -79,7 +101,7 @@ class AutoSelector : Outbound("autoselector") {
     /** autoselector.h:53. */
     override fun displayType(): String = "Auto Selector"
 
-    /** autoselector.cpp:9-15: the tracked group's name ("" until the app installs [groupNames]). */
+    /** autoselector.cpp:9-15: the names of the tracked groups that exist ("" until the app installs [groupNames]). */
     override fun displayAddress(): String {
         if (gids.none { it >= 0 }) return "no group"
         val lookup = groupNames ?: return ""
@@ -87,8 +109,20 @@ class AutoSelector : Outbound("autoselector") {
         return if (names.isEmpty()) "missing group" else names.joinToString(", ")
     }
 
-    /** autoselector.h:58: no security of its own; it inherits whatever its members use. */
+    /** autoselector.h: no security of its own; it inherits whatever its members use. */
     override fun security(): SecurityInfo = SecurityInfo()
+
+    /** autoselector.h: the members carry the servers. */
+    override fun hasServerEndpoint(): Boolean = false
+
+    /** autoSelector::Validate (autoselector.cpp): parseFromJson already ran [normalize], so only the free-text fields can be wrong here. */
+    override fun validate(issues: MutableList<Issue>, ctx: BuildContext) {
+        super.validate(issues, ctx)
+        issues.addIssue(Severity.Error, "name_filter", Validation.regex(nameFilter), nameFilter)
+        issues.addIssue(Severity.Error, "country_filter", AutoSelectorChecks.autoSelectorCountries(countryFilter), countryFilter)
+        issues.addIssue(Severity.Error, "test_url", AutoSelectorChecks.autoSelectorUrl(testURL), testURL)
+        issues.addIssue(Severity.Error, "connectivity_url", AutoSelectorChecks.autoSelectorUrl(connectivityURL), connectivityURL)
+    }
 
     /**
      * autoselector.h:61-95. A value of the wrong JSON type falls back to the member default (the desktop's
@@ -128,6 +162,12 @@ class AutoSelector : Outbound("autoselector") {
         if (obj.contains("balance")) balance = boolOr(obj["balance"], false)
         if (obj.contains("balance_mode")) balanceMode = obj["balance_mode"] as? String ?: "rotate"
         if (obj.contains("balance_interval_sec")) balanceIntervalSec = intOr(obj["balance_interval_sec"], 30)
+        if (obj.contains("strategy")) strategy = obj["strategy"] as? String ?: "latency"
+        if (obj.contains("tiers")) tiers = obj.array("tiers").filterIsInstance<JsonObject>()
+            .mapTo(ArrayList()) { Tier(longOr(it["gid"], -1), it.string("name_filter")) }
+        if (obj.contains("failback_checks")) failbackChecks = intOr(obj["failback_checks"], 3)
+        if (obj.contains("failback_delay_sec")) failbackDelaySec = intOr(obj["failback_delay_sec"], 60)
+        if (obj.contains("failback_interrupt")) failbackInterrupt = boolOr(obj["failback_interrupt"], false)
         if (obj.contains("pool")) pool = obj.array("pool").mapTo(ArrayList()) { JsonValues.toInteger(it) }
         if (obj.contains("pool_ranked_at")) poolRankedAt = obj.double("pool_ranked_at").toLong()
         if (obj.contains("pinned_id")) pinnedID = longOr(obj["pinned_id"], -1)
@@ -138,7 +178,7 @@ class AutoSelector : Outbound("autoselector") {
         return true
     }
 
-    /** autoselector.h:97-131: every key is always written. */
+    /** autoselector.h:97-131: every key is always written; "gid" (the first tracked group) keeps older builds tracking one. */
     override fun exportToJson(): JsonObject {
         val obj = JsonObject()
         obj["name"] = name
@@ -168,6 +208,11 @@ class AutoSelector : Outbound("autoselector") {
         obj["balance"] = balance
         obj["balance_mode"] = balanceMode
         obj["balance_interval_sec"] = balanceIntervalSec
+        obj["strategy"] = strategy
+        obj["tiers"] = JsonArray().also { array -> for (tier in tiers) array.add(jsonObjectOf("gid" to tier.gid, "name_filter" to tier.nameFilter)) }
+        obj["failback_checks"] = failbackChecks
+        obj["failback_delay_sec"] = failbackDelaySec
+        obj["failback_interrupt"] = failbackInterrupt
         obj["pool"] = idArray(pool)
         obj["pool_ranked_at"] = poolRankedAt
         obj["pinned_id"] = pinnedID
@@ -209,6 +254,9 @@ class AutoSelector : Outbound("autoselector") {
         if (dialRetries > 5) dialRetries = 5
         if (balanceIntervalSec < 5) balanceIntervalSec = 5
         if (balanceMode != "connection") balanceMode = "rotate"
+        if (strategy != "priority") strategy = "latency"
+        if (failbackChecks < 1) failbackChecks = 1
+        if (failbackDelaySec < 0) failbackDelaySec = 0
     }
 
     /** autoselector.h:172-179. */
@@ -275,7 +323,7 @@ class AutoSelector : Outbound("autoselector") {
         history = out
     }
 
-    /** The tracked group's name for [displayAddress]; null when the group does not exist. */
+    /** A tracked group's name for [displayAddress]; null when the group does not exist. */
     fun interface GroupNames {
         fun nameOf(gid: Long): String?
     }
@@ -307,4 +355,37 @@ class AutoSelector : Outbound("autoselector") {
 
         private fun boolOr(value: Any?, default: Boolean): Boolean = value as? Boolean ?: default
     }
+}
+
+/** The Checks of autoselector.h: the free-text fields, and the bounds [AutoSelector.normalize] would otherwise clamp silently. */
+object AutoSelectorChecks {
+    /** The plan matches these against the two-letter country of each profile's last test; "!RU" excludes one. */
+    @JvmStatic
+    fun autoSelectorCountries(text: String): String = Validation.eachItem(text, Validation.Split.Comma, { item ->
+        val code = if (item.startsWith('!')) item.substring(1).trim() else item
+        if (code.length == 2 && code.all { it in 'A'..'Z' || it in 'a'..'z' }) "" else vtr(R.string.validation_autoselector_countries)
+    })
+
+    @JvmStatic
+    fun autoSelectorUrl(text: String): String = Validation.url(text, listOf("http", "https"))
+
+    @JvmStatic
+    fun autoSelectorBuildLimit(buildLimit: Int, poolCap: Int): String =
+        if (buildLimit <= poolCap) "" else vtr(R.string.validation_autoselector_build_limit, poolCap.toString())
+
+    @JvmStatic
+    fun autoSelectorBenchInterval(benchInterval: Int, interval: Int): String =
+        if (benchInterval >= interval) "" else vtr(R.string.validation_autoselector_bench_interval, interval.toString())
+
+    @JvmStatic
+    fun autoSelectorWatchInterval(watchInterval: Int, interval: Int): String =
+        if (watchInterval <= interval) "" else vtr(R.string.validation_autoselector_watch_interval, interval.toString())
+
+    @JvmStatic
+    fun autoSelectorReadyCount(activeSize: Int, expected: Int): String =
+        if (activeSize >= expected) "" else vtr(R.string.validation_autoselector_ready_count, expected.toString())
+
+    @JvmStatic
+    fun autoSelectorCloseCount(activeSize: Int, buildLimit: Int): String =
+        if (activeSize <= buildLimit) "" else vtr(R.string.validation_autoselector_close_count, buildLimit.toString())
 }

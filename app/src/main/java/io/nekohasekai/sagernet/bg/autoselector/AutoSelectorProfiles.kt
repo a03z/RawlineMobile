@@ -1,10 +1,12 @@
 package app.rawline.mobile.bg.autoselector
 
 import app.rawline.mobile.bg.test.TestEngine
+import app.rawline.mobile.database.GroupSort
 import app.rawline.mobile.database.ProfileManager
 import app.rawline.mobile.database.ProxyEntity
 import app.rawline.mobile.database.SagerDatabase
 import app.rawline.mobile.database.SettingsMapper
+import app.rawline.mobile.database.SortInput
 import app.rawline.mobile.ktx.Logs
 import app.rawline.mobile.outbound.config.AutoSelectorPlanner
 import app.rawline.mobile.outbound.config.SelectorMember
@@ -56,16 +58,20 @@ object AutoSelectorProfiles {
     fun saveHealth(profileIds: Map<String, Long>, members: List<AutoSelectorStatus.Member>) {
         val at = System.currentTimeMillis() / 1000
         val dao = SagerDatabase.proxyDao
+        val dirty = ArrayList<Long>()
         SagerDatabase.instance.runInTransaction {
             for (member in members) {
                 val id = profileIds[member.tag] ?: continue
                 if (member.probes == 0) continue
-                when {
+                val written = when {
                     member.isUsable && member.averageMs > 0 -> dao.updateLatency(id, member.averageMs, at, null)
                     member.isDead -> dao.updateLatency(id, -1, at, member.lastError.ifEmpty { null })
+                    else -> 0
                 }
+                if (written > 0) dirty.add(id)
             }
         }
+        GroupSort.repositionLater(dirty, SortInput.TEST_RESULT)
     }
 
     /** profile_start (mainwindow_profile_lifecycle.cpp:206-221): the plan succeeds and wants measurements first. */

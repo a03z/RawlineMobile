@@ -7,6 +7,8 @@ import app.rawline.mobile.ktx.appProxyHost
 import app.rawline.mobile.ktx.Logs
 import app.rawline.mobile.ktx.app
 import app.rawline.mobile.ktx.appRequestsNeedProxy
+import app.rawline.mobile.ktx.appRequestsViaProxy
+import app.rawline.mobile.ktx.LOCALHOST
 import app.rawline.mobile.outbound.json.JsonInput
 import app.rawline.mobile.outbound.link.LinkCodec
 import kotlinx.coroutines.CancellationException
@@ -18,6 +20,7 @@ object WarpClient {
 
     const val TUNNEL_WIREGUARD = "wireguard"
     const val TUNNEL_MASQUE = "masque"
+    /** The warp_mode that runs the WireGuard identity as AmneziaWG; it registers as [TUNNEL_WIREGUARD]. */
     const val MODE_AMNEZIA = "amnezia"
     const val DEFAULT_API_HOST = "api.cloudflareclient.com"
     const val TERMS_URL = "https://www.cloudflare.com/application/terms/"
@@ -87,16 +90,18 @@ object WarpClient {
     }
 
     /**
-     * warpProxy (warp.cpp:10-25) with the Android app-request rule of ktx/Nets.kt httpGet: while a profile runs the
-     * request goes through the mixed inbound, which speaks HTTP. "" is a direct request.
+     * warpProxy (warp.cpp:10-25) with the Android app-request rule of ktx/Nets.kt httpGet: when app requests use the
+     * proxy they go through the mixed inbound, which speaks HTTP; without that inbound a VPN tunnels the request.
+     * While no profile runs only net_use_proxy fails, the proxy service mode goes direct. "" is a direct request.
      */
     fun proxy(): String {
+        if (!appRequestsViaProxy()) return ""
         if (!DataStore.serviceState.connected) {
-            // only net_use_proxy needs a running profile; the proxy service mode goes direct like httpGet
             if (appRequestsNeedProxy()) error(app.getString(R.string.warp_proxy_not_started))
             return ""
         }
-        var host = appProxyHost()
+        if (DataStore.mixedInboundDisabled) return ""
+        var host = DataStore.inboundAddress.let { if (it == "::") LOCALHOST else it }
         if (host.contains(':')) host = "[$host]"
         val credentials = if (DataStore.effectiveInboundAuth) {
             val user = LinkCodec.percentEncodeAll(DataStore.listenerUser)
@@ -136,6 +141,11 @@ object WarpClient {
             reserved = result.string("reserved").split(',').map { it.trim() }.filter { it.isNotEmpty() },
         )
     }
+
+    /**
+     * GenerateWarpCamouflage (warp.cpp): a fresh offline QUIC flight through ICoreService.genQuicSignature, the
+     * amnezia mode's I1-I5. A failure, or anything but one to five non-empty packets, fails with the text to show.
+     */
     suspend fun generateCamouflage(): Result<List<String>> = withContext(Dispatchers.IO) {
         val raw = try {
             CoreServiceClient.call { it.genQuicSignature(CAMOUFLAGE_DOMAIN) }

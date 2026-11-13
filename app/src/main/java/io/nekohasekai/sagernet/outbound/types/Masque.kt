@@ -1,5 +1,6 @@
 package app.rawline.mobile.outbound.types
 
+import app.rawline.mobile.R
 import app.rawline.mobile.outbound.BuildContext
 import app.rawline.mobile.outbound.import.ClashProxy
 import app.rawline.mobile.outbound.BuildResult
@@ -13,6 +14,29 @@ import app.rawline.mobile.outbound.json.JsonValues
 import app.rawline.mobile.outbound.link.Hosts
 import app.rawline.mobile.outbound.link.LinkBuilder
 import app.rawline.mobile.outbound.link.LinkParser
+import app.rawline.mobile.validation.Empty
+import app.rawline.mobile.validation.Issue
+import app.rawline.mobile.validation.ParseDiag
+import app.rawline.mobile.validation.Severity
+import app.rawline.mobile.validation.Validation
+import app.rawline.mobile.validation.acceptOptional
+import app.rawline.mobile.validation.addIssue
+import app.rawline.mobile.validation.jsonStringList
+import app.rawline.mobile.validation.vtr
+
+private val masqueHttpVersions = listOf("0", "2", "3")
+
+/** The Checks of masque.h. */
+object MasqueChecks {
+    /** Base64 of DER; the core decodes it with Go's strict StdEncoding, padding included. */
+    @JvmStatic
+    fun masqueKey(text: String, empty: Empty): String {
+        val t = text.trim()
+        if (t.isEmpty()) return if (empty == Empty.Required) Validation.required(t) else ""
+        if (t.length % 4 == 0 && Validation.base64(t).isEmpty()) return ""
+        return vtr(R.string.validation_masque_key)
+    }
+}
 
 /**
  * masque (include/configs/outbounds/masque.h, src/configs/outbounds/masque.cpp): a sing-box endpoint.
@@ -42,7 +66,27 @@ class Masque : Outbound("masque") {
     override fun getTls(): Tls = tls
     override fun getQuic(): QuicFields = quic
 
-    /** masque.cpp:39-63: mihomo never falls back between carriers, so `h2` pins HTTP/2 and anything else HTTP/3. */
+    /** The core dials 443 when the port is 0. */
+    override fun serverPortOptional(): Boolean = true
+
+    /** masque::Validate (masque.cpp). */
+    override fun validate(issues: MutableList<Issue>, ctx: BuildContext) {
+        super.validate(issues, ctx)
+        issues.addIssue(Severity.Error, "private_key", MasqueChecks.masqueKey(private_key, Empty.Required))
+        issues.addIssue(Severity.Error, "peer_public_key", MasqueChecks.masqueKey(peer_public_key, Empty.Allowed))
+        if (address.isEmpty()) {
+            issues.addIssue(Severity.Error, "address", vtr(R.string.validation_masque_address_required))
+        } else {
+            issues.addIssue(
+                Severity.Error, "address",
+                Validation.eachItem(address.joinToString(","), Validation.Split.Comma, Validation.Rules.cidr()),
+            )
+        }
+        val version = http_version.toString()
+        issues.addIssue(Severity.Error, "http_version", Validation.oneOf(version, masqueHttpVersions), version)
+    }
+
+    /** masque::ParseFromClash (masque.cpp): mihomo never falls back between carriers, so `h2` pins HTTP/2 and anything else HTTP/3. */
     override fun parseFromClash(node: JsonObject): Boolean {
         val proxy = ClashProxy(node)
         if (proxy.type != "masque") return false
@@ -50,8 +94,7 @@ class Masque : Outbound("masque") {
         if (serverPort == 0) serverPort = 443
         private_key = proxy.string("private-key")
         peer_public_key = proxy.string("public-key")
-        withPrefix(proxy.string("ip"), "/32")?.let { address.add(it) }
-        withPrefix(proxy.string("ipv6"), "/128")?.let { address.add(it) }
+        address.addAll(hostPrefixed(listOf(proxy.string("ip"), proxy.string("ipv6"))))
         val clashMtu = proxy.int("mtu")
         if (clashMtu > 0) mtu = clashMtu
         val sni = proxy.string("sni")
@@ -68,17 +111,22 @@ class Masque : Outbound("masque") {
         return private_key.isNotEmpty()
     }
 
-    /** masque.cpp:16-37. */
+    /** masque::ParseFromJson (masque.cpp): an import drops local addresses that are not CIDR prefixes. */
     override fun parseFromJson(obj: JsonObject): Boolean {
         if (obj.isEmpty() || obj.string("type") != "masque") return false
         super.parseFromJson(obj)
         if (obj.contains("private_key")) private_key = obj.string("private_key")
         if (obj.contains("peer_public_key")) peer_public_key = obj.string("peer_public_key")
         // Listable: the core accepts a bare string as well as an array.
-        if (obj.isArray("address")) address = obj.array("address").strings()
-        else if (obj.contains("address")) address = mutableListOf(obj.string("address"))
+        if (obj.contains("address")) address = hostPrefixed(jsonStringList(obj["address"], "address"))
+        if (ParseDiag.active()) address = address.filterTo(ArrayList()) { acceptOptional("address", Validation.cidr(it), it) }
         if (obj.contains("mtu")) mtu = obj.int("mtu")
-        if (obj.contains("http_version")) http_version = obj.int("http_version")
+        if (obj.contains("http_version")) {
+            val version = obj.int("http_version")
+            if (!ParseDiag.active() || acceptOptional("http_version", Validation.oneOf(version.toString(), masqueHttpVersions), version.toString())) {
+                http_version = version
+            }
+        }
         if (obj.contains("disable_version_fallback")) disable_version_fallback = obj.bool("disable_version_fallback")
         if (obj.contains("tls")) {
             val tlsObject = obj.obj("tls")
@@ -173,6 +221,7 @@ class Masque : Outbound("masque") {
         if (mtu > 0) obj["mtu"] = mtu
         if (http_version != 0) obj["http_version"] = http_version
         if (disable_version_fallback) obj["disable_version_fallback"] = true
+        // REALITY, the only TLS build error, is dropped here.
         val tlsObject = tls.build(ctx)
         tlsObject.remove("reality")
         obj["tls"] = tlsObject
@@ -191,9 +240,22 @@ class Masque : Outbound("masque") {
 
     /** masque.cpp:130-133. */
     override fun isEndpoint(): Boolean = true
+
+    companion object {
+        /** masque::HostPrefixed (masque.cpp): bare addresses get /32 or /128, the core needs a prefix; blanks are dropped. */
+        @JvmStatic
+        fun hostPrefixed(addresses: List<String>): MutableList<String> {
+            val result = ArrayList<String>()
+            for (raw in addresses) {
+                val address = raw.trim()
+                if (address.isEmpty()) continue
+                result.add(if (address.contains('/')) address else address + (if (address.contains(':')) "/128" else "/32"))
+            }
+            return result
+        }
+    }
 }
 
-// masque.cpp:9-14: a bare address gets the host prefix; null when empty.
 private fun withPrefix(address: String, prefix: String): String? {
     val result = address.trim()
     if (result.isEmpty()) return null

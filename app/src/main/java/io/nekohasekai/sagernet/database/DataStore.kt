@@ -1,13 +1,17 @@
 package app.rawline.mobile.database
 
 import android.os.Binder
+import android.os.Build
+import android.provider.Settings
 import androidx.preference.PreferenceDataStore
 import app.rawline.mobile.Key
+import app.rawline.mobile.utils.Theme
 import app.rawline.mobile.bg.BaseService
 import app.rawline.mobile.bg.VpnService
 import app.rawline.mobile.database.preference.OnPreferenceDataStoreChangeListener
 import app.rawline.mobile.database.preference.RoomPreferenceDataStore
 import app.rawline.mobile.database.preference.SettingsStore
+import app.rawline.mobile.ktx.app
 import app.rawline.mobile.ktx.boolean
 import app.rawline.mobile.ktx.int
 import app.rawline.mobile.ktx.long
@@ -30,6 +34,9 @@ object DataStore : OnPreferenceDataStoreChangeListener {
 
     /** The involvedProfileIds of the config [currentProfile] last started with, for ProfileManager.runningUses. */
     var runningProfiles by configurationStore.stringList(Key.RUNNING_PROFILES)
+
+    /** The routing profile the config [currentProfile] last started with was built with, 0 for a custom full config; read it through RouteManager.runningRouteId. */
+    var runningRouteId by configurationStore.long(Key.RUNNING_ROUTE)
 
     var selectedProxy by configurationStore.long(Key.PROFILE_ID)
 
@@ -72,7 +79,7 @@ object DataStore : OnPreferenceDataStoreChangeListener {
     var networkChangeResetConnections by configurationStore.boolean(Key.NETWORK_CHANGE_RESET_CONNECTIONS) { true }
     var wakeResetConnections by configurationStore.boolean(Key.WAKE_RESET_CONNECTIONS) { true }
 
-    var appTheme by configurationStore.int(Key.APP_THEME) { app.rawline.mobile.utils.Theme.GREY }
+    var appTheme by configurationStore.int(Key.APP_THEME) { Theme.GREY }
     var useSystemTheme by configurationStore.boolean(Key.USE_SYSTEM_THEME)
     var nightTheme by configurationStore.stringToInt(Key.NIGHT_THEME) { 1 }
     var amoledTheme by configurationStore.boolean(Key.AMOLED_THEME)
@@ -89,6 +96,8 @@ object DataStore : OnPreferenceDataStoreChangeListener {
     var showGroupInNotification by configurationStore.boolean(Key.SHOW_GROUP_IN_NOTIFICATION)
     var showDirectSpeed by configurationStore.boolean(Key.SHOW_DIRECT_SPEED) { true }
     var alwaysShowAddress by configurationStore.boolean(Key.ALWAYS_SHOW_ADDRESS)
+    var compactProfileRows by configurationStore.boolean(Key.COMPACT_PROFILE_ROWS)
+    var compactGroupCards by configurationStore.boolean(Key.COMPACT_GROUP_CARDS)
 
     var logBufSize by configurationStore.int(Key.LOG_BUF_SIZE) { 0 }
     var hideFromRecentApps by configurationStore.boolean(Key.HIDE_FROM_RECENT_APPS)
@@ -97,6 +106,7 @@ object DataStore : OnPreferenceDataStoreChangeListener {
 
     var allowAppsBypassVpn by configurationStore.boolean("allowAppsBypassVpn")
     var meteredNetwork by configurationStore.boolean(Key.METERED_NETWORK)
+    var allowBypass by configurationStore.boolean(Key.ALLOW_BYPASS)
     var proxyApps by configurationStore.boolean(Key.PROXY_APPS)
     var bypass by configurationStore.boolean(Key.BYPASS_MODE) { true }
     var individual by configurationStore.string(Key.INDIVIDUAL)
@@ -119,6 +129,25 @@ object DataStore : OnPreferenceDataStoreChangeListener {
     var webdavPath: String?
         get() = configurationStore.getString(Key.WEBDAV_PATH) ?: "Rawline"
         set(value) = configurationStore.putString(Key.WEBDAV_PATH, value)
+
+    /** This device in the WebDAV backup list: a random UUID made on first use, never backed up or restored. */
+    val deviceId: String
+        @Synchronized get() = configurationStore.getString(Key.DEVICE_ID)?.takeIf { it.isNotBlank() }
+            ?: UUID.randomUUID().toString().also { configurationStore.putString(Key.DEVICE_ID, it) }
+
+    /** The name the user gave this device for WebDAV backups; empty = [defaultDeviceName]. */
+    var deviceName by configurationStore.string(Key.DEVICE_NAME) { "" }
+
+    fun effectiveDeviceName(): String = deviceName.trim().ifEmpty { defaultDeviceName() }
+
+    /** The system's device name (Settings › About phone), else manufacturer and model. */
+    fun defaultDeviceName(): String {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N_MR1) {
+            runCatching { Settings.Global.getString(app.contentResolver, Settings.Global.DEVICE_NAME) }
+                .getOrNull()?.trim()?.takeIf { it.isNotEmpty() }?.let { return it }
+        }
+        return "${Build.MANUFACTURER} ${Build.MODEL}".trim()
+    }
 
     // ------------------------------------------------------------------------------------------------ desktop keys
     // SettingsRegistry: property = lowerCamelCase of the desktop key.
@@ -152,6 +181,10 @@ object DataStore : OnPreferenceDataStoreChangeListener {
             ?: (SettingsRegistry.INBOUND_HTTP_PORT.default + userIndex)
         set(value) = SettingsRegistry.INBOUND_HTTP_PORT.write(configurationStore, value)
     var disableMixedInbound by SettingsRegistry.DISABLE_MIXED_INBOUND
+
+    /** disable_mixed_inbound only applies in VPN mode: the proxy-only service mode needs the mixed inbound. */
+    val mixedInboundDisabled: Boolean
+        get() = disableMixedInbound && serviceMode == Key.MODE_VPN
     var randomInboundPort by SettingsRegistry.RANDOM_INBOUND_PORT
     var inboundAuth by SettingsRegistry.INBOUND_AUTH
     val effectiveInboundAuth: Boolean
@@ -191,6 +224,8 @@ object DataStore : OnPreferenceDataStoreChangeListener {
     var enableTunRouting by SettingsRegistry.ENABLE_TUN_ROUTING
     var blockUnownedTun by SettingsRegistry.BLOCK_UNOWNED_TUN
     var blockQuic by SettingsRegistry.BLOCK_QUIC
+    var sniffRouteOnly by SettingsRegistry.SNIFF_ROUTE_ONLY
+    var httpProxyAuth by SettingsRegistry.HTTP_PROXY_AUTH
 
     // routing
     var currentRouteId by SettingsRegistry.CURRENT_ROUTE_ID
@@ -229,16 +264,19 @@ object DataStore : OnPreferenceDataStoreChangeListener {
 
     // presets
     var muxProtocol by SettingsRegistry.MUX_PROTOCOL
-    var muxConcurrency by SettingsRegistry.MUX_CONCURRENCY
-    var muxPadding by SettingsRegistry.MUX_PADDING
-    var muxDefaultOn by SettingsRegistry.MUX_DEFAULT_ON
     var muxMode by SettingsRegistry.MUX_MODE
+    var muxConcurrency by SettingsRegistry.MUX_CONCURRENCY
     var muxMaxConnections by SettingsRegistry.MUX_MAX_CONNECTIONS
     var muxMinStreams by SettingsRegistry.MUX_MIN_STREAMS
+    var muxPadding by SettingsRegistry.MUX_PADDING
     var muxBrutal by SettingsRegistry.MUX_BRUTAL
     var muxBrutalUpMbps by SettingsRegistry.MUX_BRUTAL_UP_MBPS
     var muxBrutalDownMbps by SettingsRegistry.MUX_BRUTAL_DOWN_MBPS
+    var muxDefaultOn by SettingsRegistry.MUX_DEFAULT_ON
     var xrayMuxConcurrency by SettingsRegistry.XRAY_MUX_CONCURRENCY
+    var xrayMuxMaxConnections by SettingsRegistry.XRAY_MUX_MAX_CONNECTIONS
+    var xrayMuxXudpConcurrency by SettingsRegistry.XRAY_MUX_XUDP_CONCURRENCY
+    var xrayMuxXudpProxyUdp443 by SettingsRegistry.XRAY_MUX_XUDP_PROXY_UDP443
     var xrayMuxDefaultOn by SettingsRegistry.XRAY_MUX_DEFAULT_ON
     var fragmentDefaultOn by SettingsRegistry.FRAGMENT_DEFAULT_ON
     var fragmentImplementation by SettingsRegistry.FRAGMENT_IMPLEMENTATION
@@ -285,6 +323,9 @@ object DataStore : OnPreferenceDataStoreChangeListener {
     var subNotifyUpdate by SettingsRegistry.SUB_NOTIFY_UPDATE
     var subCustomHwidParams by SettingsRegistry.SUB_CUSTOM_HWID_PARAMS
     var allowStoppingActiveProfile by SettingsRegistry.ALLOW_STOPPING_ACTIVE_PROFILE
+    var subTlsVersion by SettingsRegistry.SUB_TLS_VERSION
+    var subHttpVersion by SettingsRegistry.SUB_HTTP_VERSION
+    var subRespectServerInterval by SettingsRegistry.SUB_RESPECT_SERVER_INTERVAL
 
     // warp
     var enableWarp by SettingsRegistry.ENABLE_WARP

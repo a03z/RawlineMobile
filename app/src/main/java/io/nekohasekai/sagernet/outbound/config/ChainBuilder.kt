@@ -2,6 +2,8 @@ package app.rawline.mobile.outbound.config
 
 import app.rawline.mobile.outbound.BuildContext
 import app.rawline.mobile.outbound.Outbound
+import app.rawline.mobile.outbound.common.setXrayDialerProxy
+import app.rawline.mobile.outbound.common.useXraySystemCA
 import app.rawline.mobile.outbound.json.JsonArray
 import app.rawline.mobile.outbound.json.JsonObject
 import app.rawline.mobile.outbound.json.jsonObjectOf
@@ -23,7 +25,21 @@ internal class ChainRequest(
     val soleXrayInbound: Boolean = false,
     /** Hop 0 is the WARP hop: it becomes `proxy` dialing through hop 1, which becomes `warp-bypass`. */
     val warpWrap: Boolean = false,
+    val origin: HopOrigin = HopOrigin.NONE,
 )
+
+/** A group whose landing / front proxy a chain carries, by name. */
+internal class ChainGroup(val name: String, val landingProxyId: Long, val frontProxyId: Long)
+
+/**
+ * Where the hop ids of a chain come from, for missingHopError (generate.cpp): the profile being built (the desktop's
+ * BuildContext::ent) and the groups whose landing / front proxy the chain carries.
+ */
+internal class HopOrigin(val profile: Outbound? = null, val groups: List<ChainGroup> = emptyList()) {
+    companion object {
+        val NONE = HopOrigin()
+    }
+}
 
 /** hopChainOptions (generate.cpp:1310-1319) without the auxiliary-endpoint members. */
 internal class HopChainOptions(
@@ -158,16 +174,29 @@ internal class ChainBuilder(
         return ""
     }
 
+    // missingHopError: names the setting that still points at a deleted profile, so the user knows what to amend.
+    private fun missingHopError(id: Long, origin: HopOrigin): String {
+        val profile = origin.profile
+        if (profile != null && profile.type == "chain" && id in TypeAccess.chainHops(profile)) {
+            return "Chain \"${profile.name}\" has a hop (profile id $id) that no longer exists, edit the chain to remove it"
+        }
+        for (group in origin.groups) {
+            if (group.frontProxyId == id) return "Group \"${group.name}\" has a front proxy that has been deleted."
+            if (group.landingProxyId == id) return "Group \"${group.name}\" has a landing proxy that has been deleted."
+        }
+        return "A proxy in the chain can no longer be found."
+    }
+
     /**
      * entIDListtoEntList (:1237-1294): resolves the hops exit-first and records where the walk enters and leaves
      * the Xray core, so the caller knows which loopback bridges it must create.
      */
-    private fun resolveHops(hopIds: List<Long>, hops: MutableList<Hop>): String {
+    private fun resolveHops(hopIds: List<Long>, hops: MutableList<Hop>, origin: HopOrigin): String {
         val scan = ChainScan()
         var inXray = false
         for (id in hopIds) {
             if (id == WarpHop.PROFILE_ID) {
-                val warpHop = warp ?: return "Null proxy in chain, you may want to check your configs"
+                val warpHop = warp ?: return missingHopError(id, origin)
                 if (inXray) {
                     state.xrayToSingTransitioned = true
                     scan.coreTransitions++
@@ -176,7 +205,7 @@ internal class ChainBuilder(
                 hops.add(Hop(id, warpHop))
                 continue
             }
-            val stored = profiles.get(id) ?: return "Null proxy in chain, you may want to check your configs"
+            val stored = profiles.get(id) ?: return missingHopError(id, origin)
             if (stored is app.rawline.mobile.bg.carrier.NativeCarrier) {
                 scan.nativeCount++
                 scan.nativeIdx = hops.size
@@ -219,9 +248,9 @@ internal class ChainBuilder(
      * Stands in for the desktop's IsValid (generate.cpp:2408-2525) before a test candidate is built: the hop walk
      * and every hop's Build() / BuildXray() run once, and the first error is the reason to skip the candidate.
      */
-    fun candidateError(hopIds: List<Long>): String {
+    fun candidateError(hopIds: List<Long>, origin: HopOrigin = HopOrigin.NONE): String {
         val hops = ArrayList<Hop>()
-        val scanError = resolveHops(hopIds, hops)
+        val scanError = resolveHops(hopIds, hops, origin)
         if (scanError.isNotEmpty()) return scanError
         if (hops.isEmpty()) return "The profile has no hops"
         for (hop in hops) {
@@ -230,7 +259,7 @@ internal class ChainBuilder(
                 val custom = TypeAccess.asCustom(outbound) ?: return "Failed to cast to Custom for Xray full config hop"
                 if (custom.configObject().isEmpty()) return "Custom Xray full config is not valid JSON"
             } else {
-                val result = if (outbound.isXray()) outbound.buildXray(ctx) else outbound.build(ctx)
+                val result = if (outbound.isXray()) outbound.buildXray(ctx) else outbound.buildChecked(ctx)
                 if (!result.ok) return result.error
             }
         }
@@ -252,7 +281,7 @@ internal class ChainBuilder(
         state.singToXrayTransitioned = false
         state.xrayToSingTransitioned = false
         val hops = ArrayList<Hop>()
-        val scanError = resolveHops(req.hopIds, hops)
+        val scanError = resolveHops(req.hopIds, hops, req.origin)
         if (scanError.isNotEmpty()) {
             state.error = scanError
             return ingressTag
@@ -276,7 +305,7 @@ internal class ChainBuilder(
             }
             // A pre-reserved 0 means the caller's reservation failed; reserve again rather than bake in a dead port.
             var port = req.xrayFullConfigPort
-            if (port <= 0) port = LocalPorts.reserve(1, custom.bridgeHost)[0]
+            if (port <= 0) port = state.ports.reserve(1, custom.bridgeHost)[0]
             if (port <= 0) {
                 state.error = "Could not reserve a local port for the custom Xray full config bridge"
                 return ingressTag
@@ -296,6 +325,9 @@ internal class ChainBuilder(
             inbounds.add(bridgeInbound)
             if (!state.forTest && !req.soleXrayInbound) for (item in userXrayConfig.array("inbounds")) inbounds.add(item)
             userXrayConfig["inbounds"] = inbounds
+            if (ctx.xrayUseSystemCA) {
+                for (outbound in userXrayConfig.array("outbounds")) if (outbound is JsonObject) useXraySystemCA(outbound)
+            }
             state.xrayConfig = userXrayConfig
             state.isXrayNeeded = true
         }
@@ -311,7 +343,7 @@ internal class ChainBuilder(
         val ports = ArrayList<Int>()
         fun bridgePort(given: Int): Int {
             if (given > 0) return given
-            if (ports.isEmpty()) ports.addAll(LocalPorts.reserve(2))
+            if (ports.isEmpty()) ports.addAll(state.ports.reserve(2))
             return ports.removeAt(0)
         }
         if (state.singToXrayTransitioned) {
@@ -357,9 +389,9 @@ internal class ChainBuilder(
         return ingressTag
     }
 
-    /** resolvesHostnamesViaDnsRules (generate.cpp:1334-1338). */
+    /** resolvesHostnamesViaDnsRules (generate.cpp): endpoints and plain SOCKS4, whose server cannot resolve names (SOCKS4a can). */
     private fun resolvesHostnamesViaDnsRules(hop: Hop): Boolean =
-        hop.outbound.isEndpoint() || TypeAccess.asSocks(hop.outbound)?.version == 4
+        hop.outbound.isEndpoint() || TypeAccess.asSocks(hop.outbound)?.let { it.version == 4 && !it.socks4a } == true
 
     /**
      * buildSingboxChain (:1321-1369). Hop idx gets `<prefix>-<startSuffix+idx>` (idx 0 is `proxy` for the main
@@ -379,7 +411,7 @@ internal class ChainBuilder(
                 (profiles.get(hop.id) as? app.rawline.mobile.outbound.types.Sstp)?.useServerDns == true
             ) state.sstpDnsTag = tag
             if (tag == Tags.PROXY) (hop.outbound as? app.rawline.mobile.outbound.types.WireGuard)?.dnsServer()?.takeIf { it.isNotEmpty() }?.let { state.wireGuardDns = it }
-            val result = hop.outbound.build(ctx)
+            val result = hop.outbound.buildChecked(ctx)
             if (!result.ok) {
                 state.error += result.error
                 return
@@ -400,6 +432,7 @@ internal class ChainBuilder(
                 }
             }
             state.collectEchQueryName(hop.outbound)
+            state.collectDnsTunnelDomains(hop.outbound)
             // Realm reads its STUN resolver off this key only; without it the hosts go through DNS rules (:1356-1358).
             if (TypeAccess.realmActive(hop.outbound)) obj["domain_resolver"] = jsonObjectOf("server" to Tags.DNS_DIRECT)
             if (nextTag.isNotEmpty() && opts.link) obj["detour"] = nextTag
@@ -430,14 +463,9 @@ internal class ChainBuilder(
             }
             val obj = result.json
             obj["tag"] = tag
-            // Xray removed outbound-level proxySettings; sockopt.dialerProxy is its 1:1 replacement.
-            if (nextTag.isNotEmpty() && (opts.link || bridge.needed)) {
-                val stream = obj.obj("streamSettings")
-                val sockopt = stream.obj("sockopt")
-                sockopt["dialerProxy"] = nextTag
-                stream["sockopt"] = sockopt
-                obj["streamSettings"] = stream
-            }
+            // Xray removed outbound-level proxySettings; sockopt.dialerProxy is its 1:1 replacement, the XHTTP download leg included.
+            if (nextTag.isNotEmpty() && (opts.link || bridge.needed)) setXrayDialerProxy(obj, nextTag)
+            if (ctx.xrayUseSystemCA) useXraySystemCA(obj)
             state.xrayOutbounds.add(obj)
         }
         if (bridge.needed) {

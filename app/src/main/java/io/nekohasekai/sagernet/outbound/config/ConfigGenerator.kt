@@ -1,7 +1,9 @@
 package app.rawline.mobile.outbound.config
 
+import app.rawline.mobile.ktx.Logs
 import app.rawline.mobile.outbound.BuildContext
 import app.rawline.mobile.outbound.Outbound
+import app.rawline.mobile.outbound.OutboundChecks
 import app.rawline.mobile.outbound.json.JsonArray
 import app.rawline.mobile.outbound.json.JsonInput
 import app.rawline.mobile.outbound.json.JsonObject
@@ -12,6 +14,9 @@ import app.rawline.mobile.route.OutboundIds
 import app.rawline.mobile.route.RouteProfile
 import app.rawline.mobile.route.RuleSets
 import app.rawline.mobile.route.RuleType
+import app.rawline.mobile.validation.Empty
+import app.rawline.mobile.validation.Family
+import app.rawline.mobile.validation.Validation
 
 /**
  * The desktop's config generator (src/configs/generate.cpp) for the Android app: [build] is BuildSingBoxConfig
@@ -35,10 +40,23 @@ class ConfigGenerator @JvmOverloads constructor(
     /**
      * The config for the started profile [profileId]; [landingProxyId] becomes the exit and [frontProxyId] the
      * entry of the main chain when > 0 (the group's landing / front proxy, generate.cpp:1815-1832). An auto-selector
-     * builds its members with its tracked group's landing / front proxy instead, the group its plan checked.
+     * ignores both: each member is built with the landing / front proxy of the tracked group it came from, the one its
+     * plan checked it against. The bridge ports go to [ports], which the box running the config closes; without one
+     * they are leased for the build only. [groupName] names the group when its landing / front proxy is gone.
      */
     @JvmOverloads
-    fun build(profileId: Long, landingProxyId: Long = -1, frontProxyId: Long = -1): GeneratedConfig {
+    fun build(
+        profileId: Long, landingProxyId: Long = -1, frontProxyId: Long = -1, ports: PortLease? = null, groupName: String = "",
+    ): GeneratedConfig {
+        val lease = ports ?: PortLease()
+        try {
+            return buildLeased(profileId, landingProxyId, frontProxyId, lease, groupName)
+        } finally {
+            if (ports == null) lease.close()
+        }
+    }
+
+    private fun buildLeased(profileId: Long, landingProxyId: Long, frontProxyId: Long, ports: PortLease, groupName: String): GeneratedConfig {
         val reads = RecordingProfiles(profiles)
         val profile = reads.get(profileId) ?: return GeneratedConfig.failure("Profile $profileId does not exist")
         if (profile.invalid) return GeneratedConfig.failure("Profile $profileId has a type this build cannot use: ${profile.type}")
@@ -49,7 +67,7 @@ class ConfigGenerator @JvmOverloads constructor(
             if (core.isEmpty()) return GeneratedConfig.failure("Custom full config is not a valid JSON object")
             if(settings.vpnMode && core.array("inbounds").filterIsInstance<JsonObject>().none { it.string("type")=="tun" }) {
                 val inbounds=core.array("inbounds")
-                inbounds.add(buildTunInbound(BuildState(forTest=false)))
+                inbounds.add(buildTunInbound(BuildState(forTest=false, ports)))
                 core["inbounds"]=inbounds
                 if(core.obj("dns").array("servers").isEmpty()) {
                     core["dns"]=jsonObjectOf("servers" to JsonArray.of(jsonObjectOf(
@@ -88,13 +106,18 @@ class ConfigGenerator @JvmOverloads constructor(
         val landing = if (plan != null) -1L else landingProxyId
         val front = if (plan != null) -1L else frontProxyId
 
-        val state = BuildState(forTest = false)
+        val state = BuildState(forTest = false, ports)
         val remoteVpnTypes = listOf("openconnect", "openvpn")
         // SSTP advertises no routes: its peer's LAN is every private range except the phone's own network.
         state.sstpRemoteLan = settings.vpnMode && profile.type == "sstp"
         state.remotePrivateNetworks = state.sstpRemoteLan || settings.vpnMode &&
             (profile.type in remoteVpnTypes || (profile.type == "chain" &&
                 TypeAccess.chainHops(profile).firstOrNull()?.let { reads.get(it)?.type in remoteVpnTypes } == true))
+        for (id in route.usedOutboundIds()) {
+            if (id < 0 || id == profileId) continue
+            // A rule's Xray full config runs as its proxy outbound (the main profile keeps the whole config).
+            (reads.get(id) as? app.rawline.mobile.outbound.types.Custom)?.routeOutbound()?.let { reads.overrides[id] = it }
+        }
         val chains = ChainBuilder(reads, buildContext, state, if (settings.enableWarp) WarpHop.outbound(settings) else null)
         calculatePrerequisites(state, chains, reads, profile, route, landing, front, plan)
         if (state.failed) return GeneratedConfig.failure(state.error)
@@ -103,7 +126,8 @@ class ConfigGenerator @JvmOverloads constructor(
         buildNtpSection(state)
         buildCertificateSection(state)
         buildInboundSection(state)
-        buildOutboundsSection(state, chains, reads, profile, profileId, landing, front, plan)
+        val origin = HopOrigin(profile, listOf(ChainGroup(groupName, landing, front)))
+        buildOutboundsSection(state, chains, reads, profile, profileId, landing, front, plan, origin)
         if (state.failed) return GeneratedConfig.failure(state.error)
         buildDnsSection(state, useDnsObj = true)
         buildRouteSection(state, route)
@@ -240,7 +264,13 @@ class ConfigGenerator @JvmOverloads constructor(
         if (settings.bypassLan && !state.remotePrivateNetworks) {
             // sing-tun keeps an excluded range out of the tun entirely, so a rule aimed at one would never fire (#1741).
             val hijacked = route.hijackedIps(settings.privateRanges)
-            for (range in settings.privateRanges) {
+            for (saved in settings.privateRanges) {
+                if (saved.isBlank()) continue
+                val range = DnsServers.routeExcludePrefix(saved)
+                if (range.isEmpty()) {
+                    if (settings.vpnMode && !state.forTest) Logs.w("Skipped the Tun private range \"${saved.trim()}\": it is not a valid IP address or CIDR.")
+                    continue
+                }
                 if (hijacked.none { Cidrs.overlap(range, it) }) pre.bypassedPrivateRanges.add(range)
             }
         }
@@ -364,11 +394,21 @@ class ConfigGenerator @JvmOverloads constructor(
      * that test at once (a failed probe's halves) apart, as the core's result buffers are process-wide. There is no
      * `proxy` tag, no inbounds except the Xray -> sing-box bridges, no experimental or services section, and the
      * DNS falls through to dns-direct. Xray candidates share one Xray config; custom Xray full configs each get
-     * their own instance ([GeneratedConfig.xrayFullConfigs]).
+     * their own instance ([GeneratedConfig.xrayFullConfigs]). The bridge ports go to [ports] as in [build].
      */
-    fun buildTest(candidates: List<TestCandidate>): GeneratedConfig {
+    @JvmOverloads
+    fun buildTest(candidates: List<TestCandidate>, ports: PortLease? = null): GeneratedConfig {
+        val lease = ports ?: PortLease()
+        try {
+            return buildTestLeased(candidates, lease)
+        } finally {
+            if (ports == null) lease.close()
+        }
+    }
+
+    private fun buildTestLeased(candidates: List<TestCandidate>, ports: PortLease): GeneratedConfig {
         val ctx = buildContext.copy(buildingTestConfig = true)
-        val state = BuildState(forTest = true)
+        val state = BuildState(forTest = true, ports)
         val chains = ChainBuilder(profiles, ctx, state)
         // The DNS section comes before the chains here, so their ECH query names are collected up front (:2714-2719).
         for (candidate in candidates) {
@@ -395,7 +435,7 @@ class ConfigGenerator @JvmOverloads constructor(
             if (outbound.type == "chain") chainCount++
         }
         // Reserved in one batch so no two candidates collide; every chain is assumed to transition twice (:2553-2554).
-        val xrayPorts = LocalPorts.reserve(xrayCount + 2 * chainCount)
+        val xrayPorts = ports.reserve(xrayCount + 2 * chainCount)
         var xrayPortIdx = 0
 
         for ((candidate, outbound) in resolved) {
@@ -419,9 +459,14 @@ class ConfigGenerator @JvmOverloads constructor(
                     skipped[id] = invalid
                     continue
                 }
-                // The single xrayConfig slot is drained per full config so they all share one sing-box (:2571-2587).
+                // The single xrayConfig slot is drained per full config so they all share one sing-box.
+                val mark = ChainBuildMark(state)
                 val tag = chains.buildOutboundChain(ChainRequest(listOf(id), prefix = "${Tags.TEST_XRAY_FULL_PREFIX}-$id"))
-                if (state.failed) return GeneratedConfig.failure(state.error)
+                if (state.failed) {
+                    skipped[id] = state.error
+                    mark.rollback()
+                    continue
+                }
                 if (!state.isXrayNeeded || state.xrayConfig.isEmpty()) {
                     skipped[id] = "Custom Xray full config produced no Xray config"
                     continue
@@ -445,7 +490,8 @@ class ConfigGenerator @JvmOverloads constructor(
             if (candidate.landingProxyId > 0) hopIds.add(candidate.landingProxyId)
             hopIds.addAll(chains.unwrapChain(id))
             if (candidate.frontProxyId > 0) hopIds.add(candidate.frontProxyId)
-            val invalid = chains.candidateError(hopIds)
+            val origin = HopOrigin(outbound, listOf(ChainGroup(candidate.groupName, candidate.landingProxyId, candidate.frontProxyId)))
+            val invalid = chains.candidateError(hopIds, origin)
             if (invalid.isNotEmpty()) {
                 skipped[id] = invalid
                 continue
@@ -457,13 +503,19 @@ class ConfigGenerator @JvmOverloads constructor(
                 singToXrayPort = xrayPorts[xrayPortIdx++]
                 xrayToSingPort = xrayPorts[xrayPortIdx++]
             }
+            val mark = ChainBuildMark(state)
             val tag = chains.buildOutboundChain(
                 ChainRequest(
                     hopIds, "${Tags.TEST_CHAIN_PREFIX}-$id",
-                    singToXrayPort = singToXrayPort, xrayToSingPort = xrayToSingPort,
+                    singToXrayPort = singToXrayPort, xrayToSingPort = xrayToSingPort, origin = origin,
                 ),
             )
-            if (state.failed) return GeneratedConfig.failure(state.error)
+            // skipFailedBuild (generate.cpp): a profile whose chain fails halfway is reported failed; the rest still test.
+            if (state.failed) {
+                skipped[id] = state.error
+                mark.rollback()
+                continue
+            }
             outboundTags.add(tag)
             tagToProfileId[tag] = id
         }
@@ -575,6 +627,8 @@ class ConfigGenerator @JvmOverloads constructor(
                 http["tag"] = "http-in"
                 http["type"] = "http"
                 http["listen_port"] = settings.httpPort
+                // Many devices' Wi-Fi proxy settings have no login field; only sharing may leave the HTTP proxy open.
+                if (!settings.httpProxyAuth && settings.vpnMode && settings.lanSharingEnabled) http.remove("users")
             })
         }
         if (settings.vpnMode) inbounds.add(buildTunInbound(state))
@@ -632,7 +686,15 @@ class ConfigGenerator @JvmOverloads constructor(
                 add("255.255.255.255/32")
                 addAll(pre.bypassedPrivateRanges)
             }
-            if (settings.enableTunRouting && !state.remotePrivateNetworks) addAll(pre.directIpCidrs)
+            if (settings.enableTunRouting && !state.remotePrivateNetworks) {
+                // The route rule drops a bare IPv6's zone (Prefixable), so the exclusion must too; anything unparsable fails that rule anyway.
+                for (item in pre.directIpCidrs) {
+                    var text = item.trim()
+                    val zone = text.indexOf('%')
+                    if (zone > 0 && text.substring(0, zone).contains(':') && !text.contains('/')) text = text.substring(0, zone)
+                    DnsServers.routeExcludePrefix(text).takeIf { it.isNotEmpty() }?.let { add(it) }
+                }
+            }
             if (state.sstpRemoteLan) addAll(settings.localLanCidrs)
         }
         excluded = Cidrs.subtract(excluded, settings.tunIPv4Cidr)
@@ -642,11 +704,11 @@ class ConfigGenerator @JvmOverloads constructor(
 
     /**
      * buildOutboundsSection (:1795-1911): the main chain (WARP in front of it with enable_warp) or the auto-selector
-     * group, one chain per route outbound, then bridges and `direct`.
+     * group, one chain per route outbound, then bridges and `direct`. [origin] names a deleted hop of the main and route chains.
      */
     private fun buildOutboundsSection(
         state: BuildState, chains: ChainBuilder, reads: ProfileProvider, profile: Outbound, profileId: Long,
-        landingProxyId: Long, frontProxyId: Long, plan: AutoSelectorPlan?,
+        landingProxyId: Long, frontProxyId: Long, plan: AutoSelectorPlan?, origin: HopOrigin,
     ) {
         val warpWrap = settings.enableWarp
         if (profile is AutoSelector && plan != null) {
@@ -667,13 +729,17 @@ class ConfigGenerator @JvmOverloads constructor(
                 return
             }
             if (warpWrap) hopIds.add(0, WarpHop.PROFILE_ID)
-            chains.buildOutboundChain(ChainRequest(hopIds, Tags.MAIN_CHAIN_PREFIX, includeProxy = true, warpWrap = warpWrap))
+            chains.buildOutboundChain(
+                ChainRequest(hopIds, Tags.MAIN_CHAIN_PREFIX, includeProxy = true, warpWrap = warpWrap, origin = origin),
+            )
             if (state.failed) return
         }
 
         var routeSuffix = 0
         for (group in state.prerequisites.routeOutboundGroups) {
-            chains.buildOutboundChain(ChainRequest(group, Tags.ROUTE_CHAIN_PREFIX, link = group.size > 1, startSuffix = routeSuffix))
+            chains.buildOutboundChain(
+                ChainRequest(group, Tags.ROUTE_CHAIN_PREFIX, link = group.size > 1, startSuffix = routeSuffix, origin = origin),
+            )
             if (state.failed) return
             routeSuffix += group.size
         }
@@ -696,8 +762,9 @@ class ConfigGenerator @JvmOverloads constructor(
     }
 
     /**
-     * buildAutoSelectorGroup (:1622-1776): per member of the plan's build a chain `[landing?, member, front?]` under
-     * `pool-<i>` (ingress `pool-<i>-0`) with the bridge ports reserved in one batch, custom Xray full configs drained
+     * buildAutoSelectorGroup (:1622-1776): per member of the plan's build a chain `[landing?, member, front?]` with
+     * the landing / front proxy of the member's own group ([AutoSelectorPlan.groupOf]) under `pool-<i>` (ingress
+     * `pool-<i>-0`) with the bridge ports reserved in one batch, custom Xray full configs drained
      * into their own instances, then the core `auto-selector` outbound over the members with the warm health of
      * fresh results and the pin. It is `proxy`, or `warp-bypass` when WARP takes `proxy`.
      */
@@ -711,7 +778,7 @@ class ConfigGenerator @JvmOverloads constructor(
         }
         val groupTag = if (warpWrap) Tags.WARP_BYPASS else Tags.PROXY
 
-        class PlannedMember(val member: SelectorMember, val hopIds: List<Long>, val bridges: MemberBridges)
+        class PlannedMember(val member: SelectorMember, val hopIds: List<Long>, val bridges: MemberBridges, val origin: HopOrigin)
 
         // One member the core rejects fails the whole group's start, so drop it instead.
         val rejected = rejectedMembers(chains, reads, plan.build)
@@ -729,16 +796,18 @@ class ConfigGenerator @JvmOverloads constructor(
             if (memberGroup.frontProxyId > 0) hopIds.add(memberGroup.frontProxyId)
             val bridges = chains.bridgesFor(hopIds)
             bridgeCount += bridges.count
-            plannedMembers.add(PlannedMember(member, hopIds, bridges))
+            val origin = HopOrigin(selector, listOf(ChainGroup(memberGroup.name, memberGroup.landingProxyId, memberGroup.frontProxyId)))
+            plannedMembers.add(PlannedMember(member, hopIds, bridges, origin))
         }
         // One batch for every member: reserving per member can deal the same port twice.
-        val bridgePorts = LocalPorts.reserve(bridgeCount)
+        val bridgePorts = state.ports.reserve(bridgeCount)
         var portIdx = 0
 
         val builtAt = clock()
         val warm = JsonArray()
         var pinnedTag = ""
         val memberTags = JsonArray()
+        val tierTags = List(if (selector.prioritized()) selector.tiers.size else 0) { JsonArray() }
         val members = LinkedHashMap<String, Long>()
         for ((idx, planned) in plannedMembers.withIndex()) {
             val bridges = planned.bridges
@@ -750,6 +819,7 @@ class ConfigGenerator @JvmOverloads constructor(
                     xrayToSingPort = if (bridges.xrayToSing) bridgePorts[portIdx++] else -1,
                     xrayFullConfigPort = if (bridges.xrayFullConfig) bridgePorts[portIdx++] else -1,
                     soleXrayInbound = bridges.xrayFullConfig,
+                    origin = planned.origin,
                 ),
             )
             if (state.failed) return
@@ -765,6 +835,8 @@ class ConfigGenerator @JvmOverloads constructor(
             }
             val member = planned.member
             memberTags.add(tag)
+            // Members matching no tier stay unlisted: the core ranks them after the last tier.
+            plan.tierOf[member.id]?.let { tier -> tierTags.getOrNull(tier)?.add(tag) }
             members[tag] = member.id
             if (member.id == selector.pinnedID) pinnedTag = tag
             if (member.latency != 0 && member.latencyAt > 0 && selector.resultValidityMins > 0) {
@@ -795,6 +867,13 @@ class ConfigGenerator @JvmOverloads constructor(
             "dial_retries" to selector.dialRetries,
             "interrupt_exist_connections" to selector.interruptOnSwitch,
         )
+        if (selector.prioritized()) {
+            group["strategy"] = "priority"
+            group["tiers"] = JsonArray().also { array -> tierTags.forEach(array::add) }
+            group["failback_checks"] = selector.failbackChecks
+            group["failback_delay"] = "${selector.failbackDelaySec}s"
+            if (selector.failbackInterrupt) group["failback_interrupt"] = true
+        }
         if (warm.isNotEmpty()) group["warm"] = warm
         if (pinnedTag.isNotEmpty()) group["pinned"] = pinnedTag
         if (selector.maxRTTms > 0) group["max_rtt"] = "${selector.maxRTTms}ms"
@@ -824,10 +903,12 @@ class ConfigGenerator @JvmOverloads constructor(
     private fun rejectedMembers(chains: ChainBuilder, reads: ProfileProvider, ids: List<Long>): Map<Long, String> {
         val rejected = LinkedHashMap<Long, String>()
         val valid = ArrayList<Pair<Long, Outbound>>()
+        // A bad global fragment setting is not the member's fault; the desktop's IsValid passes it and the start names it.
+        val fragmentError = OutboundChecks.fragmentSettingsError(buildContext)
         for (id in ids) {
             val outbound = reads.get(id) ?: continue
             val error = chains.candidateError(listOf(id))
-            if (error.isNotEmpty()) rejected[id] = error else valid.add(id to outbound)
+            if (error.isNotEmpty() && error != fragmentError) rejected[id] = error else valid.add(id to outbound)
         }
         val check = routing.memberCheck ?: return rejected
         if (valid.isNotEmpty()) rejected.putAll(check.rejected(valid, buildContext))
@@ -839,7 +920,7 @@ class ConfigGenerator @JvmOverloads constructor(
         val warp = WarpHop.outbound(settings)
         val error = WarpHop.adaptToTransport(warp, state.carrierPlans.values.any { it.kind.tcpOnly })
         if (error.isNotEmpty()) { state.error = error; return }
-        val result = warp.build(buildContext)
+        val result = warp.buildChecked(buildContext)
         if (!result.ok) {
             state.error += result.error
             return
@@ -893,10 +974,12 @@ class ConfigGenerator @JvmOverloads constructor(
             remoteBase = remoteDnsObj
         }
 
-        val directDnsObj = DnsServers.buildDnsObj(settings.directDns)
+        val directDnsObj = DnsServers.buildDnsObj(settings.directDns, state.forTest)
         directDnsObj["tag"] = Tags.DNS_DIRECT
         directDnsObj["domain_resolver"] = Tags.DNS_LOCAL
         servers.add(directDnsObj)
+
+        appFamilyGuard(state)?.let { headRules.add(it) }
 
         if (!state.forTest && settings.dnsPredefinedEnable) {
             val predefined = PredefinedDns.parse(settings.dnsPredefinedRules) ?: emptyList()
@@ -925,6 +1008,16 @@ class ConfigGenerator @JvmOverloads constructor(
                 jsonObjectOf(
                     "domain" to JsonValues.stringArray(state.echQueryNames),
                     "query_type" to JsonArray.of("HTTPS"),
+                    "action" to "route",
+                    "server" to Tags.DNS_DIRECT,
+                ),
+            )
+        }
+
+        if (!state.forTest && state.dnsTunnelDomains.isNotEmpty()) {
+            headRules.add(
+                jsonObjectOf(
+                    "domain_suffix" to JsonValues.stringArray(state.dnsTunnelDomains),
                     "action" to "route",
                     "server" to Tags.DNS_DIRECT,
                 ),
@@ -996,7 +1089,7 @@ class ConfigGenerator @JvmOverloads constructor(
             if (useDirectFinalDns) buildContext.directDnsDisableIpv6 else settings.remoteDnsDisableIpv6,
         )
 
-        val dnsLocalObj = DnsServers.buildDnsObj(settings.underlyingDns.ifEmpty { "local" })
+        val dnsLocalObj = DnsServers.buildDnsObj(settings.underlyingDns.ifEmpty { "local" }, state.forTest)
         dnsLocalObj["tag"] = Tags.DNS_LOCAL
         servers.add(dnsLocalObj)
 
@@ -1005,7 +1098,7 @@ class ConfigGenerator @JvmOverloads constructor(
         var echDnsIdx = 0
         for ((name, resolver) in state.echResolvers) {
             val tag = hopTag(Tags.DNS_ECH_PREFIX, echDnsIdx++)
-            val echDnsObj = DnsServers.buildDnsObj(resolver)
+            val echDnsObj = DnsServers.buildDnsObj(resolver, state.forTest)
             echDnsObj["tag"] = tag
             echDnsObj["domain_resolver"] = Tags.DNS_LOCAL
             servers.add(echDnsObj)
@@ -1033,6 +1126,28 @@ class ConfigGenerator @JvmOverloads constructor(
             else jsonObjectOf("enabled" to true, "timeout" to optimisticTimeout)
         }
         state.coreConfig["dns"] = dns
+    }
+
+    /**
+     * #90, Android-only: without FakeIP apps resolve names themselves, so the route's `resolve` action only ever sees
+     * IP literals and an "only" resolve strategy did nothing. This answers the other family empty for the queries
+     * apps send instead. It is no rule `strategy`: that needs the legacy DNS mode, which the query_type rules here
+     * rule out (dns/router.go resolveLegacyDNSMode). Proxy-server and direct-domain lookups name their server
+     * (domain_resolver) and never walk the rules, so only the app-facing inbounds are affected. ipv6_only is left out
+     * while the tun has no IPv6 address: Android then keeps VPN apps off IPv6, and A-less answers would cut them off.
+     */
+    private fun appFamilyGuard(state: BuildState): JsonObject? {
+        if (state.forTest || settings.fakeDns) return null
+        val dropped = when (settings.resolveDomainStrategy) {
+            "ipv4_only" -> "AAAA"
+            "ipv6_only" -> if (settings.vpnMode && !settings.ipv6Enabled) return null else "A"
+            else -> return null
+        }
+        return jsonObjectOf(
+            "inbound" to JsonArray.of(Tags.DNS_IN, Tags.MIXED_IN, Tags.TUN_IN),
+            "query_type" to JsonArray.of(dropped),
+            "action" to "predefined",
+        )
     }
 
     // The desktop never stores a malformed duration (dialog_manage_routes.cpp:230-237) and the core rejects one.
@@ -1124,7 +1239,7 @@ class ConfigGenerator @JvmOverloads constructor(
                 jsonObjectOf("user_id" to JsonArray.of(0, 1000, 1001, 1002, 1010, 1016, 1020, 1021, 1036, 1051, 1052, 1073, 1076, 2000, 9999), "invert" to true),
             ),
         ))
-        rules.add(jsonObjectOf("action" to "sniff"))
+        rules.add(jsonObjectOf("action" to "sniff").also { if (!settings.sniffRouteOnly) it["override_destination"] = true })
         if (settings.resolveDomainStrategy.isNotEmpty()) {
             rules.add(jsonObjectOf("inbound" to JsonArray.of(Tags.MIXED_IN, "http-in", Tags.TUN_IN), "action" to "resolve", "strategy" to settings.resolveDomainStrategy))
         }
@@ -1168,7 +1283,9 @@ class ConfigGenerator @JvmOverloads constructor(
     /**
      * get_route_rules(false, outboundMap) (RouteProfile.cpp:593-628) with get_rule_json (RouteRule.cpp:82-190): simple
      * rules without a condition are skipped and the adblock reject goes in front of the first `route` rule, else last.
-     * Endpoint rules are skipped (no auxiliary endpoints on Android), rule-level TLS spoof is dropped (D8) and a rule
+     * Endpoint rules are skipped (no auxiliary endpoints on Android), rule-level TLS spoof is dropped (D8), so is a
+     * TLS fragment fallback delay the core would refuse (an imported value; the editor checks its own), so is
+     * tls_record_fragment next to tls_fragment on route-options, and a rule
      * whose apps include unidentified ones, or that has both apps and package regexes, becomes a logical rule
      * ([RouteRule.toConfigJson]).
      */
@@ -1184,8 +1301,20 @@ class ConfigGenerator @JvmOverloads constructor(
                 state.error = "Aborted generating routing section, an error has occurred"
                 return out
             }
+            var stripped = json.contains("tls_spoof")
             json.remove("tls_spoof")
             json.remove("tls_spoof_method")
+            if (json.contains("tls_fragment_fallback_delay") && validDuration(json.string("tls_fragment_fallback_delay")).isEmpty()) {
+                json.remove("tls_fragment_fallback_delay")
+                stripped = true
+            }
+            // Mutually exclusive for route-options only (rule_action.go; a route action embeds the raw options unchecked);
+            // an imported rule can carry both, the editor cannot.
+            if (json.string("action") == "route-options" && json.contains("tls_fragment") && json.contains("tls_record_fragment")) {
+                json.remove("tls_record_fragment")
+            }
+            // The core refuses a route-options rule left without options ("empty route option action").
+            if (stripped && json.string("action") == "route-options" && ROUTE_OPTION_KEYS.none { json.contains(it) }) continue
             if (!addedAdblock && settings.adblockEnable && json.string("action") == "route") {
                 out.add(adblockRule())
                 addedAdblock = true
@@ -1230,14 +1359,21 @@ class ConfigGenerator @JvmOverloads constructor(
         if (state.forTest) return
         val experimental = JsonObject()
         if (settings.clashApiEnabled) {
+            // An empty host would listen on every interface.
+            var listenHost = settings.clashApiListen.trim().ifEmpty { "127.0.0.1" }
+            if (listenHost.contains(':') && !listenHost.startsWith('[') && Validation.ip(listenHost.substringBefore('%'), Family.V6).isEmpty()) {
+                listenHost = "[$listenHost]"
+            }
             val clashApi = jsonObjectOf(
-                "external_controller" to "${settings.clashApiListen}:${settings.clashApiPort}",
+                "external_controller" to "$listenHost:${settings.clashApiPort}",
                 "secret" to settings.clashApiSecret,
             )
             if (settings.clashApiExternalUi.isNotEmpty()) clashApi["external_ui"] = settings.clashApiExternalUi
             experimental["clash_api"] = clashApi
         }
         // enabled is unconditional: the same file backs the remote rule-set cache and the auto-selector's last pick.
+        // FakeIP mappings are always kept: apps still dial the previous run's fake addresses (TTL 600 s) after a
+        // restart, which Android does on every reload, and a fresh store does not know them.
         experimental["cache_file"] = jsonObjectOf(
             "enabled" to true,
             // Fake addresses outlive a core restart in the apps' DNS caches, so their mapping must too.
@@ -1319,19 +1455,65 @@ class ConfigGenerator @JvmOverloads constructor(
 
         private val SELECTOR_PREFIXES = listOf("ruleset:", "domain:", "suffix:", "keyword:", "regex:", "ip:")
 
-        private val DURATION = Regex("^(?:\\d+(?:\\.\\d+)?(?:ns|us|ms|s|m|h|d))+$")
+        /**
+         * The JSON fields of the fork's RawRouteOptionsActionOptions (option/rule_action.go). network_type is a match
+         * condition there, not an option, so it never keeps a route-options rule from being empty.
+         */
+        private val ROUTE_OPTION_KEYS = listOf(
+            "override_address", "override_port", "network_strategy", "fallback_delay", "udp_disable_domain_unmapping",
+            "udp_connect", "udp_timeout", "tls_fragment", "tls_fragment_fallback_delay", "tls_record_fragment", "tls_spoof",
+            "tls_spoof_method",
+        )
 
-        /** IsValidDuration (generate.cpp:2314-2317): a Go duration without a sign, e.g. `1m30s`. */
+        /** IsValidDuration (generate.cpp): the sing-box duration grammar ([Validation.duration]), not negative, e.g. `1m30s`. */
         @JvmStatic
-        fun isValidDuration(text: String): Boolean = DURATION.matches(text)
+        fun isValidDuration(text: String): Boolean = Validation.duration(text, Validation.DurationRule(Empty.Required)).isEmpty()
+    }
+}
+
+/** ChainBuildMark (generate.cpp): what buildOutboundChain leaves behind, so a test batch can drop a profile whose chain failed halfway. */
+private class ChainBuildMark(private val state: BuildState) {
+    private val outbounds = state.outbounds.size
+    private val endpoints = state.endpoints.size
+    private val xrayOutbounds = state.xrayOutbounds.size
+    private val xrayIngressTags = state.xrayIngressTags.size
+    private val singIngressTags = state.singIngressTags.size
+    private val singToXrayBridges = state.singToXrayBridges.size
+    private val xrayToSingBridges = state.xrayToSingBridges.size
+    private val echQueryNames = state.echQueryNames.size
+    private val dnsTunnelDomains = state.dnsTunnelDomains.size
+    private val echResolvers = HashSet(state.echResolvers.keys)
+    private val xrayConfig = state.xrayConfig
+    private val isXrayNeeded = state.isXrayNeeded
+
+    private fun <T> truncate(list: MutableList<T>, size: Int) {
+        while (list.size > size) list.removeAt(list.size - 1)
+    }
+
+    fun rollback() {
+        state.outbounds.truncate(outbounds)
+        state.endpoints.truncate(endpoints)
+        state.xrayOutbounds.truncate(xrayOutbounds)
+        truncate(state.xrayIngressTags, xrayIngressTags)
+        truncate(state.singIngressTags, singIngressTags)
+        truncate(state.singToXrayBridges, singToXrayBridges)
+        truncate(state.xrayToSingBridges, xrayToSingBridges)
+        truncate(state.echQueryNames, echQueryNames)
+        truncate(state.dnsTunnelDomains, dnsTunnelDomains)
+        state.echResolvers.keys.retainAll(echResolvers)
+        state.xrayConfig = xrayConfig
+        state.isXrayNeeded = isXrayNeeded
+        state.error = ""
     }
 }
 
 /** Records every profile id a build reads (buildProfileSink, generate.cpp:411-418). */
 private class RecordingProfiles(private val inner: ProfileProvider) : ProfileProvider {
     val ids = LinkedHashSet<Long>()
+    /** Profiles built in another form than stored: a route rule's Xray full config becomes its proxy outbound. */
+    val overrides = HashMap<Long, Outbound>()
 
-    override fun get(id: Long): Outbound? = inner.get(id)?.also { ids.add(id) }
+    override fun get(id: Long): Outbound? = (overrides[id] ?: inner.get(id))?.also { ids.add(id) }
 
     override fun groupProxies(profileId: Long): Pair<Long, Long> = inner.groupProxies(profileId)
 }

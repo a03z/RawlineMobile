@@ -11,4 +11,40 @@
             app:key="direct_test_url"
             app:title="@string/direct_test_url" />
     </PreferenceCategory>
+
+    <PreferenceCategory app:title="@string/cag_exit_country">
+        <SwitchPreference
+            app:icon="@drawable/baseline_public_24"
+            app:key="exit_country_lookup"
+            app:summary="@string/exit_country_lookup_sum"
+            app:title="@string/exit_country_lookup" />
+        <moe.matsuri.nb4a.ui.SimpleMenuPreference
+            app:dependency="exit_country_lookup"
+            app:entries="@array/exit_lookup_provider_entries"
+            app:entryValues="@array/exit_lookup_provider_values"
+            app:icon="@drawable/ic_baseline_link_24"
+            app:key="exit_lookup_provider"
+            app:title="@string/exit_lookup_provider"
+            app:useSimpleSummaryProvider="true" />
+    </PreferenceCategory>
+
+    <PreferenceCategory app:title="@string/speed_test_settings">
+        <moe.matsuri.nb4a.ui.SimpleMenuPreference
+            app:entries="@array/speed_test_modes"
+            app:entryValues="@array/int_array_5"
+            app:icon="@drawable/ic_baseline_speed_24"
+            app:key="speed_test_mode"
+            app:title="@string/speed_test_mode"
+            app:useSimpleSummaryProvider="true" />
+        <EditTextPreference
+            app:icon="@drawable/ic_mobile_clock"
+            app:key="speed_test_timeout_ms"
+            app:title="@string/speed_test_timeout_ms"
+            app:useSimpleSummaryProvider="true" />
+        <EditTextPreference
+            app:icon="@drawable/ic_baseline_link_24"
+            app:key="simple_dl_url"
+            app:title="@string/simple_download_url"
+            app:useSimpleSummaryProvider="true" />
+    </PreferenceCategory>
 </PreferenceScreen>

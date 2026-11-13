@@ -13,13 +13,18 @@ class S3Bypass:Outbound("s3bypass"),NativeCarrier {
     private var data=JsonObject()
     override fun displayType()="S3 Bypass"
     override fun displayAddress()=data.obj("storage").let { storage ->
-        val host=runCatching { LinkParser.parse(storage.string("endpoint")).host }.getOrDefault("")
-        listOf(host,storage.string("bucket")).filter { it.isNotEmpty() }.joinToString("/")
+        listOf(host(storage),storage.string("bucket")).filter { it.isNotEmpty() }.joinToString("/")
     }
 
     companion object {
         val STORAGE_KEYS=listOf("endpoint","region","bucket","prefix","sessionsDir","accessKey","secretKey")
         val TUNING_KEYS=listOf("pollIntervalMs","writeIntervalMs","idleTimeoutSec","maxFileSizeBytes")
+
+        /** Fedarisha talks to AWS S3 of the region when the storage has no endpoint. */
+        private fun host(storage:JsonObject)=storage.string("endpoint").trim().let { endpoint ->
+            if(endpoint.isEmpty()) storage.string("region").trim().let { if(it.isEmpty()) "" else "s3.$it.amazonaws.com" }
+            else runCatching { LinkParser.parse(endpoint).host }.getOrDefault("")
+        }
 
         /** The fedarisha outbound of an Xray configuration, as the original app imports it. */
         fun fromXrayConfig(config:JsonObject):S3Bypass? {
@@ -36,7 +41,7 @@ class S3Bypass:Outbound("s3bypass"),NativeCarrier {
         if(obj.string("type")!="s3bypass") return false
         data=obj.copy();data.remove("type");data.remove("tag")
         name=obj.string("name").ifEmpty { obj.string("tag") };data.remove("name")
-        server=runCatching { LinkParser.parse(data.obj("storage").string("endpoint")).host }.getOrDefault("");serverPort=443
+        server=host(data.obj("storage"));serverPort=443
         return valid()
     }
 
@@ -44,8 +49,11 @@ class S3Bypass:Outbound("s3bypass"),NativeCarrier {
         val storage=data.obj("storage")
         if(storage.string("type").ifEmpty { "s3" }!="s3") return false
         if(listOf("bucket","accessKey","secretKey").any { storage.string(it).isBlank() }) return false
-        val endpoint=runCatching { LinkParser.parse(storage.string("endpoint")) }.getOrNull() ?: return false
-        if(endpoint.scheme !in listOf("http","https") || endpoint.host.isEmpty()) return false
+        if(storage.string("endpoint").isBlank()) { if(storage.string("region").isBlank()) return false }
+        else {
+            val endpoint=runCatching { LinkParser.parse(storage.string("endpoint")) }.getOrNull() ?: return false
+            if(endpoint.scheme !in listOf("http","https") || endpoint.host.isEmpty()) return false
+        }
         return data.obj("tuning").all { (_,value) -> value is Number }
     }
 

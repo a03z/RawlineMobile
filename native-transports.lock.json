@@ -37,8 +37,7 @@
     "carriers/dnstun/slipstream.go": "510c2d018b6ee17f6828d6e82d58210a58bfad81a6706268c644b4f16e478292",
     "carriers/dnstun/socks.go": "3403b057215d03aeb701be21cac3047f855a6a96a50841b5b27f2c00ed95d9d7",
     "carriers/dnstun/tunnel.go": "14934adea51d82e3a7dc8f6bdc6a8e6d111580320a449b30eae8d00df30cd50b",
-    "carriers/masterdns/main.go": "807ce6e1d0035c744b5911f03ce42fc7f6ad47ab0603dcc4eeacfdf10cf61f99",
-    "carriers/s3bypass/main.go": "ac0b8b6cdbff5f18c5a5b60bbadb4bbaed6e44eb58fbf1f6ce6c53152fdd69be"
+    "carriers/masterdns/main.go": "807ce6e1d0035c744b5911f03ce42fc7f6ad47ab0603dcc4eeacfdf10cf61f99"
   },
   "secure_socks": {
     "build_commit": "8a472e404a6f6cf4f24721c961d7ca11f30b7a84",
@@ -317,6 +316,38 @@
         "sha256": "3434fb3991a5957825adfa913b7c0ff9ee6e7e96c8f1d0f40060f7db5f4f0668",
         "sources": "RawlineMobile MRTT eef17c266a62ce007c910734044d0f2fb0954836\nMRTT 233eddc06a0a117d3b1cbd20386be2bb4300126e\nRawline e5c3c405f21cfb27a883038a0aec40bd9dcf8587\nAndroid ABI x86_64\n",
         "url": "https://github.com/ttrroyy/RawlineMobile/releases/download/v1.0.0/rawline-mrtt-eef17c26-x86_64.tar.gz"
+      }
+    ]
+  },
+  "aivpn": {
+    "build_commit": "d535e0cd9ea2dbb6d39cfeeb5baca2fa9410a6ea",
+    "inputs": {
+      "carriers/aivpn/patch_aivpn.py": "f18e9fc68b1516217f49a669781656b16f2cecdf37905080c6dd5353eb6a5eb5",
+      "carriers/aivpn/rawline.rs": "fdb4423e2d47f54146e5372ef6e393e558be8f6f81db06a3536a439bb4a0ac04",
+      "carriers/s3bypass/main.go": "d03039ae3d93196e36c31fcd03b44505d26d45d56976f27eb53a670d9cf442e5",
+      "scripts/build_aivpn.sh": "929bb44d43be99579628ff36c260d6ad0a35388397c347a74439e117c3b96e00"
+    },
+    "archives": [
+      {
+        "abi": "armeabi-v7a",
+        "name": "rawline-aivpn-d535e0cd-armeabi-v7a.tar.gz",
+        "sha256": "02f3249211b14a921e5d4f84143d6ed595d08d1abf14f6186b1b836b273a5189",
+        "sources": "RawlineMobile d535e0cd9ea2dbb6d39cfeeb5baca2fa9410a6ea\naivpn 80deb78b42edc96684f703dbe1fa0c196181134f\nXray-core-fedarisha a04f4c09972b2aa7d6255197732c1c20e3fdc8a1\nAndroid ABI armeabi-v7a\n",
+        "url": "https://github.com/ttrroyy/RawlineMobile/releases/download/v1.0.0/rawline-aivpn-d535e0cd-armeabi-v7a.tar.gz"
+      },
+      {
+        "abi": "arm64-v8a",
+        "name": "rawline-aivpn-d535e0cd-arm64-v8a.tar.gz",
+        "sha256": "5305fb4b84a8f83387b145f26fb1f46e9ec2e8db587249f627373bcc63dd0115",
+        "sources": "RawlineMobile d535e0cd9ea2dbb6d39cfeeb5baca2fa9410a6ea\naivpn 80deb78b42edc96684f703dbe1fa0c196181134f\nXray-core-fedarisha a04f4c09972b2aa7d6255197732c1c20e3fdc8a1\nAndroid ABI arm64-v8a\n",
+        "url": "https://github.com/ttrroyy/RawlineMobile/releases/download/v1.0.0/rawline-aivpn-d535e0cd-arm64-v8a.tar.gz"
+      },
+      {
+        "abi": "x86_64",
+        "name": "rawline-aivpn-d535e0cd-x86_64.tar.gz",
+        "sha256": "a82df15fb255e4b4ef8efee67ddbf7af7425ab2699d377a7a74bd99a835c1468",
+        "sources": "RawlineMobile d535e0cd9ea2dbb6d39cfeeb5baca2fa9410a6ea\naivpn 80deb78b42edc96684f703dbe1fa0c196181134f\nXray-core-fedarisha a04f4c09972b2aa7d6255197732c1c20e3fdc8a1\nAndroid ABI x86_64\n",
+        "url": "https://github.com/ttrroyy/RawlineMobile/releases/download/v1.0.0/rawline-aivpn-d535e0cd-x86_64.tar.gz"
       }
     ]
   }

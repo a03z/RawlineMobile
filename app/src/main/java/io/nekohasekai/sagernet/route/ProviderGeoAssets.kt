@@ -76,7 +76,10 @@ object ProviderGeoAssets {
         var result = config
         for (kind in listOf("geosite", "geoip")) {
             if (!config.contains("$kind:")) continue
-            val path = download(0, source, kind, false).relativeTo(app.filesDir).invariantSeparatorsPath
+            val file = download(0, source, kind, false)
+            // Xray finds a category only by its upper-case name in the entry's first field.
+            Mobile.normalizeGeoFileForXray(file.absolutePath)
+            val path = file.relativeTo(app.filesDir).invariantSeparatorsPath
             val prefix = if (kind == "geoip") "ext-ip:" else "ext:"
             result = result.replace(Regex("\"(!?)$kind:")) { "\"${it.groupValues[1]}$prefix$path:" }
         }

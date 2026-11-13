@@ -9,6 +9,7 @@ import app.rawline.mobile.database.DataStore
 import app.rawline.mobile.ktx.app
 import app.rawline.mobile.ui.MobilePalette
 import app.rawline.mobile.ui.MobileStyle
+import app.rawline.mobile.SagerNet
 
 object Theme {
 
@@ -209,9 +210,10 @@ object Theme {
 
     fun usingNightMode(): Boolean {
         return when (DataStore.nightTheme) {
+            0 -> (app.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
             1 -> true
             2 -> false
-            else -> (app.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+            else -> SagerNet.power.isPowerSaveMode
         }
     }
 

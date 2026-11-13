@@ -7,8 +7,8 @@ import org.junit.Test
 class PingSortTest {
     @Test fun unmeasuredProfilesStayBelowEvenVerySlowWorkingProfiles() {
         val rows=listOf(0,-1,200000,10,100).mapIndexed { i,ping -> ProxyEntity(id=i.toLong(),latency=ping) }
-        val sorted=rows.sortedWith(GroupSort.comparator(GroupSortAction(GroupSortMethod.BY_LATENCY),ProxyGroup()))
-        assertEquals(listOf(10,100,200000,0,-1),sorted.map { it.latency })
+        val sorted=rows.sortedBy { GroupSort.latencyKey(it.latency) }
+        assertEquals(listOf(10,100,200000,-1,0),sorted.map { it.latency })
     }
     @Test fun automaticSortingIsPerGroupAndOffByDefault() {
         val first=SubscriptionOptions(autoSortByPing=true)

@@ -96,7 +96,7 @@ class NativeInterface : PlatformInterface {
     override fun packageNamesByUid(uid: Int): StringIterator = packageNamesOf(uid).toStringIterator()
 
     private fun packageNamesOf(uid: Int): List<String> {
-        if (uid <= 1000) return listOf("android")
+        if (uid % PackageCache.PER_USER_RANGE <= 1000) return listOf("android")
         PackageCache.snapshot().uidMap[uid]?.let { return it }
         // Not in the listing (a failed or stale load, an app installed since): asked of the system directly, or the
         // tun0 guard would take a plain app for a socket without an owner and refuse it.
@@ -132,6 +132,9 @@ class NativeInterface : PlatformInterface {
         var index: Int = Int.MIN_VALUE
         var network: Network? = null
         var isExpensive: Boolean = false
+
+        // Survives clearInterface: the first network after a loss is a switch too, only the very first report is not.
+        var reported = false
     }
 
     private val ifaceReportStates = Collections.synchronizedMap(
@@ -184,8 +187,8 @@ class NativeInterface : PlatformInterface {
             // Capability-change storms repeat the same interface; skip them without a JNI round trip. A metering change
             // alone (a Wi-Fi marked metered) is still reported so the core re-reads its interfaces, but is no switch.
             if (sameInterface && state.isExpensive == isExpensive) return
-            val changed = !sameInterface && state.wasConnected
-            state.wasConnected=true
+            val changed = !sameInterface && state.reported
+            state.reported = true
             state.name = linkProperties.interfaceName
             state.index = interfaceIndex
             state.network = network

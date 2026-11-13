@@ -9,20 +9,30 @@ import android.view.MenuItem
 import androidx.activity.result.contract.ActivityResultContracts
 import app.rawline.mobile.R
 import app.rawline.mobile.SagerNet
+import app.rawline.mobile.database.ProfileManager
+import app.rawline.mobile.database.SettingsMapper
+import app.rawline.mobile.ktx.Logs
+import app.rawline.mobile.ktx.readableMessage
 import app.rawline.mobile.ktx.snackbar
 import app.rawline.mobile.ktx.startFilesForResult
+import app.rawline.mobile.outbound.Outbound
+import app.rawline.mobile.outbound.`import`.ImportReport
+import app.rawline.mobile.outbound.`import`.ProfileImport
 import app.rawline.mobile.ui.ConfigurationFragment
 import app.rawline.mobile.ui.ScannerActivity
 import app.rawline.mobile.ui.SubscribeFlows
+import app.rawline.mobile.ui.SubscriptionReportDialog
 import app.rawline.mobile.ui.profile.AnyTLSSettingsActivity
 import app.rawline.mobile.ui.profile.AutoSelectorSettingsActivity
 import app.rawline.mobile.ui.profile.ChainSettingsActivity
 import app.rawline.mobile.ui.profile.CustomSettingsActivity
 import app.rawline.mobile.ui.profile.DirectSettingsActivity
+import app.rawline.mobile.ui.profile.DnsttSettingsActivity
 import app.rawline.mobile.ui.profile.HttpSettingsActivity
 import app.rawline.mobile.ui.profile.HysteriaSettingsActivity
 import app.rawline.mobile.ui.profile.JuicitySettingsActivity
 import app.rawline.mobile.ui.profile.MasqueSettingsActivity
+import app.rawline.mobile.ui.profile.MasterDnsSettingsActivity
 import app.rawline.mobile.ui.profile.MieruSettingsActivity
 import app.rawline.mobile.ui.profile.NaiveSettingsActivity
 import app.rawline.mobile.ui.profile.OpenConnectSettingsActivity
@@ -102,6 +112,8 @@ class ProfileImports(private val host: ConfigurationFragment) {
         R.id.action_new_shadowtls -> ShadowTLSSettingsActivity::class.java
         R.id.action_new_anytls -> AnyTLSSettingsActivity::class.java
         R.id.action_new_trusttunnel -> TrustTunnelSettingsActivity::class.java
+        R.id.action_new_dnstt -> DnsttSettingsActivity::class.java
+        R.id.action_new_masterdns -> MasterDnsSettingsActivity::class.java
         R.id.action_new_direct -> DirectSettingsActivity::class.java
         R.id.action_new_masque -> MasqueSettingsActivity::class.java
         R.id.action_new_openvpn -> OpenVpnSettingsActivity::class.java

@@ -13,11 +13,15 @@ import android.widget.TextView
 import androidx.annotation.ColorInt
 import androidx.core.graphics.ColorUtils
 import androidx.core.view.isVisible
+import androidx.preference.PreferenceDataStore
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.card.MaterialCardView
 import app.rawline.mobile.R
+import app.rawline.mobile.database.DataStore
 import app.rawline.mobile.database.ProxyEntity
+import app.rawline.mobile.database.SettingsRegistry
 import app.rawline.mobile.database.TestShowItems
+import app.rawline.mobile.database.preference.OnPreferenceDataStoreChangeListener
 import app.rawline.mobile.ktx.alert
 import app.rawline.mobile.ktx.getColorAttr
 import app.rawline.mobile.ktx.tryToShow
@@ -32,7 +36,8 @@ import java.util.Locale
  * The texts of one card, computed apart from the views so the grid can align the error lines of neighbours: the
  * result holds the desktop DisplayTestResult as separate items that wrap between each other (or the live test phase)
  * and sits beside the type when it fits ([TypeLineLayout]); the error line is the Android-only `test_error` of a
- * failed test.
+ * failed test. A [brief] row (compactProfileRows) keeps the first result item only and has no address, traffic or
+ * error line: its result still opens the error.
  */
 internal class RowContent(
     val result: CharSequence,
@@ -43,10 +48,11 @@ internal class RowContent(
     val trafficDescription: String?,
     val address: String,
     val error: String?,
+    private val brief: Boolean,
 ) {
     /** The lines under the type line, which a grid neighbour keeps room for; the lines above align by themselves. */
     val rows: Int
-        get() = if (error != null) ROW_ERROR else 0
+        get() = if (error != null && !brief) ROW_ERROR else 0
 
     /** One result item: [spoken] stands in for its symbols. */
     private class Item(val text: String, @ColorInt val color: Int, val spoken: String)
@@ -65,10 +71,11 @@ internal class RowContent(
 
         fun of(context: Context, profile: ProxyEntity, adapter: ProfileListAdapter): RowContent {
             val secondary = context.getColorAttr(android.R.attr.textColorSecondary)
-            val showTraffic = profile.rx + profile.tx != 0L
+            val brief = adapter.isCompactRow
+            val showTraffic = !brief && profile.rx + profile.tx != 0L
             val up = Formatter.formatShortFileSize(context, profile.tx)
             val down = Formatter.formatShortFileSize(context, profile.rx)
-            val address = if (adapter.host?.alwaysShowAddress == true && profile.outbound.name.isNotBlank()) {
+            val address = if (!brief && adapter.host?.alwaysShowAddress == true && profile.outbound.name.isNotBlank()) {
                 profile.displayAddress()
             } else ""
 
@@ -90,6 +97,7 @@ internal class RowContent(
 
                 else -> {
                     val items = testResult(context, profile, TestShowItems.of(adapter.testItemsToShow), color, secondary)
+                        .let { if (brief) it.take(1) else it }
                     if (items.isNotEmpty()) {
                         result.append(LRO)
                         items.forEachIndexed { index, item ->
@@ -112,6 +120,7 @@ internal class RowContent(
                 trafficDescription = if (showTraffic) context.getString(R.string.profile_row_traffic, up, down) else null,
                 address = address,
                 error = error,
+                brief = brief,
             )
         }
 
@@ -185,6 +194,36 @@ internal class RowContent(
     }
 }
 
+/**
+ * The type text of a card (ProfilesTableModel.cpp ColType): the type, then the security in parentheses while
+ * show_config_security is on, e.g. "HTTP (TLS)". Both settings it reads are cached until either is written.
+ */
+private object TypeLabel : OnPreferenceDataStoreChangeListener {
+    private class Flags(val showSecurity: Boolean, val skipCert: Boolean)
+
+    @Volatile
+    private var flags: Flags? = null
+
+    init {
+        DataStore.configurationStore.registerChangeListener(this)
+    }
+
+    override fun onPreferenceDataStoreChanged(store: PreferenceDataStore, key: String) {
+        if (key == SettingsRegistry.SHOW_CONFIG_SECURITY.key || key == SettingsRegistry.SKIP_CERT.key) flags = null
+    }
+
+    fun of(profile: ProxyEntity): String {
+        val current = flags ?: Flags(
+            SettingsRegistry.SHOW_CONFIG_SECURITY.read(DataStore.configurationStore),
+            DataStore.skipCert,
+        ).also { flags = it }
+        val type = profile.displayType()
+        if (!current.showSecurity) return type
+        val security = profile.outbound.displaySecurity(current.skipCert)
+        return if (security.isEmpty()) type else "$type ($security)"
+    }
+}
+
 internal class ProfileRowHolder(view: View, private val adapter: ProfileListAdapter) :
     RecyclerView.ViewHolder(view) {
 
@@ -205,6 +244,13 @@ internal class ProfileRowHolder(view: View, private val adapter: ProfileListAdap
     lateinit var profile: ProxyEntity
         private set
 
+    /** The row's profile is still loading: the card is blank and ignores taps. */
+    var placeholder = false
+        private set
+
+    /** The bound profile, null while [placeholder] or before the first bind. */
+    val boundProfile: ProxyEntity? get() = if (placeholder || !::profile.isInitialized) null else profile
+
     /** The optional rows of the last bind ([RowContent.rows]), null before the first. */
     var boundRows: Int? = null
         private set
@@ -215,22 +261,23 @@ internal class ProfileRowHolder(view: View, private val adapter: ProfileListAdap
 
     init {
         view.setOnClickListener {
-            if (::profile.isInitialized) adapter.host?.onRowClick(profile)
+            boundProfile?.let { adapter.host?.onRowClick(it) }
         }
         view.setOnLongClickListener { v ->
-            ::profile.isInitialized && adapter.host?.onRowLongClick(this, profile, v.isInTouchMode) == true
+            val profile = boundProfile
+            profile != null && adapter.host?.onRowLongClick(this, profile, v.isInTouchMode) == true
         }
         editButton.setOnClickListener {
-            if (::profile.isInitialized) adapter.host?.itemMenu?.edit(profile, adapter.group)
+            boundProfile?.let { adapter.host?.itemMenu?.edit(it, adapter.group) }
         }
-        shareButton.setOnClickListener {
-            if (::profile.isInitialized) adapter.host?.itemMenu?.showShare(it, profile)
+        shareButton.setOnClickListener { button ->
+            boundProfile?.let { adapter.host?.itemMenu?.showShare(button, it) }
         }
-        moreButton.setOnClickListener {
-            if (::profile.isInitialized) adapter.host?.itemMenu?.showMenu(it, profile, adapter)
+        moreButton.setOnClickListener { button ->
+            boundProfile?.let { adapter.host?.itemMenu?.showMenu(button, it, adapter) }
         }
         val showError = View.OnClickListener {
-            val text = if (::profile.isInitialized) profile.testError else null
+            val text = boundProfile?.testError
             if (!text.isNullOrBlank()) it.context.alert(text).tryToShow()
         }
         result.setOnClickListener(showError)
@@ -241,9 +288,10 @@ internal class ProfileRowHolder(view: View, private val adapter: ProfileListAdap
 
     fun bind(profile: ProxyEntity) {
         this.profile = profile
+        placeholder = false
         val context = itemView.context
         name.text = profile.displayName()
-        type.text = profile.displayProtocol()
+        type.text = TypeLabel.of(profile)
         type.setTextColor(context.getProtocolColor(profile.type))
         bindContent()
         bindState()
@@ -277,6 +325,20 @@ internal class ProfileRowHolder(view: View, private val adapter: ProfileListAdap
         if (previous != null && previous != rows) adapter.refreshRowNeighbours(bindingAdapterPosition)
     }
 
+    /** A row whose profile is not loaded yet: an empty card of the usual height until [bind]. */
+    fun bindPlaceholder() {
+        placeholder = true
+        name.text = ""
+        type.text = ""
+        for (view in arrayOf(address, result, testProgress, traffic, error, selectCheck, editButton, shareButton, moreButton)) {
+            view.isVisible = false
+        }
+        applyCardColors(selected = false, checked = false)
+        onRecycled()
+        // no optional rows: the real bind that follows lines its grid neighbours up again
+        boundRows = 0
+    }
+
     /** A recycled card belongs to no grid row yet: its next bind must not refresh neighbours. */
     fun onRecycled() {
         boundRows = null
@@ -294,13 +356,13 @@ internal class ProfileRowHolder(view: View, private val adapter: ProfileListAdap
     /** Selection, running state, multi-select check and the row buttons. */
     fun bindState() {
         val host = adapter.host ?: return
-        val id = profile.id
+        val id = boundProfile?.id ?: return
         val selecting = host.selection.active
         val buttons = !host.select && !selecting
         selectCheck.isVisible = selecting
         selectCheck.isChecked = selecting && host.selection.isChecked(id)
-        editButton.isVisible = buttons && !adapter.isCompact
-        shareButton.isVisible = buttons && !adapter.isCompact && !profile.isChain()
+        editButton.isVisible = buttons && !adapter.isCompact && !adapter.isCompactRow
+        shareButton.isVisible = buttons && !adapter.isCompact && !adapter.isCompactRow
         moreButton.isVisible = buttons
         applyCardColors(host.isSelectedProfile(id), selectCheck.isChecked)
     }
@@ -310,7 +372,10 @@ internal class ProfileRowHolder(view: View, private val adapter: ProfileListAdap
         val surface = context.getColorAttr(R.attr.colorSurface)
         var background = surface
         selectedIndicator.isVisible = selected
-        card.strokeWidth = 0
+        // The shadow does not show on OLED black, so that theme outlines the card instead
+        val stroke = context.getColorAttr(R.attr.profileCardStrokeColor)
+        if (stroke != 0) card.strokeColor = stroke
+        card.strokeWidth = if (stroke != 0) context.resources.getDimensionPixelSize(R.dimen.card_stroke_width) else 0
         card.cardElevation = context.resources.getDimension(R.dimen.profile_card_elevation_classic)
         if (selected) {
             val primary = context.getColorAttr(R.attr.selectedColorPrimary)

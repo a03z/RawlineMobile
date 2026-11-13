@@ -74,6 +74,7 @@ class LogsAndAuthRegressionTest {
         override fun autoSelectorStatus(withMembers: Boolean) = "{}"
         override fun autoSelectorRecheck() {}
         override fun autoSelectorSelect(memberProfileId: Long) {}
+        override fun liveStats(session: Long, afterSerial: Long) = app.rawline.mobile.bg.LiveStatsRecorder.batch(session, afterSerial)
     }
 
     @Test fun openConnectGroupAndCodeReachTheirOriginalSubmissionKeys() {

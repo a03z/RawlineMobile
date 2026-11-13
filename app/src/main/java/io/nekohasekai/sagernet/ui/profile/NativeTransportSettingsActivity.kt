@@ -22,6 +22,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.Job
 import app.rawline.mobile.R
 
+/** MasterDnsVPN client keys with a field of their own (the original client_config); empty keeps the engine's default. */
+private val MASTERDNS_FIELDS=listOf("RESOLVER_BALANCING_STRATEGY","PACKET_DUPLICATION_COUNT","SETUP_PACKET_DUPLICATION_COUNT",
+    "UPLOAD_COMPRESSION_TYPE","DOWNLOAD_COMPRESSION_TYPE","BASE_ENCODE_DATA","MIN_UPLOAD_MTU","MAX_UPLOAD_MTU","MIN_DOWNLOAD_MTU","MAX_DOWNLOAD_MTU")
+
 /** Typed controls edit the exported document, preserving unrecognized members. */
 class NativeTransportSettingsActivity : ProfileSettingsActivity<Outbound>() {
     override fun createEntity(): Outbound = OutboundFactory.newByType(intent.getStringExtra("qmobileProfileType") ?: proxyEntity?.type ?: "qwdtt")
@@ -125,12 +129,15 @@ class NativeTransportSettingsActivity : ProfileSettingsActivity<Outbound>() {
             for(key in listOf("endpoint","region","bucket","prefix","accessKey","secretKey")) if(!storage.contains(key)) storage[key]=""
             if(!storage.contains("sessionsDir")) storage["sessionsDir"]="sessions"
             document["storage"]=storage
-            // The original app's tuning; both sides keep their own.
+            // The original app's client tuning (its server side uses 20 ms, 300 s and 2 MB).
             val tuning=document.obj("tuning")
-            for((key,value) in mapOf("pollIntervalMs" to 100,"writeIntervalMs" to 20,"idleTimeoutSec" to 300,"maxFileSizeBytes" to 2097152))
+            for((key,value) in mapOf("pollIntervalMs" to 100,"writeIntervalMs" to 80,"idleTimeoutSec" to 3600,"maxFileSizeBytes" to 16777216))
                 if(!tuning.contains(key)) tuning[key]=value
             document["tuning"]=tuning
         }
+        if(type == "aivpn")
+            for((key,value) in mapOf("key" to "","mask" to "auto","polymorphic" to false,"adaptive_level" to 0,"dns" to ""))
+                if(!document.contains(key)) document[key]=value
         fun write(obj: JsonObject, prefix: String = "") {
             for ((key, value) in obj) {
                 if (key == "type") continue
@@ -147,6 +154,17 @@ class NativeTransportSettingsActivity : ProfileSettingsActivity<Outbound>() {
             }
         }
         write(document)
+        if(type=="masterdns") {
+            // The carrier upper-cases every key, so a key of any case is the same setting.
+            val options=document.obj("options")
+            for(key in MASTERDNS_FIELDS) {
+                val value=options.keys().firstOrNull { it.uppercase()==key }?.let { options[it] }
+                fields["mdns.$key"]=""
+                DataStore.profileCacheStore.putString(cache("mdns.$key"),if(value is JsonObject || value is JsonArray) "" else value?.toString().orEmpty())
+            }
+            val rest=options.copy().also { o -> o.keys().filter { it.uppercase() in MASTERDNS_FIELDS }.forEach(o::remove) }
+            DataStore.profileCacheStore.putString(cache("options"),rest.toCompact())
+        }
         val order = when(type) {
             "qwdtt" -> listOf("name","server","server_port","mode","password","hash_source") + (1..4).map { "hash_$it" } + listOf("raw_port","workers","turn_tcp","vk_anon_path","captcha_mode","obfs","go_dns","device_id")
             "mrtt" -> listOf("name","server","server_port","password","transport","max_group","jitsi_room","jitsi_workers","hash_source","vk_access_token") + (1..6).map { "hash_$it" } + listOf("workers","turn_transport","srtp_mode","vk_anon_path","captcha_mode","mtu","fingerprint","client_ids","custom_turn_ips")
@@ -156,12 +174,13 @@ class NativeTransportSettingsActivity : ProfileSettingsActivity<Outbound>() {
             "dnstt" -> listOf("name","domain","pubkey","resolvers") + backendFields
             "vaydns" -> listOf("name","domain","pubkey","resolvers","record_type","dnstt_compat","clientid_size","idle_timeout","keepalive") + backendFields
             "slipstream" -> listOf("name","domain","cert","resolvers","authoritative","congestion_control","keep_alive_interval") + backendFields
-            "masterdns","cottendns" -> listOf("name","domain","mkey","encryption","cotten.configPreset","resolvers","options")
+            "masterdns","cottendns" -> listOf("name","domain","mkey","encryption","cotten.configPreset","resolvers") + MASTERDNS_FIELDS.map { "mdns.$it" } + "options"
             "soar" -> listOf("name","domain","pubkey","resolvers","soar.discovery","soar.country")
             "sstp" -> listOf("name","server","server_port","username","password","sni","allow_insecure","use_server_dns")
             "freeturn" -> listOf("name","server","server_port","provider","hash_source") + (1..freeturnSlots()).map { "hash_$it" } + listOf("wg_config","tunnel_mode","bond","relay_transport","threads","streams_per_cred",
                 "obf_profile","obf_key","obf_timing","client_id","dns_mode","dns_servers","manual_captcha","turn_host")
             "openfluxkey" -> listOf("name","transport","doc_url","key_token","e2e_encryption")
+            "aivpn" -> listOf("name","key","mask","polymorphic","adaptive_level","dns")
             "s3bypass" -> listOf("name") + listOf("endpoint","region","bucket","prefix","sessionsDir","accessKey","secretKey").map { "storage.$it" } +
                 listOf("pollIntervalMs","writeIntervalMs","idleTimeoutSec","maxFileSizeBytes").map { "tuning.$it" }
             else -> listOf("name","provider","transport","room","key","token","channel","dns","device_id") + optionDefaults.keys.map { "options.$it" }
@@ -208,7 +227,7 @@ class NativeTransportSettingsActivity : ProfileSettingsActivity<Outbound>() {
     override fun Outbound.serialize() {
         val result = document.copy()
         for ((path, original) in fields) {
-            if(path.startsWith("transport_") || path=="backend_type" || (path.startsWith("hash_") && path != "hash_source")) continue
+            if(path.startsWith("transport_") || path.startsWith("mdns.") || path=="backend_type" || (path.startsWith("hash_") && path != "hash_source")) continue
             val parts = path.split('.')
             var obj = result
             for (part in parts.dropLast(1)) obj = obj.obj(part)
@@ -222,6 +241,15 @@ class NativeTransportSettingsActivity : ProfileSettingsActivity<Outbound>() {
                     else JsonInput.parseValue(text) as? JsonArray ?: error("$key: JSON array required")
                 is JsonObject -> if(text.isBlank()) JsonObject() else JsonInput.parseObjectOrNull(text) ?: error("$key: JSON object required")
                 else -> text
+            }
+        }
+        if(type=="masterdns") {
+            val options=(result["options"] as? JsonObject) ?: JsonObject().also { result["options"]=it }
+            for(key in MASTERDNS_FIELDS) {
+                options.keys().filter { it.uppercase()==key }.forEach(options::remove)
+                val text=DataStore.profileCacheStore.getString(cache("mdns.$key")).orEmpty().trim()
+                if(text.isEmpty()) continue
+                options[key]=when(text) { "true" -> true; "false" -> false; else -> text.toLongOrNull() ?: throw IllegalArgumentException("MasterDNS: в поле $key нужно число") }
             }
         }
         if(type=="mrtt") {
@@ -289,7 +317,7 @@ class NativeTransportSettingsActivity : ProfileSettingsActivity<Outbound>() {
 
     override fun PreferenceFragmentCompat.createPreferences(savedInstanceState: Bundle?, rootKey: String?) {
         preferenceScreen = preferenceManager.createPreferenceScreen(requireContext())
-        val labels = mapOf("tag" to "Название", "name" to "Название", "server" to "Адрес сервера",
+        val labels = mutableMapOf("tag" to "Название", "name" to "Название", "server" to "Адрес сервера",
             "server_port" to "Порт сервера", "password" to "Пароль", "hashes" to "Хэши VK",
             "hash_source" to "Источник хешей", "workers" to "Воркеры", "turn_tcp" to "Транспорт TURN", "mode" to "Режим",
             "turn_transport" to "Транспорт TURN", "srtp_mode" to "Режим SRTP", "fingerprint" to "TLS-профиль VK",
@@ -322,7 +350,13 @@ class NativeTransportSettingsActivity : ProfileSettingsActivity<Outbound>() {
             "pollIntervalMs" to "Опрос хранилища, мс", "writeIntervalMs" to "Запись в хранилище, мс",
             "idleTimeoutSec" to "Тайм-аут простоя, с", "maxFileSizeBytes" to "Наибольший объект, байт",
             "doc_url" to "Ссылка на документ или доску", "key_token" to "Ключ доступа", "e2e_encryption" to "Сквозное шифрование ключом",
-            "options" to "Дополнительные параметры MasterDNS (JSON)",
+            "options" to "Другие параметры MasterDNS (JSON)",
+            "RESOLVER_BALANCING_STRATEGY" to "Выбор резолверов", "PACKET_DUPLICATION_COUNT" to "Дублирование пакетов (1–10)",
+            "SETUP_PACKET_DUPLICATION_COUNT" to "Дублирование пакетов установки потока", "UPLOAD_COMPRESSION_TYPE" to "Сжатие отправки",
+            "DOWNLOAD_COMPRESSION_TYPE" to "Сжатие приёма", "BASE_ENCODE_DATA" to "Base-кодирование данных",
+            "MIN_UPLOAD_MTU" to "MTU отправки: минимум", "MAX_UPLOAD_MTU" to "MTU отправки: максимум",
+            "MIN_DOWNLOAD_MTU" to "MTU приёма: минимум", "MAX_DOWNLOAD_MTU" to "MTU приёма: максимум",
+            "mask" to "Маска трафика", "polymorphic" to "Полиморфная маска на основе выбранной", "adaptive_level" to "Уровень адаптации",
             "max_group" to "ID группы MAX (пусто: группа привязки)", "jitsi_room" to "Ссылка на комнату Jitsi", "jitsi_workers" to "Воркеры Jitsi", "mtu" to "MTU")
         val choices = mutableMapOf("hash_source" to listOf("manual","auto"),"mode" to listOf("raw","wg"), "obfs" to listOf("audio","video"),
             "vk_anon_path" to listOf("vkcalls","legacy"), "captcha_mode" to listOf("auto","wv","rjs"),
@@ -346,6 +380,22 @@ class NativeTransportSettingsActivity : ProfileSettingsActivity<Outbound>() {
             "tunnel_mode" to listOf("UDP: встроенный WireGuard","TCP: первое звено цепочки"),"relay_transport" to listOf("TCP/TLS","UDP"),
             "dns_mode" to listOf("Автоматически","UDP/53","DNS-over-HTTPS"))
         if(editingOutbound.type=="freeturn") captions["provider"]=listOf("Через TURN звонка VK","Напрямую к серверу")
+        if(editingOutbound.type=="masterdns") {
+            choices["RESOLVER_BALANCING_STRATEGY"]=listOf("","1","2","3","4","5","6","7","8")
+            captions["RESOLVER_BALANCING_STRATEGY"]=listOf("По умолчанию","Случайно","По кругу","Меньше потерь","Меньше задержка","Гибридная оценка",
+                "Потери, затем задержка","Лучшие по потерям, случайно","Лучшие по потерям, по кругу")
+            for(key in listOf("UPLOAD_COMPRESSION_TYPE","DOWNLOAD_COMPRESSION_TYPE")) {
+                choices[key]=listOf("","0","1","2","3"); captions[key]=listOf("По умолчанию","Нет","ZSTD","LZ4","ZLIB")
+            }
+            choices["BASE_ENCODE_DATA"]=listOf("","true","false"); captions["BASE_ENCODE_DATA"]=listOf("По умолчанию","Включено","Выключено")
+        }
+        if(editingOutbound.type=="aivpn") {
+            choices["mask"]=app.rawline.mobile.outbound.types.Aivpn.MASKS
+            captions["mask"]=listOf("Автоматически")+app.rawline.mobile.outbound.types.Aivpn.MASKS.drop(1)
+            choices["adaptive_level"]=listOf("0","1","2","3")
+            labels["key"]="Ключ подключения (aivpn://…)"
+            labels["dns"]="DNS внутри туннеля (до четырёх IPv4 через запятую; пусто — как в оригинале)"
+        }
         if(editingOutbound.type=="openfluxkey") {
             choices["transport"]=app.rawline.mobile.outbound.types.OpenFluxKey.TRANSPORTS
             captions["transport"]=listOf("Яндекс Документы","Яндекс Волга","MAX","Яндекс Доски","Mail.ru","МТС Линк","Телемост","Cups.online","Авито","Яндекс Документы, несколько")
@@ -484,7 +534,7 @@ class NativeTransportSettingsActivity : ProfileSettingsActivity<Outbound>() {
                     negativeButtonText=getString(android.R.string.cancel)
                     setOnBindEditTextListener {
                         it.inputType = when {
-                            value is Number -> InputType.TYPE_CLASS_NUMBER
+                            value is Number || path.startsWith("mdns.") -> InputType.TYPE_CLASS_NUMBER
                             key in listOf("password","secret") -> InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
                             key in listOf("hashes","cert","pk","links","wg_config") || value is JsonArray || value is JsonObject -> InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
                             else -> InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
@@ -529,6 +579,7 @@ class NativeTransportSettingsActivity : ProfileSettingsActivity<Outbound>() {
                 if(key == "hash_source" && text == "auto" && (editingOutbound.type !in listOf("qwdtt","csqtt","mrtt","wdttplus","freeturn") || !app.rawline.mobile.bg.carrier.VkRelayAccount.linked() || app.rawline.mobile.bg.carrier.VkRelayAccount.needsRelink())) return@setOnPreferenceChangeListener false
                 val range=optionLimits[path.removePrefix("options.")]
                 if(value is Number && text.toLongOrNull()==null) return@setOnPreferenceChangeListener false
+                if(path.startsWith("mdns.") && choices[key]==null && text.isNotBlank() && text.toLongOrNull()==null) return@setOnPreferenceChangeListener false
                 if(value is JsonObject && text.isNotBlank() && JsonInput.parseObjectOrNull(text)==null) return@setOnPreferenceChangeListener false
                 if(range!=null && text.toIntOrNull()?.let { it in range }!=true) return@setOnPreferenceChangeListener false
                 if(key in listOf("server_port","raw_port") && text.toIntOrNull()?.let { it in 1..65535 }!=true) return@setOnPreferenceChangeListener false

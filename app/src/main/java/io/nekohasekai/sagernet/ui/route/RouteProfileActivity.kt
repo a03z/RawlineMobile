@@ -13,6 +13,7 @@ import android.widget.Toast
 import androidx.activity.addCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.appcompat.widget.TooltipCompat
 import androidx.core.view.isInvisible
 import androidx.core.view.isVisible
 import androidx.core.widget.doAfterTextChanged
@@ -21,7 +22,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.ConcatAdapter
 import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.RecyclerView
-import app.rawline.mobile.ui.MobileAlertDialogBuilder as MobileAlertDialogBuilder
+import app.rawline.mobile.ui.MobileAlertDialogBuilder
 import com.google.android.material.snackbar.Snackbar
 import com.google.android.material.textfield.TextInputLayout
 import app.rawline.mobile.R
@@ -37,24 +38,35 @@ import app.rawline.mobile.databinding.LayoutRouteRuleItemBinding
 import app.rawline.mobile.databinding.LayoutRouteRulesTitleBinding
 import app.rawline.mobile.group.RemoteRouteUpdater
 import app.rawline.mobile.ktx.FixedLinearLayoutManager
+import app.rawline.mobile.ktx.Logs
 import app.rawline.mobile.ktx.confirmAction
+import app.rawline.mobile.outbound.config.DnsServers
 import app.rawline.mobile.route.OutboundIds
 import app.rawline.mobile.route.RouteDns
 import app.rawline.mobile.route.RouteProfile
 import app.rawline.mobile.route.RouteRule
+import app.rawline.mobile.route.RuleEnv
+import app.rawline.mobile.route.RuleIssue
+import app.rawline.mobile.route.RuleSetCatalog
 import app.rawline.mobile.route.RuleType
 import app.rawline.mobile.ui.DnsServerSuggestions
+import app.rawline.mobile.ui.FormIssue
 import app.rawline.mobile.ui.ThemedActivity
+import app.rawline.mobile.ui.ValidationForm
 import app.rawline.mobile.utils.PackageCache
+import app.rawline.mobile.validation.Empty
+import app.rawline.mobile.validation.Severity
+import app.rawline.mobile.validation.Validation
 import app.rawline.mobile.widget.UndoSnackbarManager
 import app.rawline.mobile.widget.applyListInsets
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.IdentityHashMap
 
 /**
  * A route profile: name, default outbound, the remote source of a remote profile, its DNS, and the ordered rule list
- * (drag to reorder, swipe to delete, tap to edit in [RouteRuleActivity], switch to enable). Edits stay in memory until
+ * (drag to reorder, swipe to delete, tap to edit in [RouteRuleActivity], tick to enable). Edits stay in memory until
  * Apply; the result carries the saved id as [EXTRA_SAVED_ID].
  */
 class RouteProfileActivity : ThemedActivity(R.layout.layout_route_profile) {
@@ -87,14 +99,19 @@ class RouteProfileActivity : ThemedActivity(R.layout.layout_route_profile) {
         var appLabels: Map<String, String> = emptyMap()
         var warnings: List<String> = emptyList()
         var dirty = false
-        /** What the editor opened with; null for a new profile that has to be saved anyway. */
-        var opened: String? = null
         var fetching = false
         var saving = false
 
+        /** The rule-set list the rules' rule_set names are judged against. */
+        var catalog: RuleSetCatalog? = null
+
+        /** The problems the name and remote URL fields show now; "" for none. */
+        var nameError = ""
+        var urlError = ""
+
         /**
-         * [dnsDraft] holds the own values, kept while the global ones apply, and [dnsOpened] what the editor opened
-         * with, so only servers typed here are remembered. [dnsGlobal] is shown while global applies.
+         * RouteDnsEditor: [dnsDraft] holds the custom values, kept while the global ones apply, and [dnsOpened] what
+         * the editor opened with, so only servers typed here are remembered. [dnsGlobal] is shown while global applies.
          */
         var dnsCustom = false
         var dnsDraft: RouteDns? = null
@@ -103,7 +120,8 @@ class RouteProfileActivity : ThemedActivity(R.layout.layout_route_profile) {
         var dnsObject = false
         var remoteSuggestions: List<String> = emptyList()
         var directSuggestions: List<String> = emptyList()
-        var dnsChecked = false
+        var remoteDnsError = ""
+        var directDnsError = ""
     }
 
     private class Loaded(
@@ -127,6 +145,10 @@ class RouteProfileActivity : ThemedActivity(R.layout.layout_route_profile) {
     private lateinit var touchHelper: ItemTouchHelper
     private lateinit var undoManager: UndoSnackbarManager<RouteRule>
 
+    /** RouteItem's ruleMarks: each rule object's issues; an edited rule comes back as a new object. */
+    private val issueCache = IdentityHashMap<RouteRule, List<RuleIssue>>()
+    private var ruleEnv: RuleEnv? = null
+
     private val ruleEditor = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         onRuleResult(it.resultCode, it.data)
     }
@@ -142,8 +164,6 @@ class RouteProfileActivity : ThemedActivity(R.layout.layout_route_profile) {
         list = findViewById(R.id.rule_list)
         list.layoutManager = FixedLinearLayoutManager(list)
         list.adapter = ConcatAdapter(headerAdapter, dnsAdapter, rawAdapter, titleAdapter, rulesAdapter, footerAdapter)
-        findViewById<android.view.View>(R.id.coordinator).setBackgroundColor(app.rawline.mobile.ui.MobilePalette.background)
-        app.rawline.mobile.ui.MobileViewStyle.apply(findViewById(R.id.coordinator))
         list.applyListInsets(ime = true)
         undoManager = UndoSnackbarManager(this, rulesAdapter)
         touchHelper = ItemTouchHelper(TouchCallback()).also { it.attachToRecyclerView(list) }
@@ -154,12 +174,19 @@ class RouteProfileActivity : ThemedActivity(R.layout.layout_route_profile) {
     override fun snackbarInternal(text: CharSequence): Snackbar =
         Snackbar.make(findViewById(R.id.coordinator), text, Snackbar.LENGTH_LONG)
 
+    override fun onDestroy() {
+        // The rule editors this screen opens share the server list; it goes with the screen.
+        if (isFinishing) RouteServers.release()
+        super.onDestroy()
+    }
+
     private fun load() {
         val id = intent.getLongExtra(EXTRA_PROFILE_ID, 0L)
         val json = intent.getStringExtra(EXTRA_PROFILE_JSON)
         val remote = intent.getBooleanExtra(EXTRA_REMOTE, false)
         lifecycleScope.launch {
             val loaded = withContext(Dispatchers.IO) {
+                model.catalog = RouteManager.catalog()
                 val p = when {
                     id > 0L -> RouteManager.get(id)
                     json != null -> RouteJson.profileFromJson(json).apply { this.id = 0L }
@@ -201,9 +228,72 @@ class RouteProfileActivity : ThemedActivity(R.layout.layout_route_profile) {
             model.dnsDraft = p.dns ?: loaded.dnsGlobal
             model.dnsOpened = model.dnsDraft
             model.dirty = json != null
-            model.opened = if (json != null) null else editorState(p)
+            // A loaded or imported profile shows its problems at once, a new one as its fields are left.
+            if (id > 0L || json != null) {
+                markHeader()
+                markDns()
+            }
             refreshAll()
         }
+    }
+
+    private fun nameProblem(p: RouteProfile): String = Validation.required(p.name)
+
+    private fun urlProblem(p: RouteProfile): String =
+        if (p.is_remote) Validation.url(p.remote_url, listOf("http", "https"), Empty.Required) else ""
+
+    /** Form::markAll for the header fields. */
+    private fun markHeader() {
+        val p = model.profile ?: return
+        model.nameError = nameProblem(p)
+        model.urlError = urlProblem(p)
+        headerAdapter.holder?.bindErrors()
+    }
+
+    private fun dnsServerProblem(text: String): String = DnsServers.parseDnsAddress(text).why
+
+    /** RouteDnsEditor::bindTo: the server fields are checked only while custom DNS is chosen. */
+    private fun markDns() {
+        val draft = model.dnsDraft?.takeIf { model.dnsCustom }
+        model.remoteDnsError = draft?.let { dnsServerProblem(it.remoteDns) }.orEmpty()
+        model.directDnsError = draft?.let { dnsServerProblem(it.directDns) }.orEmpty()
+        dnsAdapter.holder?.bindErrors()
+    }
+
+    private fun ruleIssues(rule: RouteRule): List<RuleIssue> = issueCache.getOrPut(rule) {
+        val env = ruleEnv ?: RuleEnv(model.catalog, RuleEnv.storedProfiles()).also { ruleEnv = it }
+        try {
+            rule.validate(env)
+        } catch (e: Exception) {
+            Logs.w(e)
+            emptyList()
+        }
+    }
+
+    /** RouteItem::otherRuleIssues: every rule's issues as `Rule "x" › field`, a list item named by its line. */
+    private fun ruleFormIssues(p: RouteProfile): List<FormIssue> = p.rules.flatMap { rule ->
+        ruleIssues(rule).map { issue ->
+            val label = getString(R.string.validation_route_rule_attr, rule.name, RouteRuleChecks.label(this, issue.attr))
+            val line = if (issue.value.isEmpty()) -1 else rule.currentValues(issue.attr).indexOfFirst { it.trim() == issue.value }
+            val message = if (line < 0) issue.message else getString(
+                R.string.validation_form_line, (line + 1).toString(), RouteRuleChecks.elide(issue.value), issue.message
+            )
+            FormIssue(issue.severity, label, message)
+        }
+    }
+
+    /** Scrolls to the first error: the header, the DNS fields, else the first rule that has one. */
+    private fun revealFirstError(p: RouteProfile, inHeader: Boolean, inDns: Boolean) {
+        val position = when {
+            inHeader -> 0
+            inDns -> headerAdapter.itemCount
+            else -> {
+                val index = p.rules.indexOfFirst { rule -> ruleIssues(rule).any { it.severity == Severity.Error } }
+                if (index < 0) return
+                headerAdapter.itemCount + dnsAdapter.itemCount + rawAdapter.itemCount + titleAdapter.itemCount + index
+            }
+        }
+        list.smoothScrollToPosition(position)
     }
 
     private fun nameRules(p: RouteProfile) {
@@ -235,9 +325,6 @@ class RouteProfileActivity : ThemedActivity(R.layout.layout_route_profile) {
         model.dirty = true
     }
 
-    private fun editorState(p: RouteProfile) = listOf(RouteJson.profileToJson(p), p.name.trim(), p.default_outbound_id, p.remote_url.trim(),
-        p.auto_update, model.dnsCustom, model.dnsDraft).joinToString("\u0000")
-
     private fun countChanged() = titleAdapter.notifyItemChanged(0)
 
     private fun editDns(change: (RouteDns) -> RouteDns) {
@@ -246,17 +333,18 @@ class RouteProfileActivity : ThemedActivity(R.layout.layout_route_profile) {
         markDirty()
     }
 
-    /** The typed own values stay in the draft while the global ones apply. */
+    /** RouteDnsEditor's radio pair: the typed custom values stay in the draft while the global ones apply. */
     private fun setCustomDns(custom: Boolean) {
         if (model.dnsCustom == custom) return
         model.dnsCustom = custom
         markDirty()
+        markDns()
         dnsAdapter.holder?.bindMode()
     }
 
     /**
-     * custom_dns follows the choice and dns takes the values, except that an untouched seed stays unstored, so a later
-     * switch to own DNS starts from the global settings of that time. Returns what it stored.
+     * RouteDnsEditor::applyTo: custom_dns follows the choice and dns takes the values, except that an untouched seed
+     * stays unstored, so a later switch to custom starts from the global settings of that time. Returns what it stored.
      */
     private fun applyDns(p: RouteProfile): RouteDns? {
         val draft = model.dnsDraft ?: return null
@@ -291,8 +379,7 @@ class RouteProfileActivity : ThemedActivity(R.layout.layout_route_profile) {
     }
 
     private fun close() {
-        // An edit put back by hand leaves nothing to save.
-        if (!model.dirty || model.profile?.let(::editorState) == model.opened) {
+        if (!model.dirty) {
             finish()
             return
         }
@@ -312,31 +399,32 @@ class RouteProfileActivity : ThemedActivity(R.layout.layout_route_profile) {
             .show()
     }
 
-    /** RouteItem::accept (RouteItem.cpp:597-649): name, remote URL, then the empty-rule filter and check. */
+    /**
+     * RouteItem::accept: the form's gate (name, remote URL, the custom DNS servers, every rule's errors; warnings
+     * never block), then the empty-rule filter and check, and RouteDnsEditor::applyTo.
+     */
     private fun save() {
         val p = model.profile ?: return
         if (p.is_raw) return
         if (model.saving) return
         undoManager.flush()
+        markHeader()
+        markDns()
+        val header = ArrayList<FormIssue>()
+        if (model.nameError.isNotEmpty()) header.add(FormIssue(Severity.Error, getString(R.string.route_profile_name), model.nameError))
+        if (model.urlError.isNotEmpty()) header.add(FormIssue(Severity.Error, getString(R.string.route_profile_url), model.urlError))
+        val dnsIssues = ArrayList<FormIssue>()
+        if (model.remoteDnsError.isNotEmpty()) dnsIssues.add(FormIssue(Severity.Error, getString(R.string.remote_dns), model.remoteDnsError))
+        if (model.directDnsError.isNotEmpty()) dnsIssues.add(FormIssue(Severity.Error, getString(R.string.direct_dns), model.directDnsError))
+        val found = ruleFormIssues(p)
+        val errors = header + dnsIssues + found.filter { it.severity == Severity.Error }
+        if (errors.isNotEmpty()) {
+            revealFirstError(p, header.isNotEmpty(), dnsIssues.isNotEmpty())
+            ValidationForm.showSummary(this, errors, found.filter { it.severity == Severity.Warning })
+            return
+        }
         p.name = p.name.trim()
-        if (p.name.isEmpty()) {
-            message(R.string.route_profile_invalid_title, getString(R.string.route_profile_empty_name))
-            return
-        }
-        if (p.is_remote) {
-            p.remote_url = p.remote_url.trim()
-            if (p.remote_url.isEmpty()) {
-                message(R.string.route_profile_invalid_title, getString(R.string.route_profile_need_url))
-                return
-            }
-        }
-        val draft = model.dnsDraft
-        if (model.dnsCustom && draft != null && (draft.remoteDns.isBlank() || draft.directDns.isBlank())) {
-            model.dnsChecked = true
-            dnsAdapter.holder?.bindErrors()
-            list.smoothScrollToPosition(headerAdapter.itemCount)
-            return
-        }
+        if (p.is_remote) p.remote_url = p.remote_url.trim()
         val kept = p.rules.filterNot { it.isEmpty() }
         if (!p.is_remote && kept.isEmpty()) {
             message(R.string.route_profile_empty_title, getString(R.string.route_profile_empty))
@@ -379,18 +467,15 @@ class RouteProfileActivity : ThemedActivity(R.layout.layout_route_profile) {
         ruleEditor.launch(Intent(this, RouteRuleActivity::class.java).apply {
             putExtra(RouteRuleActivity.EXTRA_RULE, RouteJson.ruleToJson(rule))
             putExtra(RouteRuleActivity.EXTRA_INDEX, -1)
-            putExtra(RuleSetPickerActivity.EXTRA_GEO_FILES, app.rawline.mobile.route.ProviderRouting.stored(p) != null)
         })
     }
 
     private fun editRule(index: Int) {
-        val p = model.profile ?: return
-        val rule = p.rules.getOrNull(index) ?: return
+        val rule = model.profile?.rules?.getOrNull(index) ?: return
         undoManager.flush()
         ruleEditor.launch(Intent(this, RouteRuleActivity::class.java).apply {
             putExtra(RouteRuleActivity.EXTRA_RULE, RouteJson.ruleToJson(rule))
             putExtra(RouteRuleActivity.EXTRA_INDEX, index)
-            putExtra(RuleSetPickerActivity.EXTRA_GEO_FILES, app.rawline.mobile.route.ProviderRouting.stored(p) != null)
         })
     }
 
@@ -443,8 +528,10 @@ class RouteProfileActivity : ThemedActivity(R.layout.layout_route_profile) {
 
     private fun fetch() {
         val p = model.profile ?: return
-        val url = p.remote_url.trim()
-        if (!url.startsWith("http://", true) && !url.startsWith("https://", true)) {
+        val problem = Validation.url(p.remote_url, listOf("http", "https"), Empty.Required)
+        if (problem.isNotEmpty()) {
+            model.urlError = problem
+            headerAdapter.holder?.bindErrors()
             message(R.string.route_profile_invalid_url_title, getString(R.string.route_profile_invalid_url))
             return
         }
@@ -502,6 +589,10 @@ class RouteProfileActivity : ThemedActivity(R.layout.layout_route_profile) {
         }
     }
 
+    private fun TextInputLayout.showError(message: String) {
+        if (message.isEmpty()) isErrorEnabled = false else error = message
+    }
+
     private inner class HeaderAdapter : RecyclerView.Adapter<HeaderHolder>() {
         var holder: HeaderHolder? = null
 
@@ -531,15 +622,34 @@ class RouteProfileActivity : ThemedActivity(R.layout.layout_route_profile) {
             binding.outboundDirect.text = OutboundIds.toName(OutboundIds.DIRECT)
             binding.outboundBlock.text = OutboundIds.toName(OutboundIds.BLOCK)
             binding.outboundWarp.text = RouteTexts.WARP_BYPASS
+            // Validation::Form: typing clears a field's mark, leaving the field checks it again.
             binding.name.doAfterTextChanged {
                 if (updating) return@doAfterTextChanged
                 model.profile?.name = it?.toString().orEmpty()
                 markDirty()
+                model.nameError = ""
+                bindErrors()
             }
             binding.url.doAfterTextChanged {
                 if (updating) return@doAfterTextChanged
                 model.profile?.remote_url = it?.toString().orEmpty()
                 markDirty()
+                model.urlError = ""
+                bindErrors()
+            }
+            binding.name.setOnFocusChangeListener { _, focused ->
+                val p = model.profile
+                if (!focused && p != null) {
+                    model.nameError = nameProblem(p)
+                    bindErrors()
+                }
+            }
+            binding.url.setOnFocusChangeListener { _, focused ->
+                val p = model.profile
+                if (!focused && p != null) {
+                    model.urlError = urlProblem(p)
+                    bindErrors()
+                }
             }
             binding.autoUpdate.setOnCheckedChangeListener { _, checked ->
                 if (updating) return@setOnCheckedChangeListener
@@ -565,8 +675,17 @@ class RouteProfileActivity : ThemedActivity(R.layout.layout_route_profile) {
             if (binding.url.text?.toString() != p.remote_url) binding.url.setText(p.remote_url)
             binding.autoUpdate.isChecked = p.auto_update
             updating = false
+            // A shown mark follows a value set from code, e.g. the name a fetch filled in.
+            if (model.nameError.isNotEmpty()) model.nameError = nameProblem(p)
+            if (model.urlError.isNotEmpty()) model.urlError = urlProblem(p)
+            bindErrors()
             bindRemoteState()
             bindReadOnly(p)
+        }
+
+        fun bindErrors() {
+            binding.nameLayout.showError(model.nameError)
+            binding.urlLayout.showError(model.urlError)
         }
 
         /** A desktop raw profile is shown, never edited. */
@@ -589,7 +708,10 @@ class RouteProfileActivity : ThemedActivity(R.layout.layout_route_profile) {
         }
     }
 
-    /** The routing profile's DNS: the global settings, or its own servers and behaviour. */
+    /**
+     * RouteDnsEditor (RouteDnsEditor.cpp), the desktop editor's DNS tab. While the global settings apply, the fields
+     * give way to the global servers in one line instead of showing them disabled.
+     */
     private inner class DnsAdapter : RecyclerView.Adapter<DnsHolder>() {
         var holder: DnsHolder? = null
 
@@ -630,6 +752,12 @@ class RouteProfileActivity : ThemedActivity(R.layout.layout_route_profile) {
                 val value = ids.firstOrNull()?.let { finalChips[it] } ?: return@setOnCheckedStateChangeListener
                 editDns { it.copy(dnsFinalOut = value) }
             }
+            // The desktop's tooltips.
+            TooltipCompat.setTooltipText(binding.remoteDnsDisableIpv6, getString(R.string.dns_disable_ipv6_sum))
+            TooltipCompat.setTooltipText(binding.directDnsDisableIpv6, getString(R.string.dns_disable_ipv6_sum))
+            TooltipCompat.setTooltipText(binding.enableDnsRouting, getString(R.string.dns_routing_message))
+            TooltipCompat.setTooltipText(binding.enableFakedns, getString(R.string.fakedns_message))
+            TooltipCompat.setTooltipText(binding.fakeipDisableIpv6, getString(R.string.fakeip_disable_ipv6_sum))
         }
 
         private fun bindServer(layout: TextInputLayout, field: AutoCompleteTextView, suggestions: List<String>, remote: Boolean) {
@@ -638,6 +766,13 @@ class RouteProfileActivity : ThemedActivity(R.layout.layout_route_profile) {
                 if (updating) return@doAfterTextChanged
                 val text = it?.toString().orEmpty()
                 editDns { dns -> if (remote) dns.copy(remoteDns = text) else dns.copy(directDns = text) }
+                if (remote) model.remoteDnsError = "" else model.directDnsError = ""
+                bindErrors()
+            }
+            field.setOnFocusChangeListener { _, focused ->
+                if (focused || !model.dnsCustom) return@setOnFocusChangeListener
+                val problem = dnsServerProblem(field.text.toString())
+                if (remote) model.remoteDnsError = problem else model.directDnsError = problem
                 bindErrors()
             }
         }
@@ -667,26 +802,19 @@ class RouteProfileActivity : ThemedActivity(R.layout.layout_route_profile) {
             bindErrors()
         }
 
+        /** RouteDnsEditor::syncState. */
         fun bindMode() {
             val custom = model.dnsCustom
             binding.fields.isVisible = custom
             binding.globalServers.isVisible = !custom
-            binding.objectNote.isVisible = custom && model.dnsObject
+            binding.objectNote.isVisible = !custom && model.dnsObject
             model.dnsGlobal?.let { binding.globalServers.text = getString(R.string.route_dns_global_servers, it.remoteDns, it.directDns) }
-            // FakeIP's IPv6 switch only means something with FakeIP on.
             binding.fakeipDisableIpv6.isEnabled = model.dnsDraft?.fakeDns == true
         }
 
-        /** Empty servers are flagged once Apply was tried. */
         fun bindErrors() {
-            val draft = model.dnsDraft ?: return
-            val check = model.dnsChecked && model.dnsCustom
-            binding.remoteDnsLayout.showError(if (check && draft.remoteDns.isBlank()) getString(R.string.route_dns_server_empty) else "")
-            binding.directDnsLayout.showError(if (check && draft.directDns.isBlank()) getString(R.string.route_dns_server_empty) else "")
-        }
-
-        private fun TextInputLayout.showError(message: String) {
-            if (message.isEmpty()) isErrorEnabled = false else error = message
+            binding.remoteDnsLayout.showError(model.remoteDnsError)
+            binding.directDnsLayout.showError(model.directDnsError)
         }
     }
 
@@ -764,6 +892,7 @@ class RouteProfileActivity : ThemedActivity(R.layout.layout_route_profile) {
                 if (event.actionMasked == MotionEvent.ACTION_DOWN) touchHelper.startDrag(this)
                 false
             }
+            // RouteItem.cpp:274-283: restyled in place, the list is not rebuilt.
             binding.ruleEnabled.setOnClickListener {
                 val rule = model.profile?.rules?.getOrNull(bindingAdapterPosition) ?: return@setOnClickListener
                 rule.disabled = !binding.ruleEnabled.isChecked
@@ -776,13 +905,14 @@ class RouteProfileActivity : ThemedActivity(R.layout.layout_route_profile) {
             binding.ruleName.text = rule.name
             binding.ruleAction.text = RouteTexts.ruleAction(this@RouteProfileActivity, rule, model.servers)
             binding.ruleSummary.text = RouteTexts.ruleConditions(this@RouteProfileActivity, rule, model.appLabels)
-            // Endpoint rules are never emitted on Android, so they get no switch.
+            // Endpoint rules have no checkbox (RouteItem.cpp:766-771).
             binding.ruleEnabled.isInvisible = rule.type == RuleType.ENDPOINT_PREFERRED_BY.id
             binding.ruleEnabled.isChecked = !rule.disabled
             bindDisabled(rule)
+            bindIssues(ruleIssues(rule))
         }
 
-        /** A disabled rule is muted and says what that means. */
+        /** routeItemShowDisabled: a disabled rule is muted and says what that means. */
         private fun bindDisabled(rule: RouteRule) {
             val disabled = rule.disabled && rule.type != RuleType.ENDPOINT_PREFERRED_BY.id
             val alpha = if (disabled) DISABLED_ALPHA else 1f
@@ -790,6 +920,23 @@ class RouteProfileActivity : ThemedActivity(R.layout.layout_route_profile) {
             binding.ruleAction.alpha = alpha
             binding.ruleSummary.alpha = alpha
             binding.ruleDisabled.isVisible = disabled
+        }
+
+        /** RouteItem::applyRuleMarks: the worst issue's icon, and that issue in its colour. */
+        private fun bindIssues(issues: List<RuleIssue>) {
+            val first = issues.firstOrNull { it.severity == Severity.Error } ?: issues.firstOrNull()
+            binding.issueIcon.isVisible = first != null
+            binding.ruleIssue.isVisible = first != null
+            if (first == null) return
+            val color = ValidationForm.colorOf(this@RouteProfileActivity, first.severity)
+            binding.issueIcon.setImageResource(
+                if (first.severity == Severity.Error) R.drawable.ic_json_error else R.drawable.ic_baseline_warning_24
+            )
+            binding.issueIcon.setColorFilter(color)
+            var text = RouteRuleChecks.describe(this@RouteProfileActivity, first)
+            if (issues.size > 1) text += " " + resources.getQuantityString(R.plurals.validation_import_more, issues.size - 1, issues.size - 1)
+            binding.ruleIssue.text = text
+            binding.ruleIssue.setTextColor(color)
         }
     }
 

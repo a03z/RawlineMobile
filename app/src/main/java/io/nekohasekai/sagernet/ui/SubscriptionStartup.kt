@@ -109,6 +109,7 @@ class SubscriptionStartupViewModel : ViewModel() {
             }
             override fun onReport(gid: Long, title: String?, text: String?, popup: Boolean) = Unit
             override fun onError(gid: Long, message: String?) = Unit
+            override fun onReloadNeeded(gid: Long) = Unit
         }
         val timeout = groups.size.toLong() * (DataStore.subRequestTimeoutSeconds * 2L + 120L) * 1000L
         withTimeout(timeout) {

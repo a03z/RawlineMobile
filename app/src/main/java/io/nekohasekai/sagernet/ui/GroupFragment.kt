@@ -2,11 +2,16 @@ package app.rawline.mobile.ui
 
 import android.content.Intent
 import android.os.Bundle
+import android.text.SpannableStringBuilder
+import android.text.Spanned
+import android.text.style.ForegroundColorSpan
 import android.view.MenuItem
 import android.view.View
 import android.view.ViewGroup
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.widget.PopupMenu
 import androidx.appcompat.widget.Toolbar
+import androidx.core.content.ContextCompat
 import androidx.core.view.isVisible
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
@@ -17,6 +22,7 @@ import androidx.recyclerview.widget.RecyclerView
 import androidx.room.InvalidationTracker
 import app.rawline.mobile.R
 import app.rawline.mobile.SagerNet
+import app.rawline.mobile.database.DataStore
 import app.rawline.mobile.database.GroupRepo
 import app.rawline.mobile.database.ProfileManager
 import app.rawline.mobile.database.ProxyEntity
@@ -24,9 +30,12 @@ import app.rawline.mobile.database.ProxyGroup
 import app.rawline.mobile.database.SagerDatabase
 import app.rawline.mobile.databinding.LayoutGroupItemBinding
 import app.rawline.mobile.group.SubscriptionClient
+import app.rawline.mobile.group.SubscriptionScheduler
 import app.rawline.mobile.ktx.FixedLinearLayoutManager
 import app.rawline.mobile.ktx.Logs
 import app.rawline.mobile.ktx.confirmAction
+import app.rawline.mobile.ktx.getColorAttr
+import app.rawline.mobile.ktx.needReload
 import app.rawline.mobile.ktx.readableMessage
 import app.rawline.mobile.ktx.runOnDefaultDispatcher
 import app.rawline.mobile.ktx.showAllowingStateLoss
@@ -58,18 +67,21 @@ class GroupFragment : ToolbarFragment(R.layout.layout_group), Toolbar.OnMenuItem
         }
     }
 
-    /** The group whose members "Export to file" writes. */
+    /** compactGroupCards: no link, last update or info lines; a quota bar, the time left and a refresh icon instead. */
+    private val compactCards by lazy { DataStore.compactGroupCards }
+
+    /** The group whose members "Export to file" writes, and whether as deep links. */
     private var exportGroup: ProxyGroup? = null
+    private var exportDeepLinks = false
 
     private val exportProfiles = registerForActivityResult(SaveDocument("text/plain")) { uri ->
         val group = exportGroup ?: return@registerForActivityResult
         if (uri == null) return@registerForActivityResult
+        val deepLinks = exportDeepLinks
         val context = requireContext().applicationContext
         runOnDefaultDispatcher {
             val message = try {
-                val links = ProfileManager.members(group.id).joinToString("\n") {
-                    it.exportLink().ifEmpty { it.exportJsonLink() }
-                }
+                val links = ProfileManager.members(group.id).joinToString("\n") { linkOf(it, deepLinks) }
                 context.contentResolver.openOutputStream(uri)!!.bufferedWriter().use { it.write(links) }
                 context.getString(R.string.action_export_msg)
             } catch (e: Exception) {
@@ -78,6 +90,10 @@ class GroupFragment : ToolbarFragment(R.layout.layout_group), Toolbar.OnMenuItem
             }
             withContext(Dispatchers.Main) { snackbar(message).show() }
         }
+    }
+
+    private val groupEditor = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.data?.getBooleanExtra(GroupSettingsActivity.EXTRA_RESTART_NEEDED, false) == true) needReload()
     }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
@@ -134,15 +150,34 @@ class GroupFragment : ToolbarFragment(R.layout.layout_group), Toolbar.OnMenuItem
 
     private fun copyLinks(group: ProxyGroup, deepLinks: Boolean) {
         runOnDefaultDispatcher {
-            val links = ProfileManager.members(group.id)
-                .map { if (deepLinks) it.exportJsonLink() else it.exportLink() }
-                .filter { it.isNotEmpty() }
-                .joinToString("\n")
+            val links = StringBuilder()
+            for (profile in ProfileManager.members(group.id)) {
+                val link = linkOf(profile, deepLinks)
+                if (link.isEmpty()) continue
+                if (links.isNotEmpty()) links.append('\n')
+                links.append(link)
+                if (links.length > SagerNet.MAX_CLIP_CHARS) break
+            }
             withContext(Dispatchers.Main) {
-                val copied = SagerNet.trySetPrimaryClip(links)
-                snackbar(if (copied) R.string.grp_copied else R.string.action_export_err).show()
+                if (SagerNet.trySetPrimaryClip(links.toString())) {
+                    snackbar(R.string.grp_copied).show()
+                } else {
+                    snackbar(R.string.action_export_err)
+                        .setAction(R.string.action_export_file) { if (isAdded) exportToFile(group, deepLinks) }
+                        .show()
+                }
             }
         }
+    }
+
+    // dialog_edit_group.cpp: a profile without a share link (XDRIVE) goes out as its JSON link
+    private fun linkOf(profile: ProxyEntity, deepLinks: Boolean): String =
+        if (deepLinks) profile.exportJsonLink() else profile.exportLink().ifEmpty { profile.exportJsonLink() }
+
+    private fun exportToFile(group: ProxyGroup, deepLinks: Boolean) {
+        exportGroup = group
+        exportDeepLinks = deepLinks
+        startFilesForResult(exportProfiles, "profiles_${group.displayName()}.txt")
     }
 
     private fun confirmClear(group: ProxyGroup) {
@@ -160,8 +195,13 @@ class GroupFragment : ToolbarFragment(R.layout.layout_group), Toolbar.OnMenuItem
 
     /** GroupItem::on_remove_clicked: never the last group; a running profile of the group is stopped first. */
     private fun confirmRemove(group: ProxyGroup) {
+        val remove = { runOnDefaultDispatcher { if (GroupRepo.delete(group.id)) SubscriptionScheduler.schedule() } }
+        if (DataStore.skipDeleteConfirmation) {
+            remove()
+            return
+        }
         requireContext().confirmAction(getString(R.string.confirm_remove_group), group.displayName(), R.string.delete) {
-            runOnDefaultDispatcher { GroupRepo.delete(group.id) }
+            remove()
         }
     }
 
@@ -293,19 +333,23 @@ class GroupFragment : ToolbarFragment(R.layout.layout_group), Toolbar.OnMenuItem
             val group = row.group
             binding.groupName.text = group.displayName()
             binding.groupType.text = typeText(group)
-            binding.groupUrl.isVisible = group.isSubscription
+            binding.groupUrl.isVisible = group.isSubscription && !compactCards
             binding.groupUrl.text = group.url
-            val info = if (group.isSubscription) infoText(group) else ""
+            val info = if (group.isSubscription && !compactCards) infoText(group) else ""
             binding.groupInfo.isVisible = info.isNotEmpty()
             binding.groupInfo.text = info
-            binding.groupUpdate.isVisible = group.isSubscription
+            binding.groupUpdate.isVisible = group.isSubscription && !compactCards
+            binding.groupRefresh.isVisible = group.isSubscription && compactCards
+            bindQuota(group)
             bindState()
 
             binding.root.setOnClickListener { edit(group) }
             binding.edit.setOnClickListener { edit(group) }
-            binding.groupUpdate.setOnClickListener {
+            val update = View.OnClickListener {
                 runOnDefaultDispatcher { SubscriptionClient.refreshGroup(group.id, true) }
             }
+            binding.groupUpdate.setOnClickListener(update)
+            binding.groupRefresh.setOnClickListener(update)
             binding.options.setOnClickListener { anchor ->
                 val popup = PopupMenu(requireContext(), anchor)
                 popup.menuInflater.inflate(R.menu.group_action_menu, popup.menu)
@@ -318,25 +362,65 @@ class GroupFragment : ToolbarFragment(R.layout.layout_group), Toolbar.OnMenuItem
                 menu.findItem(R.id.action_copy_deep_links).isVisible = !empty
                 menu.findItem(R.id.action_export_file).isVisible = !empty
                 menu.findItem(R.id.action_clear).isVisible = !empty
-                menu.findItem(R.id.action_move_up).isVisible = index > 0
-                menu.findItem(R.id.action_move_down).isVisible = index in 0 until groupAdapter.rows.size - 1
+                // TV only, where a D-pad cannot drag
+                menu.findItem(R.id.action_move_up).isVisible = SagerNet.isTv && index > 0
+                menu.findItem(R.id.action_move_down).isVisible = SagerNet.isTv && index in 0 until groupAdapter.rows.size - 1
                 menu.findItem(R.id.action_remove).isVisible = groupAdapter.rows.size > 1
                 popup.setOnMenuItemClickListener(this)
                 popup.show()
             }
         }
 
-        /** The progress bar and "N profiles · Queued/Updating…" follow the queue state only. */
+        /**
+         * The progress bar and "N profiles · Queued/Updating…" follow the queue state; a compact card adds the time
+         * left, in the error colour from three days before the expiry as SubscriptionInfoCard does.
+         */
         fun bindState() {
             val state = groupAdapter.states[row.group.id] ?: 0
             binding.subscriptionUpdateProgress.isVisible = state != 0
             binding.groupUpdate.isEnabled = state == 0
+            binding.groupRefresh.isEnabled = state == 0
+            binding.groupRefresh.alpha = if (state == 0) 1f else 0.38f
             val count = resources.getQuantityString(R.plurals.grp_profile_count, row.count.toInt(), row.count)
-            binding.groupStatus.text = when (state) {
-                1 -> count + " · " + getString(R.string.grp_state_queued)
-                2 -> count + " · " + getString(R.string.grp_state_running)
-                else -> count
+            val status = SpannableStringBuilder(
+                when (state) {
+                    1 -> count + " · " + getString(R.string.grp_state_queued)
+                    2 -> count + " · " + getString(R.string.grp_state_running)
+                    else -> count
+                }
+            )
+            val expire = if (compactCards && row.group.isSubscription) row.group.subInfo.expire else 0L
+            if (expire > 0) {
+                val now = System.currentTimeMillis() / 1000
+                status.append(" · ")
+                val left = SubscriptionInfoCard.expiryText(requireContext(), expire, now)
+                if ((expire - now) / 86400 <= 3) {
+                    val danger = requireContext().getColorAttr(R.attr.colorError)
+                    status.append(left, ForegroundColorSpan(danger), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                } else {
+                    status.append(left)
+                }
             }
+            binding.groupStatus.text = status
+        }
+
+        /** A compact card's quota as a thin bar, red from 90 % or once expired as on SubscriptionInfoCard. */
+        private fun bindQuota(group: ProxyGroup) {
+            val info = group.subInfo
+            val show = compactCards && group.isSubscription && info.valid && info.hasQuota && info.total > 0
+            binding.groupQuota.isVisible = show
+            if (!show) return
+            val context = requireContext()
+            val percent = info.percentUsed.toInt()
+            binding.groupQuota.setProgressCompat(percent, false)
+            binding.groupQuota.setIndicatorColor(
+                if (info.isExpired() || percent >= 90) context.getColorAttr(R.attr.colorError)
+                else ContextCompat.getColor(context, R.color.material_green_500)
+            )
+            binding.groupQuota.contentDescription = getString(
+                R.string.subinfo_quota,
+                SubscriptionInfoCard.readableSize(info.used), SubscriptionInfoCard.readableSize(info.total), percent,
+            )
         }
 
         override fun onMenuItemClick(item: MenuItem): Boolean {
@@ -352,10 +436,7 @@ class GroupFragment : ToolbarFragment(R.layout.layout_group), Toolbar.OnMenuItem
 
                 R.id.action_copy_links -> copyLinks(group, deepLinks = false)
                 R.id.action_copy_deep_links -> copyLinks(group, deepLinks = true)
-                R.id.action_export_file -> {
-                    exportGroup = group
-                    startFilesForResult(exportProfiles, "profiles_${group.displayName()}.txt")
-                }
+                R.id.action_export_file -> exportToFile(group, deepLinks = false)
 
                 R.id.action_clear -> confirmClear(group)
                 R.id.action_move_up -> groupAdapter.step(group, -1)

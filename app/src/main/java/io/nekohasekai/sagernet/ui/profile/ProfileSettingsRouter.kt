@@ -8,7 +8,7 @@ import app.rawline.mobile.outbound.OutboundFactory
 /** The editor activity of a desktop profile type string ("custom" and unknown types open the raw JSON editor). */
 fun settingsActivityFor(type: String): Class<out ProfileSettingsActivity<*>> =
     when (OutboundFactory.canonicalType(type)) {
-        "qwdtt", "csqtt", "mrtt", "wdttplus", "freeturn", "openflux", "openfluxkey", "olcrtc", "dnstt", "vaydns", "slipstream", "masterdns", "cottendns", "soar", "s3bypass", "sstp" -> NativeTransportSettingsActivity::class.java
+        "qwdtt", "csqtt", "mrtt", "wdttplus", "freeturn", "openflux", "openfluxkey", "olcrtc", "dnstt", "vaydns", "slipstream", "masterdns", "cottendns", "soar", "s3bypass", "aivpn", "sstp" -> NativeTransportSettingsActivity::class.java
         "socks" -> SocksSettingsActivity::class.java
         "http" -> HttpSettingsActivity::class.java
         "shadowsocks" -> ShadowsocksSettingsActivity::class.java
@@ -28,6 +28,8 @@ fun settingsActivityFor(type: String): Class<out ProfileSettingsActivity<*>> =
         "snell" -> SnellSettingsActivity::class.java
         "wireguard" -> WireGuardSettingsActivity::class.java
         "trusttunnel" -> TrustTunnelSettingsActivity::class.java
+        "dnstt" -> DnsttSettingsActivity::class.java
+        "masterdns" -> MasterDnsSettingsActivity::class.java
         "direct" -> DirectSettingsActivity::class.java
         "masque" -> MasqueSettingsActivity::class.java
         "openvpn" -> OpenVpnSettingsActivity::class.java

@@ -36,7 +36,7 @@ object LogExport {
         SettingsRegistry.FRAGMENT_IMPLEMENTATION, SettingsRegistry.TLS_TRICKS_DEFAULT_ON,
         SettingsRegistry.UTLS_FINGERPRINT, SettingsRegistry.NET_USE_PROXY, SettingsRegistry.ENABLE_WARP,
         SettingsRegistry.CURRENT_ROUTE_ID,
-    ).map { it.key } + listOf(Key.PROXY_APPS, Key.BYPASS_MODE, Key.METERED_NETWORK)
+    ).map { it.key } + listOf(Key.PROXY_APPS, Key.BYPASS_MODE, Key.METERED_NETWORK, Key.ALLOW_BYPASS)
 
     fun fileName(): String = "Rawline-log-${SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())}.txt"
 
@@ -47,7 +47,15 @@ object LogExport {
         dir.listFiles()?.forEach { if (now - it.lastModified() > MAX_AGE_MS) it.delete() }
         // Sharing and saving may run concurrently; neither may overwrite or delete the other's snapshot.
         val file = File.createTempFile(fileName().removeSuffix(".txt") + "-", ".txt", dir)
-        val redactor = if (redact) LogRedactor(hideDestinations) else null
+        // A pattern the platform regex engine rejects fails the class init with an Error, which would bypass every
+        // caller's catch and, through CrashHandler, crash the crash report too.
+        val redactor = if (redact) {
+            try {
+                LogRedactor(hideDestinations)
+            } catch (e: LinkageError) {
+                throw IllegalStateException("log redaction unavailable", e)
+            }
+        } else null
         // The logcat snapshot takes up to seconds; it runs while core.log is redacted.
         val logcat = java.util.concurrent.FutureTask { logcat() }
         Thread(logcat, "Rawline-logcat-export").apply { isDaemon = true; start() }

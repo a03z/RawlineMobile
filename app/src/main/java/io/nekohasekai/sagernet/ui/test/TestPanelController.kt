@@ -46,6 +46,8 @@ import app.rawline.mobile.database.GroupRepo
 import app.rawline.mobile.database.GroupSortAction
 import app.rawline.mobile.database.GroupSortMethod
 import app.rawline.mobile.database.ProfileManager
+import app.rawline.mobile.database.TestBy
+import app.rawline.mobile.ui.profiles.GroupFields
 import app.rawline.mobile.ktx.confirmAction
 import app.rawline.mobile.ktx.nameList
 import app.rawline.mobile.ktx.onMainDispatcher
@@ -867,11 +869,9 @@ class TestPanelController(
         runOnDefaultDispatcher {
             if (!bySpeed && GroupRepo.get(groupId)?.isSubscription == true) return@runOnDefaultDispatcher
             val sorted = if (bySpeed) {
-                // Fastest first; "N/A" (failed) sorts after untested like the desktop's bitrate key.
-                val order = ProfileManager.members(groupId)
-                    .sortedByDescending { GroupSort.bitrateToBps(if (upload) it.ulSpeed else it.dlSpeed) }
-                ProfileManager.setOrder(groupId, order.map { it.id })
-                true
+                // Kept like the latency sort, so the next stored result re-sorts instead of undoing the order.
+                GroupFields.update(groupId) { it.testSortBy = (if (upload) TestBy.UL_SPEED else TestBy.DL_SPEED).value }
+                GroupSort.sortProfiles(groupId, GroupSortAction(GroupSortMethod.BY_TEST_RESULT, descending = true))
             } else {
                 GroupSort.sortProfiles(groupId, GroupSortAction(GroupSortMethod.BY_LATENCY))
             }
@@ -895,6 +895,7 @@ class TestPanelController(
             val gone = candidates.filter { it !in existingSet }
             if (gone.isNotEmpty()) TestSessionClient.markRemoved(gone)
             if (existing.isEmpty()) return@runOnDefaultDispatcher
+            val names = existing.take(10).map { it.displayName() }
             val skipConfirmation = DataStore.skipDeleteConfirmation
             onMainDispatcher {
                 if (!fragment.isAdded) return@onMainDispatcher
@@ -905,7 +906,7 @@ class TestPanelController(
                         context.resources.getQuantityString(
                             R.plurals.confirm_remove_unavailable, existing.size, existing.size
                         ),
-                        context.nameList(existing.map { it.displayName() }),
+                        context.nameList(names, total = existing.size),
                         R.string.delete,
                     ) { deleteProfiles(existingIds) }
                 }

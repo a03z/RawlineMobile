@@ -8,25 +8,27 @@ import app.rawline.mobile.R
 import app.rawline.mobile.SagerNet
 import app.rawline.mobile.bg.test.TestSpec
 import app.rawline.mobile.database.DataStore
+import app.rawline.mobile.database.GroupRepo
 import app.rawline.mobile.database.ProfileManager
 import app.rawline.mobile.database.ProxyEntity
 import app.rawline.mobile.database.ProxyGroup
+import app.rawline.mobile.group.SubscriptionClient
 import app.rawline.mobile.ktx.Logs
 import app.rawline.mobile.ktx.confirmAction
+import app.rawline.mobile.ktx.isIpAddress
 import app.rawline.mobile.ktx.needReload
 import app.rawline.mobile.ktx.readableMessage
 import app.rawline.mobile.ktx.showAllowingStateLoss
 import app.rawline.mobile.ktx.snackbar
-import app.rawline.mobile.ktx.isIpAddress
-import app.rawline.mobile.group.SubscriptionClient
 import app.rawline.mobile.ktx.startFilesForResult
 import app.rawline.mobile.ui.ConfigurationFragment
+import app.rawline.mobile.ui.MainActivity
 import app.rawline.mobile.ui.profile.ProfileConfigExport
 import app.rawline.mobile.ui.profile.ProfileSettingsActivity
 import app.rawline.mobile.ui.profile.profileSettingsIntent
 import app.rawline.mobile.widget.QRCodeDialog
 
-/** The actions of one profile row: edit, share, the ⋮ menu (tests, move up/down, delete). */
+/** The actions of one profile row: edit, share, the ⋮ menu (tests, resolve, clearing results / traffic, move up/down on TV, delete). */
 class ProfileItemMenu(private val host: ConfigurationFragment) {
 
     private val exportConfig = host.registerForActivityResult(
@@ -74,12 +76,13 @@ class ProfileItemMenu(private val host: ConfigurationFragment) {
             }
             true
         }
-        // the compact card has no edit / share buttons
-        menu.findItem(R.id.action_edit).isVisible = adapter.isCompact
-        menu.findItem(R.id.action_share).isVisible = adapter.isCompact && !profile.isChain()
-        // positions of the stored order: a filtered list says nothing about it (like the desktop's drag and drop)
+        // the compact card and the compact row have no edit / share buttons
+        val noButtons = adapter.isCompact || adapter.isCompactRow
+        menu.findItem(R.id.action_edit).isVisible = noButtons
+        menu.findItem(R.id.action_share).isVisible = noButtons
+        // TV only, where a D-pad cannot drag; a filtered list says nothing about the stored order
         val index = adapter.memberIds.indexOf(profile.id)
-        val movable = !adapter.isFiltered && index >= 0
+        val movable = SagerNet.isTv && !adapter.isFiltered && index >= 0
         menu.findItem(R.id.action_move_up).apply {
             isVisible = movable
             isEnabled = index > 0
@@ -92,6 +95,8 @@ class ProfileItemMenu(private val host: ConfigurationFragment) {
         val address = profile.outbound.getAddress()
         menu.findItem(R.id.action_resolve_domain).isVisible =
             !profile.outbound.invalid && address.isNotEmpty() && !address.isIpAddress()
+        menu.findItem(R.id.action_clear_test_results).isVisible = profile.hasTestResults()
+        menu.findItem(R.id.action_clear_traffic_statistics).isVisible = profile.tx != 0L || profile.rx != 0L
         popup.setOnMenuItemClickListener { item ->
             when (item.itemId) {
                 R.id.action_edit -> edit(profile, adapter.group)
@@ -100,6 +105,8 @@ class ProfileItemMenu(private val host: ConfigurationFragment) {
                 R.id.action_test_ip -> test(profile, TestSpec.KIND_IP)
                 R.id.action_test_speed -> test(profile, TestSpec.KIND_SPEED)
                 R.id.action_resolve_domain -> resolve(profile)
+                R.id.action_clear_test_results -> clearTestResults(profile)
+                R.id.action_clear_traffic_statistics -> clearTraffic(profile, adapter)
                 R.id.action_move_up -> move(profile, -1)
                 R.id.action_move_down -> move(profile, 1)
                 R.id.action_delete -> delete(profile, adapter)
@@ -114,11 +121,33 @@ class ProfileItemMenu(private val host: ConfigurationFragment) {
         ProfileTests.startProfiles(host, kind, listOf(profile.id), profile.groupId)
     }
 
-    /** Resolve Domain for one profile: the server's domain becomes the address the core's DNS returns. */
+    /** on_menu_resolve_selected_triggered for one profile: no confirmation, like the desktop. */
     private fun resolve(profile: ProxyEntity) {
         host.launchIo {
             val report = SubscriptionClient.resolveProfiles(profile.groupId, listOf(profile.id))
             if (report.isNotBlank()) host.onUi { snackbar(report).show() }
+        }
+    }
+
+    /** One profile's share of the group actions, without their confirmation (like resolve). */
+    private fun clearTestResults(profile: ProxyEntity) {
+        host.launchIo {
+            ProfileManager.clearTestResults(listOf(profile.id))
+            GroupRepo.postReload(profile.groupId)
+        }
+    }
+
+    private fun clearTraffic(profile: ProxyEntity, adapter: ProfileListAdapter) {
+        val service = (host.activity as? MainActivity)?.connection?.service
+        val ids = longArrayOf(profile.id)
+        adapter.clearTraffic(profile.id)
+        host.launchIo {
+            try {
+                service?.resetTraffic(ids)
+            } catch (e: Exception) {
+                Logs.w(e)
+            }
+            ProfileManager.resetTraffic(ids)
         }
     }
 
@@ -149,10 +178,14 @@ class ProfileItemMenu(private val host: ConfigurationFragment) {
     }
 
     fun showShare(anchor: View, profile: ProxyEntity) {
-        if (host.select || profile.isChain()) return
+        if (host.select) return
         val popup = PopupMenu(anchor.context, anchor)
         popup.menuInflater.inflate(R.menu.profile_share_menu, popup.menu)
-        if (profile.exportLink().isEmpty()) {
+        // a chain has no link of its own, only the config it starts (bf89f273)
+        if (profile.isChain()) {
+            popup.menu.removeItem(R.id.action_group_qr)
+            popup.menu.removeItem(R.id.action_group_clipboard)
+        } else if (profile.exportLink().isEmpty()) {
             popup.menu.findItem(R.id.action_group_qr).subMenu?.removeItem(R.id.action_standard_qr)
             popup.menu.findItem(R.id.action_group_clipboard).subMenu?.removeItem(R.id.action_standard_clipboard)
         }
@@ -177,8 +210,8 @@ class ProfileItemMenu(private val host: ConfigurationFragment) {
     }
 
     /**
-     * Export configuration: the config is built off the main thread, then copied or written to the file the user picks.
-     * A text too large for the clipboard offers the file instead.
+     * Export configuration: the config is built off the main thread, then copied or, through the DataStore, written
+     * to the file the user picks. A text too large for the clipboard offers the file instead.
      */
     private fun exportConfiguration(profile: ProxyEntity, toFile: Boolean) {
         // A copy parses its own outbound, so the row's cached one is only ever touched on the main thread.

@@ -22,7 +22,7 @@ import java.util.concurrent.Executors
         ProxyGroup::class, ProxyEntity::class, RouteProfileEntity::class, RouteRuleEntity::class,
         SettingEntry::class, MarkerEntity::class,
     ],
-    version = 17,
+    version = 18,
     autoMigrations = [
         AutoMigration(from = 8, to = 9),
         AutoMigration(from = 12, to = 13),
@@ -163,6 +163,23 @@ abstract class SagerDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * 17 -> 18: groups get the desktop's sort method, own routing profile and subscription route, routing profiles
+         * the group that provided them; the profiles index (gid) gives way to (gid, user_order, id). By hand: an
+         * auto-migration rebuilds the table for an index change, which lowers the AUTOINCREMENT high-water mark.
+         */
+        val MIGRATION_17_18: Migration = object : Migration(17, 18) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `groups` ADD COLUMN `sort_method` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE `groups` ADD COLUMN `sort_descending` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE `groups` ADD COLUMN `route_id` INTEGER NOT NULL DEFAULT -1")
+                db.execSQL("ALTER TABLE `groups` ADD COLUMN `import_sub_route` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE `route_profiles` ADD COLUMN `source_gid` INTEGER NOT NULL DEFAULT -1")
+                db.execSQL("DROP INDEX IF EXISTS `index_profiles_gid`")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_profiles_gid_user_order_id` ON `profiles` (`gid`, `user_order`, `id`)")
+            }
+        }
+
         /** Configs.cpp:35-39: a new database starts with an ordinary group named "Default". */
         private val callback = object : RoomDatabase.Callback() {
             override fun onCreate(db: SupportSQLiteDatabase) {
@@ -199,9 +216,10 @@ abstract class SagerDatabase : RoomDatabase() {
                             .name(config.name).callback(safe).noBackupDirectory(config.useNoBackupDirectory).build()
                     )
                 }
-                .addMigrations(MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_15_16, MIGRATION_16_17)
+                .addMigrations(MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18)
                 .addCallback(callback)
-                .setJournalMode(JournalMode.TRUNCATE)
+                // both processes use the file: WAL lets readers in either one run while the other writes
+                .setJournalMode(JournalMode.WRITE_AHEAD_LOGGING)
                 .allowMainThreadQueries()
                 .enableMultiInstanceInvalidation()
                 .setQueryExecutor(Executors.newFixedThreadPool(4))

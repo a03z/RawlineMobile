@@ -30,6 +30,6 @@ interface ICoreService {
 
   // CPU and heap profile of :bg: blocks for the window (at most 60 s) or until stopDiagnostics and writes the zip to
   // outputPath; returns "" or the error (see CoreDiagnostics).
-  String captureDiagnostics(int durationMs, String outputPath);
+  String captureDiagnostics(int durationMs, boolean contention, boolean trace, in String[] attachmentPaths, String outputPath);
   void stopDiagnostics();
 }

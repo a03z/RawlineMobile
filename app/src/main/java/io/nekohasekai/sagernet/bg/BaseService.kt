@@ -14,6 +14,7 @@ import app.rawline.mobile.R
 import app.rawline.mobile.SagerNet
 import app.rawline.mobile.aidl.ISagerNetService
 import app.rawline.mobile.aidl.ISagerNetServiceCallback
+import app.rawline.mobile.aidl.LiveStatsBatch
 import app.rawline.mobile.appwidget.Widgets
 import app.rawline.mobile.bg.autoselector.AutoSelectorRuntime
 import app.rawline.mobile.bg.proto.DeferredRuleSets
@@ -39,12 +40,21 @@ import kotlinx.coroutines.sync.withLock
 import moe.matsuri.nb4a.Protocols
 import moe.matsuri.nb4a.utils.Util
 import java.net.UnknownHostException
+import java.util.concurrent.Executors
 
 /** Shorter screen-off spells keep their connections: switching the screen off and on is not sleep. */
 private const val SLEEP_RESET_AFTER_MS = 30_000L
 private const val WAKE_CHECK_AFTER_MS = 5_000L
 
 class BaseService {
+
+    companion object {
+        /**
+         * The main core's build, start and close: blocking JNI and database work kept off the main looper, one at a
+         * time, so a close never overlaps a start.
+         */
+        private val coreDispatcher = Executors.newSingleThreadExecutor { Thread(it, "CoreLifecycle") }.asCoroutineDispatcher()
+    }
 
     enum class State(
         val canStop: Boolean = false,
@@ -82,28 +92,43 @@ class BaseService {
                 Action.SWITCH_NEXT -> service.switchRelative(1)
                 Action.SWITCH_PREVIOUS -> service.switchRelative(-1)
                 Action.SWITCH_PROFILE -> service.switchProfile(intent.getLongExtra(Action.EXTRA_PROFILE_ID, 0L))
-                Action.REFRESH_WIFI_STATE -> refreshWifiState(ctx)
+                Action.REFRESH_WIFI_STATE -> afterStart { refreshWifiState(ctx) }
                 Action.AUTO_SELECTOR_AUTOMATIC -> AutoSelectorRuntime.releasePin(intent.getLongExtra(Action.EXTRA_PROFILE_ID, 0L))
-                PowerManager.ACTION_DEVICE_IDLE_MODE_CHANGED -> applyIdleMode()
+                PowerManager.ACTION_DEVICE_IDLE_MODE_CHANGED -> afterStart { applyIdleMode() }
                 Intent.ACTION_SCREEN_OFF -> { screenOffAt = SystemClock.elapsedRealtime(); proxy?.cancelWakeCheck() }
                 Intent.ACTION_SCREEN_ON -> resetAfterSleep()
 
-                Action.RESET_UPSTREAM_CONNECTIONS -> runOnDefaultDispatcher {
-                    proxy?.boxOrNull?.resetNetwork()
-                    runOnMainDispatcher {
-                        Util.collapseStatusBar(ctx)
-                        Toast.makeText(ctx, "Reset upstream connections done", Toast.LENGTH_SHORT)
-                            .show()
+                Action.RESET_UPSTREAM_CONNECTIONS -> afterStart {
+                    runOnDefaultDispatcher {
+                        proxy?.boxOrNull?.resetNetwork()
+                        runOnMainDispatcher {
+                            Util.collapseStatusBar(ctx)
+                            Toast.makeText(ctx, "Reset upstream connections done", Toast.LENGTH_SHORT)
+                                .show()
+                        }
                     }
                 }
             }
         }
+
+        /** Runs [block] once a start in progress is over: the box is never touched while it starts on another thread. */
+        private fun afterStart(block: () -> Unit) {
+            val job = connectingJob?.takeIf { it.isActive } ?: return block()
+            runOnMainDispatcher {
+                job.join()
+                block()
+            }
+        }
+
         var closeReceiverRegistered = false
 
         val binder = Binder(this)
         var connectingJob: Job? = null
         var networkChangeJob: Job? = null
         var subscriptionWatch: Job? = null
+
+        /** A plain stop asked for while a restart was stopping the old core: the restart ends stopped instead. */
+        var stopRequested = false
 
         fun changeState(s: State, msg: String? = null) {
             if (state == s && msg == null) return
@@ -283,6 +308,8 @@ class BaseService {
 
         override fun autoSelectorSelect(memberProfileId: Long) = AutoSelectorRuntime.select(memberProfileId)
 
+        override fun liveStats(session: Long, afterSerial: Long): LiveStatsBatch = LiveStatsRecorder.batch(session, afterSerial)
+
         fun stateChanged(s: State, msg: String?) = launch {
             val profileName = profileName
             broadcast { it.stateChanged(s.ordinal, profileName, msg) }
@@ -376,7 +403,7 @@ class BaseService {
             }
 
             try {
-                proxy?.close()
+                if (proxy != null) withContext(coreDispatcher) { proxy.close() }
                 Logs.i(
                     "ServiceLifecycleTrace serviceId=$serviceId proxyId=$proxyId " +
                         "profileId=${proxy?.profile?.id ?: -1L} stage=proxy-close success"
@@ -420,6 +447,8 @@ class BaseService {
                     "hasMessage=${msg != null} caller=$caller"
             )
             if (data.state == State.Stopping) {
+                // the old core now closes off the main thread, so a Stop can arrive in the middle of a restart
+                if (!restart) data.stopRequested = true
                 Logs.i(
                     "ServiceStopTrace serviceId=$serviceId proxyId=$proxyId " +
                         "stage=ignored-already-stopping"
@@ -428,6 +457,7 @@ class BaseService {
             }
             this as Service
 
+            data.stopRequested = false
             data.changeState(State.Stopping)
             val originalMessage = msg
 
@@ -456,7 +486,7 @@ class BaseService {
                     data.connectingJob = null
                 }
 
-                val keepNotification = restart && data.notification != null
+                var keepNotification = restart && data.notification != null
                 if (keepNotification) {
                     try {
                         data.notification?.postNotificationTitle(getString(R.string.notification_switching))
@@ -478,6 +508,20 @@ class BaseService {
                 } catch (error: Throwable) {
                     recordCleanupFailure("process-cleanup-boundary", error)
                 }
+
+                val stopInstead = restart && data.stopRequested
+                data.stopRequested = false
+                if (stopInstead && keepNotification) {
+                    keepNotification = false
+                    try {
+                        data.notification?.destroy()
+                    } catch (error: Throwable) {
+                        recordCleanupFailure("notification-destroy", error)
+                    } finally {
+                        data.notification = null
+                    }
+                }
+                val finishRestart = restart && !stopInstead
 
                 if (!keepNotification) {
                     try {
@@ -511,7 +555,7 @@ class BaseService {
                     "ServiceStopTrace serviceId=$serviceId proxyId=$proxyId " +
                         "stage=stopped restart=$restart hasCleanupError=${cleanupError != null}"
                 )
-                if (!restart) {
+                if (!finishRestart) {
                     DeferredRuleSets.serviceStopped()
                     AutoSelectorRuntime.serviceStopped()
                 }
@@ -519,7 +563,7 @@ class BaseService {
                 try {
                     when {
                         keepNotification -> startProxy()
-                        restart -> startRunner()
+                        finishRestart -> startRunner()
                         else -> stopSelf() // stop the service if nothing has bound to it
                     }
                 } catch (error: Throwable) {
@@ -632,7 +676,11 @@ class BaseService {
         fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
             DataStore.baseService = this
 
-            if (data.state != State.Stopped) return Service.START_NOT_STICKY
+            if (data.state != State.Stopped) {
+                // Android 12+ ends a service started in the foreground that does not post its notification in time.
+                data.notification?.showAgain()
+                return Service.START_NOT_STICKY
+            }
             startProxy()
             return Service.START_NOT_STICKY
         }
@@ -711,12 +759,13 @@ class BaseService {
                     }
                     preInit()
                     moe.matsuri.nb4a.utils.CoreLog.write("[Info] Preparing profile ${profile.id}; protocol=${profile.type}; mode=${DataStore.serviceMode}")
-                    proxy.init()
+                    withContext(coreDispatcher) { proxy.init() }
                     moe.matsuri.nb4a.utils.CoreLog.write("[Info] Profile ${profile.id} configuration and assets ready; starting core")
                     DataStore.currentProfile = profile.id
                     DataStore.runningProfiles = proxy.config.involvedProfileIds.map { it.toString() }
+                    DataStore.runningRouteId = proxy.routeId
 
-                    startProcesses()
+                    withContext(coreDispatcher) { startProcesses() }
                     data.changeState(State.Connected)
                     runCatching { watchWifiRules(proxy) }.onFailure { Logs.w(it) }
 

@@ -107,7 +107,7 @@ class VkRelayActivity : ThemedActivity() {
                     override fun onPageFinished(view: WebView,url: String?) {
                         retryingLogin=false
                         if(url != null && runCatching { app.rawline.mobile.bg.carrier.VkRelayOAuth.trustedHttps(java.net.URI(url)) }.getOrDefault(false))
-                            view.evaluateJavascript(VkRelayLogin.errorWatcher,null)
+                        { view.evaluateJavascript(VkRelayLogin.errorWatcher,null);view.evaluateJavascript(VkRelayLogin.hideHeader,null) }
                         if(!completedLogin && !VkRelayLogin.awaitingLogin(url.orEmpty()) && cookies().values.any { value -> value.split(';').any { it.trim().startsWith("remixsid=") && it.substringAfter('=').trim().length >= 8 } }) {
                             completedLogin=true
                             CookieManager.getInstance().flush()

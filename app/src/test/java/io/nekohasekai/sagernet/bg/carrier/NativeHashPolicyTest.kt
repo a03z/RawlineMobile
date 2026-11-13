@@ -42,10 +42,12 @@ class NativeHashPolicyTest {
                     id=8;content="new-content";identity=NativeHashPolicy.subscriptionIdentity(incoming)
                 }
                 index.noteArrival(next.content)
+                app.rawline.mobile.group.SubscriptionReconcile.pairByIdentity(listOf(previous),listOf(next),index)
                 val plan=app.rawline.mobile.group.SubscriptionReconcile.reconcile(listOf(previous),listOf(next),index)
+                // The stored row takes the refreshed data in place: its id, and the device bound to it, survive.
                 assertEquals(listOf(7L),plan.order)
-                assertEquals(listOf(7L to 8L),plan.updates)
-                assertEquals(listOf(8L),plan.stale)
+                assertEquals(listOf(7L),plan.updates)
+                assertTrue(plan.stale.isEmpty())
             }
         }
     }

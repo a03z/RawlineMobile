@@ -140,11 +140,25 @@ class MobilePastelArtwork(context: Context, @Suppress("unused") private val idle
     }
 }
 
-/** The hero card: solid paper, with the concept's faint waves across the lower half. */
+/** The hero card: solid paper, with slow waves drifting across the lower half. */
 class PastelHeroPaper : Drawable() {
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val path = Path()
     private val density get() = android.content.res.Resources.getSystem().displayMetrics.density
+    private var phase = 0f
+    private var posted = false
+    private val tick = Runnable {
+        posted = false
+        phase += 0.04f
+        invalidateSelf()
+    }
+
+    private fun arm() {
+        if (posted || callback == null) return
+        if (Build.VERSION.SDK_INT >= 26 && !ValueAnimator.areAnimatorsEnabled()) return
+        posted = true
+        scheduleSelf(tick, SystemClock.uptimeMillis() + 32L)
+    }
 
     override fun draw(canvas: Canvas) {
         if (bounds.isEmpty) return
@@ -157,24 +171,31 @@ class PastelHeroPaper : Drawable() {
             else -> Color.rgb(42, 36, 62)
         }
         canvas.drawRoundRect(bounds.left.toFloat(), bounds.top.toFloat(), bounds.right.toFloat(), bounds.bottom.toFloat(), radius, radius, paint)
-        if (!MobilePalette.light) return
         val left = bounds.left.toFloat()
         val right = bounds.right.toFloat()
         val top = bounds.top.toFloat()
         val width = bounds.width().toFloat()
         val height = bounds.height().toFloat()
+        val light = MobilePalette.light
         paint.style = Paint.Style.STROKE
-        paint.strokeWidth = 1.4f * density
-        fun wave(y: Float, lift: Float, color: Int) {
+        paint.strokeWidth = 1.6f * density
+        fun wave(y: Float, lift: Float, color: Int, shift: Float) {
+            val drift = sin(phase + shift) * width * 0.05f
+            val bob = sin(phase * 0.65f + shift) * height * 0.012f
             path.rewind()
-            path.moveTo(left - 20f, top + height * y)
-            path.cubicTo(left + width * .28f, top + height * (y - lift), left + width * .62f, top + height * (y + lift), right + 20f, top + height * (y - lift * .3f))
+            path.moveTo(left - 24f, top + height * y + bob)
+            path.cubicTo(
+                left + width * .28f + drift, top + height * (y - lift) + bob,
+                left + width * .62f - drift, top + height * (y + lift) - bob,
+                right + 24f, top + height * (y - lift * .3f) + bob
+            )
             paint.color = color
             canvas.drawPath(path, paint)
         }
-        wave(.58f, .07f, Color.argb(28, 186, 170, 240))
-        wave(.70f, .05f, Color.argb(22, 150, 180, 245))
-        wave(.82f, .06f, Color.argb(18, 255, 186, 170))
+        wave(.58f, .07f, Color.argb(if (light) 40 else 32, 186, 170, 240), 0f)
+        wave(.70f, .05f, Color.argb(if (light) 30 else 24, 150, 180, 245), 1.5f)
+        wave(.82f, .06f, Color.argb(if (light) 24 else 18, 255, 186, 170), 2.8f)
+        arm()
     }
 
     override fun getOutline(outline: Outline) {
@@ -251,25 +272,33 @@ class PastelChoice(context: Context) : View(context) {
     }
 }
 
-/** A filled wave along the bottom of a speed card. The crest moves, and it stays inside the view. */
+/** A filled wave along the bottom of a speed card. It moves at one pace while the VPN is up, and holds still otherwise. */
 class PastelSpeedWave(context: Context, private val tint: Int) : View(context) {
-    var level = 0.18f
-        set(value) { field = value.coerceIn(0f, 1f) }
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val path = Path()
     private var phase = 0f
     private val tick: Runnable = object : Runnable {
         override fun run() {
-            phase += if (level > 0.25f) 0.11f else 0.04f
+            if (!connected) return
+            phase += 0.08f
             invalidate()
             postDelayed(this, if (hasWindowFocus()) 32L else 90L)
         }
     }
+    var connected = false
+        set(value) {
+            if (field == value) return
+            field = value
+            removeCallbacks(tick)
+            if (value) post(tick) else invalidate()
+        }
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
-        removeCallbacks(tick)
-        post(tick)
+        if (connected) {
+            removeCallbacks(tick)
+            post(tick)
+        }
     }
 
     override fun onDetachedFromWindow() {
@@ -279,7 +308,7 @@ class PastelSpeedWave(context: Context, private val tint: Int) : View(context) {
 
     override fun onDraw(canvas: Canvas) {
         if (width == 0 || height == 0) return
-        val amp = height * (0.10f + 0.22f * level)
+        val amp = height * if (connected) 0.24f else 0.08f
         fun crest(shift: Float, alpha: Int) {
             path.rewind()
             val mid = height * 0.58f

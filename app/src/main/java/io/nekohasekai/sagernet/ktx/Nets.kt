@@ -6,12 +6,14 @@ import app.rawline.mobile.BuildConfig
 import app.rawline.mobile.Key
 import app.rawline.mobile.R
 import app.rawline.mobile.database.DataStore
+import app.rawline.mobile.database.SubTlsVersion
 import moe.matsuri.nb4a.utils.NGUtil
 import okhttp3.ConnectionSpec
 import okhttp3.Credentials
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
+import okhttp3.Protocol
 import okhttp3.Request
 import okhttp3.Response
 import okhttp3.Route
@@ -64,6 +66,9 @@ fun useAppHttpProxy(builder: OkHttpClient.Builder) {
 /** The mixed inbound as the app reaches it: TUN mode always listens on loopback (ConfigGenerator.buildInboundSection). */
 fun appProxyHost(): String =
     if (DataStore.serviceMode == Key.MODE_VPN) LOCALHOST else DataStore.inboundAddress.let { if (it == "::") LOCALHOST else it }
+
+/** App requests use the mixed inbound with net_use_proxy or in proxy service mode (HTTPRequestHelper.cpp:26). */
+fun appRequestsViaProxy(): Boolean = DataStore.netUseProxy || DataStore.serviceMode == Key.MODE_PROXY
 
 /**
  * Whether an app request that would use the proxy fails while no profile runs: only with net_use_proxy (or a
@@ -134,8 +139,12 @@ class HttpGetOptions(
     @JvmField val useProxy: Boolean = false,
     @JvmField val timeoutSeconds: Int = 10,
     @JvmField val allowInsecure: Boolean = false,
-    /** Android extra: appTLSVersion "1.3" allows TLS 1.3 only. */
+    /** Android extra: appTLSVersion "1.3" allows TLS 1.3 only while [tlsVersion] is AUTO. */
     @JvmField val restrictTls13: Boolean = DataStore.appTLSVersion == "1.3",
+    /** tlsProtocol: AUTO offers the platform's versions, TLS12 / TLS13 only that one. */
+    @JvmField val tlsVersion: SubTlsVersion = SubTlsVersion.AUTO,
+    /** http2: false speaks HTTP/1.1 only. */
+    @JvmField val http2: Boolean = true,
 )
 
 /** HTTPResponse: [error] is empty on success; [data] also holds the body of an HTTP error status. */
@@ -158,6 +167,11 @@ private const val MAX_REDIRECTS = 20
  * Blocking: call it off the main thread.
  */
 fun httpGet(url: String, options: HttpGetOptions = HttpGetOptions()): HttpGetResponse {
+    val tlsVersion = if (options.tlsVersion == SubTlsVersion.AUTO && options.restrictTls13) SubTlsVersion.TLS13
+    else options.tlsVersion
+    if (tlsVersion == SubTlsVersion.TLS13 && !tls13Supported) {
+        return HttpGetResponse(ByteArray(0), null, app.getString(R.string.subs_tls_unsupported))
+    }
     val builder = OkHttpClient.Builder()
         .connectTimeout(options.timeoutSeconds.coerceIn(5, 300).toLong(), TimeUnit.SECONDS)
         .readTimeout(options.timeoutSeconds.coerceIn(5, 300).toLong(), TimeUnit.SECONDS)
@@ -171,14 +185,23 @@ fun httpGet(url: String, options: HttpGetOptions = HttpGetOptions()): HttpGetRes
     if (connected) {
         useAppHttpProxy(builder)
     }
-    if (options.restrictTls13) {
-        builder.connectionSpecs(
+    when (tlsVersion) {
+        SubTlsVersion.AUTO -> Unit
+        SubTlsVersion.TLS12 -> builder.connectionSpecs(
+            listOf(
+                ConnectionSpec.Builder(ConnectionSpec.MODERN_TLS).tlsVersions(TlsVersion.TLS_1_2).build(),
+                ConnectionSpec.CLEARTEXT,
+            )
+        )
+
+        SubTlsVersion.TLS13 -> builder.connectionSpecs(
             listOf(
                 ConnectionSpec.Builder(ConnectionSpec.RESTRICTED_TLS).tlsVersions(TlsVersion.TLS_1_3).build(),
                 ConnectionSpec.CLEARTEXT,
             )
         )
     }
+    if (!options.http2) builder.protocols(listOf(Protocol.HTTP_1_1))
     if (DataStore.netInsecure || options.allowInsecure) {
         val sslContext = SSLContext.getInstance("TLS")
         sslContext.init(null, arrayOf(TrustAllManager), SecureRandom())
@@ -194,9 +217,17 @@ fun httpGet(url: String, options: HttpGetOptions = HttpGetOptions()): HttpGetRes
 
     try {
         var target = url.toHttpUrl()
+        // OkHttp keeps a URL's (decoded) userinfo but never sends it.
+        var authorization: String? = null
+        if (target.username.isNotEmpty() || target.password.isNotEmpty()) {
+            authorization = Credentials.basic(target.username, target.password, Charsets.UTF_8)
+            target = target.newBuilder().username("").password("").build()
+        }
         var redirects = 0
         while (true) {
-            val request = Request.Builder().url(target).headers(requestHeaders).build()
+            val request = Request.Builder().url(target).headers(requestHeaders)
+                .apply { authorization?.let { header("Authorization", it) } }
+                .build()
             val response = client.newCall(request).execute()
             if (response.isRedirect) {
                 val location = response.header("Location")?.let { target.resolve(it) }
@@ -208,6 +239,10 @@ fun httpGet(url: String, options: HttpGetOptions = HttpGetOptions()): HttpGetRes
                     }
                     if (++redirects > MAX_REDIRECTS) {
                         return HttpGetResponse(ByteArray(0), null, app.getString(R.string.subs_too_many_redirects))
+                    }
+                    // Like OkHttp's own redirects: the credentials never follow a hop to another scheme, host or port.
+                    if (location.scheme != target.scheme || location.host != target.host || location.port != target.port) {
+                        authorization = null
                     }
                     target = location
                     continue
@@ -295,6 +330,11 @@ private object SocksAuthenticator : Authenticator() {
         if (requestingHost != LOCALHOST && requestingSite?.isLoopbackAddress != true) return null
         return PasswordAuthentication(DataStore.listenerUser, DataStore.listenerPass.toCharArray())
     }
+}
+
+/** QSslSocket::isProtocolSupported(TlsV1_3): Android 10 and later. */
+private val tls13Supported: Boolean by lazy {
+    runCatching { "TLSv1.3" in SSLContext.getDefault().supportedSSLParameters.protocols }.getOrDefault(false)
 }
 
 @Suppress("CustomX509TrustManager", "TrustAllX509TrustManager")

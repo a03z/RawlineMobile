@@ -11,6 +11,12 @@
         app:key="gids"
         app:title="@string/autosel_group" />
 
+    <SwitchPreference
+        app:icon="@drawable/ic_baseline_layers_24"
+        app:key="autoselStaged"
+        app:summary="@string/autosel_staged_tip"
+        app:title="@string/autosel_staged" />
+
     <EditTextPreference
         app:dialogMessage="@string/autosel_name_filter_tip"
         app:icon="@drawable/ic_baseline_filter_list_24"

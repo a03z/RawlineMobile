@@ -16,6 +16,7 @@ import app.rawline.mobile.database.ProfileManager
 import app.rawline.mobile.database.ProxyEntity
 import app.rawline.mobile.database.ProxyGroup
 import app.rawline.mobile.database.SagerDatabase
+import app.rawline.mobile.database.SortInput
 import app.rawline.mobile.database.SubscriptionOptions
 import app.rawline.mobile.ktx.Logs
 import app.rawline.mobile.ktx.app
@@ -27,17 +28,27 @@ import kotlinx.coroutines.withContext
 /** The post-update filters (GroupUpdater.cpp:183-296) and the manual group actions that need the core. */
 internal object SubscriptionFilters {
 
-    private const val WRITE_CHUNK = 200
-
-    /** [deleted] ids and the report sections to append to the change text. */
-    class Outcome(@JvmField val deleted: List<Long>, @JvmField val report: String)
+    /** [deleted] ids and the report sections to append to the change text; [ok] is false after a database error. */
+    class Outcome(
+        @JvmField val deleted: List<Long>,
+        @JvmField val report: String,
+        @JvmField val stopped: ProxyEntity? = null,
+        @JvmField val ok: Boolean = true,
+    )
 
     private val NONE = Outcome(emptyList(), "")
 
-    /** removeFlagged (GroupUpdater.cpp:208-264): each profile is listed under the first enabled action that claims it. */
-    suspend fun removeFlagged(gid: Long, profiles: List<ProxyEntity>, options: SubscriptionOptions): Outcome {
+    /** Rows written per transaction. */
+    private const val WRITE_CHUNK = 500
+
+    /**
+     * removeFlagged (GroupUpdater.cpp:208-264): each profile is listed under the first enabled action that claims it.
+     * The [members] are loaded only when an action is enabled.
+     */
+    suspend fun removeFlagged(gid: Long, options: SubscriptionOptions, members: () -> List<ProxyEntity>): Outcome {
         if (!options.removeDuplicates && !options.removeInsecure && !options.removeInvalid) return NONE
 
+        val profiles = members()
         val flagged = HashSet<Long>()
         val doomed = ArrayList<Long>()
         val sections = StringBuilder()
@@ -80,7 +91,7 @@ internal object SubscriptionFilters {
         val outcome = ProfileManager.batchDeleteProfiles(doomed)
         if (!outcome.ok) SubscriptionRefresh.dbError(gid)
         if (outcome.kept.isNotEmpty()) sections.append('\n').append(app.getString(R.string.subs_running_kept))
-        return Outcome(outcome.deleted, sections.toString())
+        return Outcome(outcome.deleted, sections.toString(), outcome.stopped, outcome.ok)
     }
 
     /** removeUnavailableAndSort (GroupUpdater.cpp:266-296): the follow-ups of the subscription's URL test. */
@@ -133,16 +144,20 @@ internal object SubscriptionFilters {
         return report.trim()
     }
 
-    /**
-     * Resolve Domain for group: every member whose server is a domain takes the first address the core's dns-direct
-     * returns, never the system resolver, which the tun answers from FakeIP or remote DNS while the VPN runs. Only
-     * answered domains are written back. Returns the report text.
-     */
+    /** Resolve Domain for group (on_menu_resolve_domain_triggered): [resolveProfiles] over the members of [gid]. */
     suspend fun resolveDomains(gid: Long): String = resolve(ProfileManager.members(gid))
 
-    /** Resolve Domain for the profiles [ids], from any groups; unknown ids are skipped. */
+    /**
+     * Resolve Domain for the profiles [ids] (on_menu_resolve_selected_triggered), from any groups; unknown ids are
+     * skipped. Returns the report text.
+     */
     suspend fun resolveProfiles(ids: List<Long>): String = resolve(ProfileManager.getProfiles(ids))
 
+    /**
+     * resolve_profile_domains (mainwindow_profiles.cpp): every profile whose server is a domain takes the first
+     * address the core's dns-direct returns, never the system resolver, which the tun answers from FakeIP or
+     * dns-remote while the VPN runs. Only answered domains are written back.
+     */
     private suspend fun resolve(profiles: List<ProxyEntity>): String = withContext(Dispatchers.IO) {
         val targets = profiles.filter { profile ->
             val address = profile.outbound.getAddress()
@@ -162,7 +177,8 @@ internal object SubscriptionFilters {
             val before = profile.outboundJson
             outbound.setAddress(address)
             profile.putOutbound(outbound)
-            if (profile.outboundJson != before) changed.add(profile)
+            if (profile.outboundJson == before) continue
+            changed.add(profile)
         }
         for (part in changed.chunked(WRITE_CHUNK)) {
             SagerDatabase.instance.runInTransaction {
@@ -171,7 +187,9 @@ internal object SubscriptionFilters {
                 }
             }
         }
-        for (groupId in changed.mapTo(HashSet()) { it.groupId }) GroupRepo.postReload(groupId)
+        val byGroup = changed.groupBy({ it.groupId }, { it.id })
+        GroupSort.repositionLater(byGroup, SortInput.CONFIG)
+        for (groupId in byGroup.keys) GroupRepo.postReload(groupId)
         val report = app.getString(R.string.subs_resolved, changed.size, targets.size)
         Logs.i(report)
         report

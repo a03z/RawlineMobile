@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+<string name="qmobile_search">Search</string>
+<string name="qmobile_search_hint">Server name or address</string>
+<string name="qmobile_search_nothing">Nothing found</string>
+<string name="qmobile_search_more">%d more: refine the search</string>
+</resources>

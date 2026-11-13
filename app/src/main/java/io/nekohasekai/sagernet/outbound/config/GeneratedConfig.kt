@@ -88,4 +88,6 @@ class TestCandidate @JvmOverloads constructor(
     @JvmField val landingProxyId: Long = -1,
     /** The group's front proxy id; 0 or negative when the group has none. */
     @JvmField val frontProxyId: Long = -1,
+    /** The group's name, for the error when its landing / front proxy is gone. */
+    @JvmField val groupName: String = "",
 )

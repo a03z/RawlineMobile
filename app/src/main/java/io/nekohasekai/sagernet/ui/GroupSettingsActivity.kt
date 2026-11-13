@@ -56,6 +56,8 @@ open class GroupSettingsActivity : ServerScreenActivity(R.layout.layout_config_s
 
     companion object {
         const val EXTRA_GROUP_ID = "id"
+        /** Set by an editor whose change needs the running profile restarted; this one never asks. */
+        const val EXTRA_RESTART_NEEDED = "restart_needed"
         const val EXTRA_SETTINGS = "settings"
 
         /** Ignored: a group created here is never updated right away (DialogEditGroup). */

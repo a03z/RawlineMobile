@@ -10,6 +10,7 @@ import app.rawline.mobile.database.ProfileManager
 import app.rawline.mobile.database.ProxyEntity
 import app.rawline.mobile.ktx.Logs
 import app.rawline.mobile.ktx.readableMessage
+import app.rawline.mobile.outbound.config.PortLease
 import app.rawline.core.mobile.Instance
 import app.rawline.core.mobile.Mobile
 import app.rawline.core.mobile.SpeedTestHandler
@@ -46,26 +47,32 @@ internal class SpeedTestRunner(private val session: TestSession) {
             val left = excluded.mapTo(HashSet()) { it.profileId }
             val ids = slice.map { it.id }.filter { it !in left }
             if (ids.isEmpty()) continue
-            val names = slice.associate { it.id to it.displayName() }
-            val generated = CoreConfigs.buildTest(ids)
-            if (!generated.ok) {
-                val error = generated.error ?: "config generation failed"
-                Logs.w("Failed to build batch test config: $error")
-                ids.forEach { session.reportSpeedUnmeasured(it, error) }
-                continue
-            }
-            for ((id, reason) in generated.skipped) session.reportSpeedUnmeasured(id, reason)
-            session.ensureSharedXrayAssets(generated.xrayConfig)
-            for (probe in TestProbe.plan(generated)) {
-                try {
-                    withPreparedTransports(probe.carrierPlans,{ plan ->
-                        app.rawline.mobile.bg.carrier.CarrierPool.acquire(plan,session.interactive,latencyProbe=false)
-                    }) { runProbe(probe.request(), probe.profileIds, probe::profileOf, names, null) }
-                } catch(error:CancellationException) { throw error }
-                catch(error:Exception) {
-                    Logs.w(error)
-                    probe.profileIds.forEach { session.reportSpeedUnmeasured(it,session.startFailure(names[it].orEmpty(),error.readableMessage)) }
+            val names = slice.associate { it.id to TestSession.displayNameOf(it) }
+            // The probe boxes bind the bridge ports late; leased until they are over.
+            val ports = PortLease()
+            try {
+                val generated = CoreConfigs.buildTest(ids, ports)
+                if (!generated.ok) {
+                    val error = generated.error ?: "config generation failed"
+                    Logs.w("Failed to build batch test config: $error")
+                    ids.forEach { session.reportSpeedUnmeasured(it, error) }
+                    continue
                 }
+                for ((id, reason) in generated.skipped) session.reportSpeedUnmeasured(id, reason)
+                session.ensureSharedXrayAssets(generated.xrayConfig)
+                for (probe in TestProbe.plan(generated)) {
+                    try {
+                        withPreparedTransports(probe.carrierPlans,{ plan ->
+                            app.rawline.mobile.bg.carrier.CarrierPool.acquire(plan,session.interactive,latencyProbe=false)
+                        }) { runProbe(probe.request(), probe.profileIds, probe::profileOf, names, null) }
+                    } catch(error:CancellationException) { throw error }
+                    catch(error:Exception) {
+                        Logs.w(error)
+                        probe.profileIds.forEach { session.reportSpeedUnmeasured(it,session.startFailure(names[it].orEmpty(),error.readableMessage)) }
+                    }
+                }
+            } finally {
+                ports.close()
             }
         }
     }

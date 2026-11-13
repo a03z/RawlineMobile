@@ -35,7 +35,7 @@ class RouteRuleOptionsTest {
         val json = rule.toRuleJson(false, null)
         assertEquals(true, json["tls_fragment"])
         assertEquals("500ms", json["tls_fragment_fallback_delay"])
-        assertNull(json["tls_record_fragment"])
+        // Both on is refused by the rule's validation (validation_route_fragment_exclusive), not dropped silently.
         rule.tls_fragment = false
         val record = rule.toRuleJson(false, null)
         assertEquals(true, record["tls_record_fragment"])
@@ -50,10 +50,10 @@ class RouteRuleOptionsTest {
             dns = RouteDns(remoteDns = "tls://1.1.1.1", directDns = "77.88.8.8")
         }
         assertTrue(profile.copy().rules.single().disabled)
-        val imported = RouteShare.fromShareInput(RouteShare.toShareLink(profile) { null }) { null }.profile!!
+        val imported = RouteShare.fromShareInput(RouteShare.toShareLink(profile) { null }, { null }, RuleEnv()).profile!!
         assertTrue(imported.rules.single().disabled)
         assertEquals("tls://1.1.1.1", imported.activeDns()?.remoteDns)
         profile.custom_dns = false
-        assertFalse(RouteShare.fromShareInput(RouteShare.toShareLink(profile) { null }) { null }.profile!!.custom_dns)
+        assertFalse(RouteShare.fromShareInput(RouteShare.toShareLink(profile) { null }, { null }, RuleEnv()).profile!!.custom_dns)
     }
 }

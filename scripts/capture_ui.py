@@ -55,7 +55,9 @@ def tap_text(text):
     raise RuntimeError(f'UI control missing: {text}')
 
 def confirm_import_group(new=False):
-    assert 'Add to an existing group' in screen_xml(), 'Import destination screen is missing'
+    # Profiles are imported straight into the current group since the direct import; older builds still ask where.
+    if 'Add to an existing group' not in screen_xml():
+        return
     capture('36-import-destination')
     if not new:
         tap_text('Add to an existing group')
@@ -160,7 +162,7 @@ for name in ('core.log', 'core.log.prev'):
         pass
 assert 'Finland-demo' in profile_xml, 'Imported demo profile is missing from the home screen'
 assert 'Server list' in profile_xml and 'text="Default"' not in profile_xml,'Standalone profiles did not go to Server list'
-assert 'content-desc="Country flag: FI"' in profile_xml,'The profile country flag is missing'
+assert 'content-desc="Flag: FI"' in profile_xml or 'content-desc="Country flag: FI"' in profile_xml,'The profile country flag is missing'
 header=next(n.get('bounds') for n in ET.fromstring(screen_xml()).iter('node') if n.get('content-desc')=='Settings')
 shell('input','swipe','600','1800','600','1200','300');time.sleep(.5)
 assert next(n.get('bounds') for n in ET.fromstring(screen_xml()).iter('node') if n.get('content-desc')=='Settings')==header, 'Dashboard header moved with subscriptions'

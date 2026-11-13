@@ -5,6 +5,7 @@ import android.database.sqlite.SQLiteDatabase
 import app.rawline.mobile.BuildConfig
 import app.rawline.mobile.Key
 import app.rawline.mobile.R
+import app.rawline.mobile.database.DataStore
 import app.rawline.mobile.database.MarkerEntity
 import app.rawline.mobile.database.SagerDatabase
 import app.rawline.mobile.database.SettingsRegistry
@@ -46,7 +47,10 @@ object BackupExport {
             buildDatabase(temp, selection)
             val parts = RwlBackup.Parts(profiles = selection.profiles, routes = selection.routes, settings = selection.settings)
             val files = mapOf(RwlBackup.DATABASE to RwlBackup.Payload.FromFile(temp))
-            RwlBackup.write(out, RwlBackup.androidMeta(parts, BuildConfig.VERSION_NAME), files)
+            val meta = RwlBackup.androidMeta(
+                parts, BuildConfig.VERSION_NAME, DataStore.deviceId, DataStore.effectiveDeviceName()
+            )
+            RwlBackup.write(out, meta, files)
         } finally {
             BackupTemp.delete(temp)
         }

@@ -18,9 +18,13 @@
         <item name="listChoiceIndicatorMultipleAnimated">@drawable/mobile_checkbox</item>
     </style>
     <style name="MobileEditText" parent="Widget.AppCompat.EditText">
+        <!-- Equal-width digits: addresses and ports line up without another font. -->
+        <item name="android:fontFeatureSettings">tnum</item>
         <item name="android:textCursorDrawable">@drawable/mobile_text_cursor</item>
     </style>
     <style name="MobilePlatformEditText" parent="android:Widget.Material.EditText">
+        <!-- Equal-width digits: addresses and ports line up without another font. -->
+        <item name="android:fontFeatureSettings">tnum</item>
         <item name="android:textCursorDrawable">@drawable/mobile_text_cursor</item>
     </style>
     <style name="MobileCheckBox" parent="Widget.MaterialComponents.CompoundButton.CheckBox">

@@ -12,18 +12,17 @@ data class BuildContext(
     val skipCert: Boolean = false,
     /** SettingsRepo.h:162 utlsFingerprint — TLS.cpp:60-63, xrayStreamSetting.cpp:311-313 / 376-378. */
     val utlsFingerprint: String = "",
-    /** SettingsRepo.h:79 mux_default_on — multiplex.cpp:131. */
+    /** SettingsRepo.h:92 mux_default_on — multiplex.cpp:146-149. */
     val muxDefaultOn: Boolean = false,
-    /** SettingsRepo.h:76 mux_protocol — multiplex.cpp:133. */
+    /** SettingsRepo.h:82-91, the sing-box multiplex preset — MuxSettings::Preset (multiplex.cpp:191-205). */
     val muxProtocol: String = "smux",
-    /** SettingsRepo.h:78 mux_concurrency (becomes max_streams) — multiplex.cpp:134. */
-    val muxConcurrency: Int = 8,
-    /** SettingsRepo.h:77 mux_padding — multiplex.cpp:135. */
-    val muxPadding: Boolean = false,
-    /** mux_mode: "max_streams", or "max_connections" with [muxMaxConnections] and [muxMinStreams]. */
+    /** mux_mode: "max_streams" pools by [muxConcurrency], "max_connections" by [muxMaxConnections] and [muxMinStreams]. */
     val muxMode: String = "max_streams",
+    /** mux_concurrency, the preset's max_streams. */
+    val muxConcurrency: Int = 8,
     val muxMaxConnections: Int = 4,
     val muxMinStreams: Int = 4,
+    val muxPadding: Boolean = false,
     /** TCP Brutal for the preset multiplex, with its rates. */
     val muxBrutal: Boolean = false,
     val muxBrutalUpMbps: Int = 0,
@@ -46,10 +45,16 @@ data class BuildContext(
     val h2MaxConcurrentStreams: Int = 0,
     val quicInitialPacketSize: Int = 0,
     val quicDisablePathMtuDiscovery: Boolean = false,
-    /** SettingsRepo.h:301 xray_mux_concurrency — xrayMultiplex.cpp:60. */
+    /** SettingsRepo.h:334-337, the Xray mux preset — XrayMuxSettings::Preset (xrayMultiplex.cpp:154-162). */
     val xrayMuxConcurrency: Int = 8,
-    /** SettingsRepo.h:302 xray_mux_default_on — xrayMultiplex.cpp:58. */
+    /** 0 leaves the pool unbounded. */
+    val xrayMuxMaxConnections: Int = 0,
+    val xrayMuxXudpConcurrency: Int = 16,
+    val xrayMuxXudpProxyUDP443: String = "reject",
+    /** SettingsRepo.h:338 xray_mux_default_on — xrayVless.cpp:192. */
     val xrayMuxDefaultOn: Boolean = false,
+    /** SettingsRepo.h xray_use_system_ca — generate.cpp UseXraySystemCA on every Xray outbound. */
+    val xrayUseSystemCA: Boolean = false,
     /** VpnCredentialOverride.hpp:20-22 BuildingTestConfig — consulted by openvpn/openconnect only. */
     val buildingTestConfig: Boolean = false,
     /** SettingsRepo.h:199 default_domain_strategy — xrayStreamSetting.cpp:282-299. */
@@ -58,8 +63,6 @@ data class BuildContext(
     val directDnsDisableIpv6: Boolean = false,
     /** SettingsRepo.h:189 use_dns_object. */
     val useDnsObject: Boolean = false,
-    /** xray_use_system_ca: useSystemCA in every TLS block of an Xray outbound, the XHTTP download leg included. */
-    val xrayUseSystemCA: Boolean = false,
     /** generate.cpp BuildContext::routeOwnsDns: the routing profile has its own DNS, which also beats [useDnsObject]. */
     val routeOwnsDns: Boolean = false,
 ) {

@@ -19,6 +19,11 @@ object MobileCountryFlags {
     /** The flag a profile name starts with, country or not (white, pirate, rainbow), "" without one. */
     fun leading(name: String): String = leadingFlag.find(name)?.value.orEmpty()
 
+    private val leadingCountryFlag = Regex("^[\\x{1F1E6}-\\x{1F1FF}]{2}")
+
+    /** A country flag a profile name starts with (two regional indicators), "" for any other start. */
+    fun leadingCountry(name: String): String = leadingCountryFlag.find(name)?.value.orEmpty()
+
     /** A flag with no picture of its own, drawn by the system's emoji font. */
     fun emoji(context: Context, flag: String): Bitmap = images.getOrPut("emoji:$flag") {
         val size = (28 * context.resources.displayMetrics.density).toInt()

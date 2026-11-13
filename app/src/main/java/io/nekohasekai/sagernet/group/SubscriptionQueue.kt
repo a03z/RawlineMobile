@@ -12,6 +12,7 @@ import app.rawline.mobile.database.SubscriptionOptions
 import app.rawline.mobile.ktx.Logs
 import app.rawline.mobile.ktx.app
 import app.rawline.mobile.ktx.readableMessage
+import app.rawline.mobile.validation.vtr
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -40,8 +41,13 @@ object SubscriptionQueue {
     const val ACTION_REMOVE_INVALID = "remove_invalid"
     const val ACTION_RESOLVE_DOMAINS = "resolve_domains"
 
-    /** Suffix of the file next to an [importFile] path that receives the imported count. */
+    /**
+     * Suffix of the file next to an [importFile] path that receives the imported count, followed by a line
+     * [IMPORT_REPORTED] when the import box already showed it.
+     */
     const val IMPORT_COUNT_SUFFIX = ".count"
+
+    const val IMPORT_REPORTED = "reported"
 
     /** The directory of [importFile] payloads, under the app's cache directory. */
     const val IMPORT_DIR = "import"
@@ -113,6 +119,8 @@ object SubscriptionQueue {
 
     internal fun error(gid: Long, message: String) = broadcast { it.onError(gid, message) }
 
+    internal fun reloadNeeded(gid: Long) = broadcast { it.onReloadNeeded(gid) }
+
     internal fun groupChanged(gid: Long, disturbed: List<Long>) {
         for (listener in groupChangedListeners) {
             runCatching { listener.onGroupChanged(gid, disturbed) }.onFailure { Logs.w(it) }
@@ -124,11 +132,15 @@ object SubscriptionQueue {
     /** RefreshGroup (GroupUpdater.cpp:331-345); [showDiff] asks for the change window (manual refreshes). */
     fun refreshGroup(gid: Long, showDiff: Boolean) = refreshGroup(gid, showDiff, foreground = true)
 
-    fun refreshGroup(gid: Long, showDiff: Boolean, foreground: Boolean) {
+    fun refreshGroup(gid: Long, showDiff: Boolean, foreground: Boolean) =
+        refreshGroup(gid, if (showDiff) SubscriptionRefresh.Surface.Diff else SubscriptionRefresh.Surface.Log, foreground)
+
+    /** RefreshGroup with the Surface its problems go to (GroupUpdater.cpp). */
+    internal fun refreshGroup(gid: Long, surface: SubscriptionRefresh.Surface, foreground: Boolean) {
         val queued = synchronized(lock) {
             if (gid in pending) return@synchronized false
             pending.add(gid)
-            enqueueLocked(Job(gid, batch = false, foreground) { SubscriptionRefresh.refresh(gid, showDiff, foreground) })
+            enqueueLocked(Job(gid, batch = false, foreground) { SubscriptionRefresh.refresh(gid, surface, foreground) })
             true
         }
         if (!queued) Logs.i(app.getString(R.string.subs_already_queued, groupLabel(gid)))
@@ -150,7 +162,7 @@ object SubscriptionQueue {
                 if (gid in pending) continue
                 pending.add(gid)
                 pendingBatch++
-                enqueueLocked(Job(gid, batch = true, foreground) { SubscriptionRefresh.refresh(gid, false, foreground) })
+                enqueueLocked(Job(gid, batch = true, foreground) { SubscriptionRefresh.refresh(gid, SubscriptionRefresh.Surface.Log, foreground) })
             }
             false
         }
@@ -162,9 +174,9 @@ object SubscriptionQueue {
     }
 
     /**
-     * SubscribeUrl (GroupUpdater.cpp:367-379) and the addsub deep link: a subscription group named [name] (the URL
-     * host when blank) that skips automatic updates unless [autoUpdate]; its first refresh is queued without the
-     * change window. Returns the group id, -1 on failure.
+     * SubscribeUrl (GroupUpdater.cpp) and the addsub deep link: a subscription group named [name] (the URL host when
+     * blank) that skips automatic updates unless [autoUpdate]; its first refresh is queued without the change window,
+     * its problems (a failed download included) go to a report popup. Returns the group id, -1 on failure.
      */
     fun subscribeUrl(url: String, name: String, autoUpdate: Boolean, allowInsecureRequests: Boolean = false): Long {
         val wrapped = try { ProviderLinks.decodeChecked(url) } catch (_: Exception) { return -1L }
@@ -187,7 +199,8 @@ object SubscriptionQueue {
             Logs.w(e)
             return -1L
         }
-        refreshGroup(group.id, showDiff = false, foreground = true)
+        refreshGroup(group.id, SubscriptionRefresh.Surface.Report, foreground = true)
+        if (autoUpdate) SubscriptionScheduler.schedule()
         return group.id
     }
 
@@ -200,8 +213,10 @@ object SubscriptionQueue {
                 if (fetched.error != null) {
                     error(gid, fetched.error)
                 } else {
-                    val result = SubscriptionRefresh.importDocuments(gid, listOf(fetched.body))
-                    report(result.gid, "", app.getString(R.string.subs_imported, result.count), false)
+                    val emptyReason = if (SubscriptionRefresh.looksLikeWebPage(fetched.body)) vtr(R.string.validation_import_web_page) else ""
+                    val result = SubscriptionRefresh.importDocuments(gid, listOf(fetched.body), emptyReason)
+                    // The import box already says how many were imported.
+                    if (!result.reported) report(result.gid, "", app.getString(R.string.subs_imported, result.count), false)
                 }
             })
         }
@@ -226,20 +241,25 @@ object SubscriptionQueue {
             file.delete()
         }
         var count = 0
+        var reported = false
         if (text != null) {
-            val done = CompletableDeferred<Int>()
+            val done = CompletableDeferred<SubscriptionRefresh.ImportResult?>()
             synchronized(lock) {
                 enqueueLocked(Job(-1L, batch = false, foreground = true) {
                     try {
-                        done.complete(SubscriptionRefresh.importDocuments(gid, listOf(text)).count)
+                        done.complete(SubscriptionRefresh.importDocuments(gid, listOf(text)))
                     } finally {
-                        done.complete(0)
+                        done.complete(null)
                     }
                 })
             }
-            count = runBlocking { done.await() }
+            runBlocking { done.await() }?.let {
+                count = it.count
+                reported = it.reported
+            }
         }
-        runCatching { File(file.path + IMPORT_COUNT_SUFFIX).writeText(count.toString()) }.onFailure { Logs.w(it) }
+        val content = if (reported) "$count\n$IMPORT_REPORTED" else count.toString()
+        runCatching { File(file.path + IMPORT_COUNT_SUFFIX).writeText(content) }.onFailure { Logs.w(it) }
     }
 
     /**
@@ -251,14 +271,21 @@ object SubscriptionQueue {
         if (action != ACTION_REMOVE_INVALID && action != ACTION_RESOLVE_DOMAINS) {
             return app.getString(R.string.subs_unknown_action, action)
         }
+        return runQueued {
+            if (action == ACTION_REMOVE_INVALID) SubscriptionFilters.removeInvalid(gid)
+            else SubscriptionFilters.resolveDomains(gid)
+        }
+    }
+
+    /** "Resolve Domain" for chosen profiles (on_menu_resolve_selected_triggered), queued like [groupAction]. */
+    fun resolveProfiles(ids: List<Long>): String = runQueued { SubscriptionFilters.resolveProfiles(ids) }
+
+    private fun runQueued(action: suspend () -> String): String {
         val result = CompletableDeferred<String>()
         synchronized(lock) {
             enqueueLocked(Job(-1L, batch = false, foreground = true) {
                 try {
-                    result.complete(
-                        if (action == ACTION_REMOVE_INVALID) SubscriptionFilters.removeInvalid(gid)
-                        else SubscriptionFilters.resolveDomains(gid)
-                    )
+                    result.complete(action())
                 } catch (e: Throwable) {
                     result.complete(e.readableMessage)
                     throw e
@@ -268,21 +295,6 @@ object SubscriptionQueue {
         return runBlocking { result.await() }
     }
 
-    /** Resolve Domain for chosen profiles, queued like [groupAction] so it never races a refresh. */
-    fun resolveProfiles(ids: List<Long>): String {
-        val result = CompletableDeferred<String>()
-        synchronized(lock) {
-            enqueueLocked(Job(-1L, batch = false, foreground = true) {
-                try {
-                    result.complete(SubscriptionFilters.resolveProfiles(ids))
-                } catch (e: Throwable) {
-                    result.complete(e.readableMessage)
-                    throw e
-                }
-            })
-        }
-        return runBlocking { result.await() }
-    }
 
     /** Suspends until no job is queued or running and no URL-test follow-up is pending. */
     suspend fun awaitIdle() {

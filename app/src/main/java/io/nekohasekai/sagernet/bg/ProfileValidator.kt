@@ -6,6 +6,7 @@ import app.rawline.mobile.database.ProxyEntity
 import app.rawline.mobile.database.SettingsMapper
 import app.rawline.mobile.ktx.Logs
 import app.rawline.mobile.outbound.BuildContext
+import app.rawline.mobile.outbound.OutboundChecks
 import app.rawline.mobile.outbound.OutboundFactory
 import app.rawline.mobile.outbound.json.JsonArray
 import app.rawline.mobile.outbound.json.JsonInput
@@ -16,10 +17,9 @@ import app.rawline.core.mobile.Mobile
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Semaphore
-import kotlinx.coroutines.sync.withPermit
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Configs::IsValid (generate.cpp:2425-2535) in the :bg process: the core's CheckConfig on the profile's own build.
@@ -51,14 +51,16 @@ object ProfileValidator {
         if (profiles.isEmpty()) return Scan(invalid, false)
         val ctx = SettingsMapper.buildContext()
         val logLevel = DataStore.logLevel
-        val permits = Semaphore(PARALLELISM)
+        val next = AtomicInteger()
         coroutineScope {
-            for (profile in profiles) launch(Dispatchers.IO) {
-                permits.withPermit {
-                    if (unreachable.get()) return@withPermit
-                    val verdict = validate(profile, ctx, logLevel, HashSet())
-                    if (verdict.coreUnreachable) unreachable.set(true)
-                    else if (!verdict.valid) invalid.add(profile.id)
+            repeat(PARALLELISM) {
+                launch(Dispatchers.IO) {
+                    while (!unreachable.get()) {
+                        val profile = profiles.getOrNull(next.getAndIncrement()) ?: break
+                        val verdict = validate(profile, ctx, logLevel, HashSet())
+                        if (verdict.coreUnreachable) unreachable.set(true)
+                        else if (!verdict.valid) invalid.add(profile.id)
+                    }
                 }
             }
         }
@@ -120,7 +122,15 @@ object ProfileValidator {
             return check(xrayConf.toCompact(), xray = true) { error -> invalid("Invalid Xray ent ${outbound.name}: $error") }
         }
         if (!fullConfig) {
-            val built = outbound.build(ctx)
+            val built = outbound.buildChecked(ctx)
+            if (!built.ok) {
+                // A bad global fragment setting fails every fragmenting profile alike; "invalid" here would delete them all.
+                if (built.error == OutboundChecks.fragmentSettingsError(ctx)) {
+                    Logs.i("Could not check ent ${outbound.name}: ${built.error}")
+                    return Verdict.VALID
+                }
+                return invalid("Invalid ent ${outbound.name}: ${built.error}")
+            }
             conf = jsonObjectOf((if (outbound.isEndpoint()) "endpoints" else "outbounds") to JsonArray.of(built.json))
         }
         conf["log"] = jsonObjectOf("level" to logLevel)

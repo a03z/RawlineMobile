@@ -12,9 +12,11 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.fragment.app.FragmentActivity
 import app.rawline.mobile.ui.MobileAlertDialogBuilder as MobileAlertDialogBuilder
 import app.rawline.mobile.R
+import app.rawline.mobile.database.GroupRepo
+import app.rawline.mobile.databinding.LayoutRouteRemotePromptBinding
+import app.rawline.mobile.databinding.LayoutSubscribeChoiceBinding
 import app.rawline.mobile.group.SlipNetBundle
 import app.rawline.mobile.group.SubscriptionClient
-import app.rawline.mobile.database.GroupRepo
 import app.rawline.mobile.database.DataStore
 import app.rawline.mobile.database.ProfileManager
 import app.rawline.mobile.outbound.Outbound

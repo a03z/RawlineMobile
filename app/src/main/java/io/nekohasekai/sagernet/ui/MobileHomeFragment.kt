@@ -593,9 +593,11 @@ class MobileHomeFragment : ToolbarFragment() {
                 tag="flag"
                 setImageBitmap(flag);scaleType=ImageView.ScaleType.FIT_XY
                 contentDescription="Flag: ${(geo?.first ?: countryCode).uppercase(java.util.Locale.ROOT).ifEmpty { leadingFlag }}"
-                background=GradientDrawable().apply { setColor(toolbarColor);cornerRadius=dp(if(MobileStyle.new) 10 else 7).toFloat() }
+                // Pastel flags are short, so the square badge's 10dp corner becomes a pill drawn over the stripes.
+                val radius=dp(if(MobileStyle.pastel) 3 else if(MobileStyle.new) 10 else 7).toFloat()
+                background=GradientDrawable().apply { setColor(toolbarColor);cornerRadius=radius }
                 clipToOutline=true
-                if(MobileStyle.new) foreground=GradientDrawable().apply { cornerRadius=dp(10).toFloat();setStroke(dp(1).coerceAtLeast(1),androidx.core.graphics.ColorUtils.setAlphaComponent(MobilePalette.muted,if(MobilePalette.light) 70 else 110)) }
+                if(MobileStyle.new) foreground=GradientDrawable().apply { cornerRadius=radius;setStroke(dp(1).coerceAtLeast(1),androidx.core.graphics.ColorUtils.setAlphaComponent(MobilePalette.muted,if(MobilePalette.light) 70 else 110)) }
             } else {
                 tag="globe"
                 setImageResource(R.drawable.ic_mobile_globe)

@@ -5,21 +5,17 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.ColorFilter
-import android.graphics.LinearGradient
 import android.graphics.Outline
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.PixelFormat
 import android.graphics.RectF
-import android.graphics.Shader
 import android.graphics.SweepGradient
-import android.graphics.Typeface
 import android.graphics.drawable.Drawable
 import android.os.Build
 import android.os.SystemClock
 import android.view.View
 import android.widget.LinearLayout
-import androidx.core.content.res.ResourcesCompat
 import androidx.core.graphics.ColorUtils
 import app.rawline.mobile.R
 import kotlin.math.PI
@@ -252,21 +248,6 @@ class PastelHeroPaper : Drawable() {
     override fun setAlpha(alpha: Int) {}
     override fun setColorFilter(colorFilter: ColorFilter?) {}
     @Deprecated("Deprecated in Java") override fun getOpacity() = PixelFormat.TRANSLUCENT
-}
-
-/** The wordmark: a gradient R, the same colour run as the concept. */
-class PastelMark(context: Context) : View(context) {
-    private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        textAlign = Paint.Align.CENTER
-        typeface = Typeface.create(runCatching { ResourcesCompat.getFont(context, R.font.geologica) }.getOrNull() ?: Typeface.DEFAULT_BOLD, Typeface.BOLD)
-    }
-
-    override fun onDraw(canvas: Canvas) {
-        paint.textSize = height * .78f
-        paint.shader = LinearGradient(0f, 0f, width.toFloat(), height.toFloat(), Color.rgb(0x7A, 0x5C, 0xF0), Color.rgb(0x4C, 0x86, 0xF2), Shader.TileMode.CLAMP)
-        val y = height / 2f - (paint.descent() + paint.ascent()) / 2f
-        canvas.drawText("R", width / 2f, y, paint)
-    }
 }
 
 /** Four rising bars. The count comes from a measured latency, never a fixed picture. */

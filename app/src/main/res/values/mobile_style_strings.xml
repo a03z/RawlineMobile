@@ -7,7 +7,6 @@
     <string-array name="qmobile_surface_values_new" translatable="false"><item>system</item><item>oled</item><item>light</item></string-array>
     <string name="qmobile_quick_menu">Quick actions</string>
     <string name="qmobile_orb_idle">Tap to connect</string>
-    <string name="qmobile_client">VPN Client</string>
     <string name="qmobile_servers">Servers</string>
     <string name="qmobile_mode_on">Enabled</string>
     <string name="qmobile_mode_off">Disabled</string>

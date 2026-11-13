@@ -5,7 +5,6 @@
     <string-array name="qmobile_surface_themes_new"><item>Как в системе</item><item>OLED</item><item>Белая</item></string-array>
     <string name="qmobile_quick_menu">Быстрые действия</string>
     <string name="qmobile_orb_idle">Нажмите для подключения</string>
-    <string name="qmobile_client">VPN-клиент</string>
     <string name="qmobile_servers">Серверы</string>
     <string name="qmobile_mode_on">Включено</string>
     <string name="qmobile_mode_off">Выключено</string>

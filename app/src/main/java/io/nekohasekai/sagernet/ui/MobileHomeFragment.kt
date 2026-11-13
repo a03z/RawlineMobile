@@ -1040,18 +1040,11 @@ class MobileHomeFragment : ToolbarFragment() {
                 val tiles = if(quickMenu!=null) listOf(quickMenu, settingsTile) else if(extended) listOf(settingsTile) + quick + (if(MobileStyle.modern) emptyList() else listOf(addTile)) else listOf(settingsTile, addTile)
                 if(MobileStyle.pastel && !extended) {
                     val menu=headerIcon(R.drawable.ic_mobile_more, getString(R.string.qmobile_quick_menu)) { showQuickMenu(it) }
-                    val names=LinearLayout(requireContext()).apply { orientation=LinearLayout.VERTICAL; gravity=Gravity.CENTER_HORIZONTAL }
-                    names.addView(text(getString(R.string.app_name),22f).apply { setTypeface(typeface,Typeface.BOLD); setPadding(0,0,0,0); maxLines=1; gravity=Gravity.CENTER })
-                    names.addView(text(getString(R.string.qmobile_client),13f,muted).apply { setPadding(0,dp(1),0,0); maxLines=1; gravity=Gravity.CENTER })
-                    val brand=LinearLayout(requireContext()).apply {
-                        gravity=Gravity.CENTER
-                        addView(PastelMark(requireContext()),LinearLayout.LayoutParams(dp(36),dp(36)))
-                        addView(names,LinearLayout.LayoutParams(-2,-2).apply { marginStart=dp(10) })
-                    }
+                    val title=text(getString(R.string.app_name),22f).apply { setTypeface(typeface,Typeface.BOLD); setPadding(0,0,0,0); maxLines=1; ellipsize=android.text.TextUtils.TruncateAt.END; gravity=Gravity.CENTER }
                     updatesTile=menu
                     updateUpdatesBadge()
                     header.addView(menu,LinearLayout.LayoutParams(dp(46),dp(46)))
-                    header.addView(brand,LinearLayout.LayoutParams(0,-2,1f))
+                    header.addView(title,LinearLayout.LayoutParams(0,-2,1f))
                     header.addView(settingsTile,LinearLayout.LayoutParams(dp(46),dp(46)))
                 } else tiles.forEachIndexed { index, button ->
                     header.addView(button, LinearLayout.LayoutParams(0, dp(MobileHomeLayout.tileSize()), 1f).apply {

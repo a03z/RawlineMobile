@@ -140,17 +140,25 @@ class MobileHomeFragment : ToolbarFragment() {
             imageTintList = android.content.res.ColorStateList.valueOf(if (MobilePalette.light) Color.rgb(0x6E, 0x6A, 0x86) else MobilePalette.muted)
         }, FrameLayout.LayoutParams(dp(20), dp(20), Gravity.CENTER))
     }
-    private fun pastelRoundButton(icon: Int, description: String, turn: Float = 0f, onClick: () -> Unit) = ImageButton(requireContext()).apply {
+    private fun pastelInk() = if(MobilePalette.light) Color.rgb(0x6E,0x6A,0x86) else MobilePalette.muted
+    private fun pastelWell() = GradientDrawable().apply {
+        shape=GradientDrawable.OVAL
+        setColor(if(MobilePalette.light) Color.rgb(0xF3,0xF0,0xFB) else Color.argb(36,255,255,255))
+    }
+    private fun ImageView.pastelCircleIcon(icon: Int, turn: Float = 0f) {
         setImageResource(icon)
-        imageTintList=android.content.res.ColorStateList.valueOf(if(MobilePalette.light) Color.rgb(0x6E,0x6A,0x86) else MobilePalette.muted)
-        background=GradientDrawable().apply {
-            shape=GradientDrawable.OVAL
-            setColor(if(MobilePalette.light) Color.rgb(0xF3,0xF0,0xFB) else Color.argb(36,255,255,255))
-        }
+        imageTintList=android.content.res.ColorStateList.valueOf(pastelInk())
+        imageTintMode=android.graphics.PorterDuff.Mode.SRC_IN
+        background=pastelWell()
+        scaleType=ImageView.ScaleType.FIT_CENTER
         rotation=turn
-        setPadding(dp(8),dp(8),dp(8),dp(8)); minimumWidth=0; minimumHeight=0
+        setPadding(dp(11),dp(11),dp(11),dp(11))
+        minimumWidth=0; minimumHeight=0
+    }
+    private fun pastelRoundButton(icon: Int, description: String, turn: Float = 0f, onClick: (View) -> Unit) = ImageButton(requireContext()).apply {
+        pastelCircleIcon(icon, turn)
         contentDescription=description
-        setOnClickListener { onClick() }
+        setOnClickListener { onClick(it) }
         MobileFeedback.apply(this, circle=true)
     }
     private fun pastelSwitch() = androidx.appcompat.widget.SwitchCompat(requireContext()).apply {
@@ -600,18 +608,14 @@ class MobileHomeFragment : ToolbarFragment() {
                 }
             } else {
                 tag="globe"
-                setImageResource(R.drawable.ic_mobile_globe)
+                setImageResource(if(MobileStyle.pastel) R.drawable.ic_pastel_globe else R.drawable.ic_mobile_globe)
                 scaleType=ImageView.ScaleType.FIT_CENTER
-                imageTintList=android.content.res.ColorStateList.valueOf(if(MobileStyle.pastel) MobilePalette.accent(context) else muted)
+                imageTintList=android.content.res.ColorStateList.valueOf(if(MobileStyle.pastel) pastelInk() else muted)
                 imageTintMode=android.graphics.PorterDuff.Mode.SRC_IN
-                setPadding(dp(5),dp(5),dp(5),dp(5))
+                setPadding(dp(if(MobileStyle.pastel) 9 else 5),dp(if(MobileStyle.pastel) 9 else 5),dp(if(MobileStyle.pastel) 9 else 5),dp(if(MobileStyle.pastel) 9 else 5))
                 contentDescription="Flag: unknown"
                 if(MobileStyle.pastel) {
-                    setPadding(0,0,0,0)
-                    background=GradientDrawable().apply {
-                        shape=GradientDrawable.OVAL
-                        setColor(if(MobilePalette.light) Color.rgb(0xF3,0xF0,0xFB) else Color.argb(40,255,255,255))
-                    }
+                    background=pastelWell()
                 } else {
                     background=GradientDrawable().apply { setColor(toolbarColor);cornerRadius=dp(if(MobileStyle.new) 10 else 7).toFloat() }
                 }
@@ -1581,13 +1585,10 @@ class MobileHomeFragment : ToolbarFragment() {
                     visibility=if(byGroups) View.GONE else if(group.subOptions.allowCollapse) View.VISIBLE else View.INVISIBLE
                 }
                 val heading = LinearLayout(requireContext()).apply { gravity=Gravity.CENTER_VERTICAL; setPadding(if(MobileStyle.pastel && byGroups) dp(8) else dp(12),0,0,0); isFocusable=true }
-                if(MobileStyle.pastel && byGroups) heading.addView(FrameLayout(requireContext()).apply {
-                    background=GradientDrawable().apply { shape=GradientDrawable.OVAL; setColor(if(MobilePalette.light) Color.rgb(0xF3,0xF0,0xFB) else Color.argb(36,255,255,255)) }
-                    addView(ImageView(requireContext()).apply {
-                        setImageResource(R.drawable.ic_mobile_globe)
-                        imageTintList=android.content.res.ColorStateList.valueOf(if(MobilePalette.light) Color.rgb(0x6E,0x6A,0x86) else MobilePalette.muted)
-                    },FrameLayout.LayoutParams(dp(16),dp(16),Gravity.CENTER))
-                },LinearLayout.LayoutParams(dp(28),dp(28)).apply { marginEnd=dp(4) })
+                if(MobileStyle.pastel && byGroups) heading.addView(ImageView(requireContext()).apply {
+                    pastelCircleIcon(R.drawable.ic_pastel_globe)
+                    importantForAccessibility=View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                },LinearLayout.LayoutParams(dp(36),dp(36)).apply { marginEnd=dp(4) })
                 heading.addView(arrow,LinearLayout.LayoutParams(dp(20),dp(20)))
                 val names=LinearLayout(requireContext()).apply { orientation=LinearLayout.VERTICAL; setPadding(dp(10),dp(8),dp(4),dp(8)) }
                 names.addView(text(if(MobileStyle.pastel && byGroups) getString(R.string.qmobile_servers) else group.displayName(),if(MobileStyle.pastel && byGroups) 18f else 17f).apply {
@@ -1623,18 +1624,7 @@ class MobileHomeFragment : ToolbarFragment() {
                 if(!byGroups) groupDrag.bind(heading,box,group.id,heading)
                 title.addView(heading,LinearLayout.LayoutParams(0,-2,1f))
                 if(MobileStyle.pastel && byGroups) {
-                    title.addView(ImageButton(requireContext()).apply {
-                        setImageResource(R.drawable.ic_mobile_add)
-                        imageTintList=android.content.res.ColorStateList.valueOf(if(MobilePalette.light) Color.rgb(0x6E,0x6A,0x86) else MobilePalette.muted)
-                        background=GradientDrawable().apply {
-                            shape=GradientDrawable.OVAL
-                            setColor(if(MobilePalette.light) Color.rgb(0xF3,0xF0,0xFB) else Color.argb(36,255,255,255))
-                        }
-                        setPadding(dp(8),dp(8),dp(8),dp(8)); minimumWidth=0; minimumHeight=0
-                        contentDescription=getString(R.string.qmobile_add)
-                        setOnClickListener { addMenu(it) }
-                        MobileFeedback.apply(this, circle=true)
-                    },LinearLayout.LayoutParams(dp(36),dp(36)).apply { marginEnd=dp(2) })
+                    title.addView(pastelRoundButton(R.drawable.ic_mobile_add, getString(R.string.qmobile_add)) { addMenu(it) }, LinearLayout.LayoutParams(dp(36), dp(36)).apply { marginEnd=dp(2) })
                     if(profiles.isNotEmpty()) {
                         title.addView(pastelRoundButton(R.drawable.ic_mobile_test, getString(R.string.qmobile_test_ping)) {
                             testMenu(profiles.map { it.id }.toLongArray(), group.displayName(), group.id, true)
